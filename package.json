@@ -1,0 +1,65 @@
+{
+  "name": "three-gamepad-controls",
+  "description": "Gamepad support for Three.js controls.",
+  "author": "Kasnix",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luckasnix/three-gamepad-controls.git"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "javascript",
+    "typescript",
+    "three",
+    "controls",
+    "gamepad"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@11.1.2",
+  "scripts": {
+    "build": "tsc && tsdown",
+    "type:check": "tsc --noEmit",
+    "format:check": "biome format",
+    "format:write": "biome format --write",
+    "lint:check": "biome lint",
+    "lint:write": "biome lint --write",
+    "check-all": "biome check",
+    "write-all": "biome check --write",
+    "check-ci": "biome ci",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@commitlint/cli": "21.0.1",
+    "@commitlint/config-conventional": "21.0.1",
+    "@commitlint/types": "21.0.1",
+    "@types/node": "24.12.4",
+    "@types/three": "0.184.1",
+    "husky": "9.1.7",
+    "three": "0.184.0",
+    "tsdown": "0.22.0",
+    "typescript": "6.0.3"
+  },
+  "peerDependencies": {
+    "@types/three": ">=0.184.1",
+    "three": ">=0.184.0"
+  }
+}
