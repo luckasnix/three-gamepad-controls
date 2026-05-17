@@ -8,6 +8,7 @@
     "url": "git+https://github.com/luckasnix/three-gamepad-controls.git"
   },
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
