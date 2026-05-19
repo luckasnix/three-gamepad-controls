@@ -6,6 +6,7 @@ const tsdownConfig = defineConfig({
   },
   dts: true,
   fixedExtension: false,
+  unbundle: true,
 });
 
 export default tsdownConfig;
