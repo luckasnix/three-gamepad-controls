@@ -61,3 +61,17 @@ export const STANDARD_GAMEPAD_AXIS = {
   /** Vertical axis for right stick (negative up/positive down) */
   RightY: 3,
 } as const;
+
+/** Union type of all valid {@link STANDARD_GAMEPAD_BUTTON} keys. */
+export type StandardGamepadButtonKey = keyof typeof STANDARD_GAMEPAD_BUTTON;
+
+/** Union type of all valid {@link STANDARD_GAMEPAD_BUTTON} values. */
+export type StandardGamepadButtonValue =
+  (typeof STANDARD_GAMEPAD_BUTTON)[keyof typeof STANDARD_GAMEPAD_BUTTON];
+
+/** Union type of all valid {@link STANDARD_GAMEPAD_AXIS} keys. */
+export type StandardGamepadAxisKey = keyof typeof STANDARD_GAMEPAD_AXIS;
+
+/** Union type of all valid {@link STANDARD_GAMEPAD_AXIS} values. */
+export type StandardGamepadAxisValue =
+  (typeof STANDARD_GAMEPAD_AXIS)[keyof typeof STANDARD_GAMEPAD_AXIS];
