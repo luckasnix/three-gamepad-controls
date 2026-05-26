@@ -2,6 +2,38 @@
 
 Gamepad support for [Three.js](https://threejs.org) controls, built on top of [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API).
 
+## Installation
+
+npm:
+
+```bash
+npm i three-gamepad-controls
+```
+
+pnpm:
+
+```bash
+pnpm add three-gamepad-controls
+```
+
+Yarn:
+
+```bash
+yarn add three-gamepad-controls
+```
+
+Deno:
+
+```bash
+deno add npm:three-gamepad-controls
+```
+
+Bun:
+
+```bash
+bun add three-gamepad-controls
+```
+
 ## Documentation
 
 - [Core](./docs/core.md) — The fundamental building blocks.
