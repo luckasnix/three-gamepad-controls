@@ -5,3 +5,4 @@ Gamepad support for [Three.js](https://threejs.org) controls, built on top of [W
 ## Documentation
 
 - [Core](./docs/core.md) — The fundamental building blocks.
+- [GamepadControls](./docs/gamepad-controls.md) — Abstract base class for custom gamepad controls.
