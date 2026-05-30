@@ -55,3 +55,31 @@ Similar to the button mappings, this constant allows you to reference axes by cl
 | `GamepadButtonValue` | Represents the values of the `GAMEPAD_BUTTON` object. |
 | `GamepadAxisKey` | Represents the keys of the `GAMEPAD_AXIS` object. |
 | `GamepadAxisValue` | Represents the values of the `GAMEPAD_AXIS` object. |
+
+## Usage
+
+Use these constants when customizing bindings via the `options` parameter of any gamepad controls class:
+
+```ts
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { WebGPURenderer } from "three/webgpu";
+import {
+  GamepadOrbitControls,
+  GAMEPAD_AXIS,
+  GAMEPAD_BUTTON,
+} from "three-gamepad-controls";
+
+const renderer = new WebGPURenderer();
+
+const orbitControls = new OrbitControls(camera, renderer.domElement);
+const gamepadOrbitControls = new GamepadOrbitControls(orbitControls, {
+  // Swap sticks: right stick rotates, left stick pans
+  axisRotateX: GAMEPAD_AXIS.RightX,
+  axisRotateY: GAMEPAD_AXIS.RightY,
+  axisPanX: GAMEPAD_AXIS.LeftX,
+  axisPanY: GAMEPAD_AXIS.LeftY,
+  // Use bumpers instead of triggers for zoom
+  buttonDollyIn: GAMEPAD_BUTTON.LeftShoulder,
+  buttonDollyOut: GAMEPAD_BUTTON.RightShoulder,
+});
+```
