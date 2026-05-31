@@ -59,10 +59,8 @@ Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
 
 ```ts
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { Timer, WebGPURenderer } from "three/webgpu";
+import { Timer } from "three";
 import { GamepadOrbitControls } from "three-gamepad-controls";
-
-const renderer = new WebGPURenderer();
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
 const gamepadOrbitControls = new GamepadOrbitControls(orbitControls);

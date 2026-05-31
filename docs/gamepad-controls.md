@@ -69,7 +69,7 @@ Extend `GamepadControls` and implement `onUpdate(deltaTime, gamepad)`:
 
 ```ts
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { Timer, WebGPURenderer } from "three/webgpu";
+import { Timer } from "three";
 import { GamepadControls } from "three-gamepad-controls";
 
 class GamepadOrbitControls extends GamepadControls {
@@ -84,8 +84,6 @@ class GamepadOrbitControls extends GamepadControls {
     // Map buttons and axes to `this.#controls` here
   }
 }
-
-const renderer = new WebGPURenderer();
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
 const gamepadOrbitControls = new GamepadOrbitControls(orbitControls);

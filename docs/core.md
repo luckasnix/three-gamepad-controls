@@ -62,14 +62,11 @@ Use these constants when customizing bindings via the `options` parameter of any
 
 ```ts
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { WebGPURenderer } from "three/webgpu";
 import {
   GamepadOrbitControls,
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
 } from "three-gamepad-controls";
-
-const renderer = new WebGPURenderer();
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
 const gamepadOrbitControls = new GamepadOrbitControls(orbitControls, {
