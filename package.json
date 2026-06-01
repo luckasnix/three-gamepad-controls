@@ -34,7 +34,7 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "packageManager": "pnpm@11.1.2",
+  "packageManager": "pnpm@11.5.0",
   "scripts": {
     "build": "tsc && tsdown",
     "type:check": "tsc --noEmit",
@@ -48,15 +48,15 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.15",
-    "@commitlint/cli": "21.0.1",
-    "@commitlint/config-conventional": "21.0.1",
+    "@biomejs/biome": "2.4.16",
+    "@commitlint/cli": "21.0.2",
+    "@commitlint/config-conventional": "21.0.2",
     "@commitlint/types": "21.0.1",
     "@types/node": "24.12.4",
     "@types/three": "0.184.1",
     "husky": "9.1.7",
     "three": "0.184.0",
-    "tsdown": "0.22.0",
+    "tsdown": "0.22.1",
     "typescript": "6.0.3"
   },
   "peerDependencies": {
