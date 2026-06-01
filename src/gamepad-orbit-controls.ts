@@ -6,8 +6,7 @@ import { GamepadControls } from "./gamepad-controls.ts";
 /**
  * Configuration for {@link GamepadOrbitControls}.
  *
- * Every property has a sensible default (see {@link DEFAULT_ORBIT_OPTIONS}),
- * so you only need to pass the properties you want to override.
+ * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
 export type GamepadOrbitControlsOptions = {
   /**
