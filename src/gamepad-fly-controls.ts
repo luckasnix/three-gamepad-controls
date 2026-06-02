@@ -1,0 +1,224 @@
+import { Quaternion } from "three";
+import type { FlyControls } from "three/addons/controls/FlyControls.js";
+
+import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
+import { GamepadControls } from "./gamepad-controls.ts";
+
+/**
+ * Configuration for {@link GamepadFlyControls}.
+ *
+ * Every property has a sensible default, so you only need to pass the properties you want to override.
+ */
+export type GamepadFlyControlsOptions = {
+  /**
+   * Multiplier on `FlyControls.movementSpeed` for translation.
+   * @default 1.0
+   */
+  moveSpeed: number;
+
+  /**
+   * Multiplier on `FlyControls.rollSpeed` for rotation.
+   * @default 1.0
+   */
+  rotateSpeed: number;
+
+  /**
+   * Axis dead zone threshold in the range `[0, 1]`.
+   * @default 0.1
+   */
+  deadzone: number;
+
+  /**
+   * Axis index for **forward / backward** movement.
+   * @default 1 — Left stick Y
+   */
+  axisMoveForward: number;
+
+  /**
+   * Axis index for **right / left** strafe movement.
+   * @default 0 — Left stick X
+   */
+  axisMoveRight: number;
+
+  /**
+   * Axis index for **horizontal** camera look (yaw).
+   * @default 2 — Right stick X
+   */
+  axisLookX: number;
+
+  /**
+   * Axis index for **vertical** camera look (pitch).
+   * @default 3 — Right stick Y
+   */
+  axisLookY: number;
+
+  /**
+   * Button index for **rolling left**.
+   * @default 4 — Left shoulder
+   */
+  buttonRollLeft: number;
+
+  /**
+   * Button index for **rolling right**.
+   * @default 5 — Right shoulder
+   */
+  buttonRollRight: number;
+
+  /**
+   * Button index for **moving up** (analog trigger value used for proportional speed).
+   * @default 6 — Left trigger
+   */
+  buttonMoveUp: number;
+
+  /**
+   * Button index for **moving down** (analog trigger value used for proportional speed).
+   * @default 7 — Right trigger
+   */
+  buttonMoveDown: number;
+};
+
+/**
+ * Default options merged in the constructor when no explicit configuration is provided.
+ */
+const DEFAULT_FLY_OPTIONS: GamepadFlyControlsOptions = {
+  moveSpeed: 1.0,
+  rotateSpeed: 1.0,
+  deadzone: 0.1,
+  axisMoveForward: GAMEPAD_AXIS.LeftY,
+  axisMoveRight: GAMEPAD_AXIS.LeftX,
+  axisLookX: GAMEPAD_AXIS.RightX,
+  axisLookY: GAMEPAD_AXIS.RightY,
+  buttonRollLeft: GAMEPAD_BUTTON.LeftShoulder,
+  buttonRollRight: GAMEPAD_BUTTON.RightShoulder,
+  buttonMoveUp: GAMEPAD_BUTTON.LeftTrigger,
+  buttonMoveDown: GAMEPAD_BUTTON.RightTrigger,
+};
+
+/**
+ * Adds full 6DOF gamepad support to Three.js `FlyControls`.
+ *
+ * Gamepad input is additive with keyboard/mouse input — call both
+ * `gamepadControls.update(delta)` and `controls.update(delta)` each frame.
+ * Bindings and speeds are configurable via {@link GamepadFlyControlsOptions}.
+ */
+export class GamepadFlyControls extends GamepadControls {
+  readonly #controls: FlyControls;
+  readonly #options: GamepadFlyControlsOptions;
+
+  // Pre-allocated to avoid per-frame GC pressure.
+  readonly #tmpQuaternion: Quaternion;
+
+  /**
+   * @param controls - A Three.js `FlyControls` instance.
+   * @param options - Optional overrides for the default behavior.
+   *                  Any property not provided falls back to its default value.
+   */
+  constructor(
+    controls: FlyControls,
+    options?: Partial<GamepadFlyControlsOptions>,
+  ) {
+    super();
+    this.#controls = controls;
+    this.#options = {
+      ...DEFAULT_FLY_OPTIONS,
+      ...options,
+    };
+    this.#tmpQuaternion = new Quaternion();
+  }
+
+  /**
+   * Maps the current gamepad state to `FlyControls` translation and rotation.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param gamepad - Fresh gamepad snapshot provided by the base class.
+   */
+  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
+    const {
+      moveSpeed,
+      rotateSpeed,
+      deadzone,
+      axisMoveForward,
+      axisMoveRight,
+      axisLookX,
+      axisLookY,
+      buttonRollLeft,
+      buttonRollRight,
+      buttonMoveUp,
+      buttonMoveDown,
+    } = this.#options;
+
+    // --- Translation ---------------------------------------------------------
+    // Scale matches FlyControls' internal: delta * movementSpeed.
+    const moveMult = deltaTime * this.#controls.movementSpeed * moveSpeed;
+
+    // Forward / backward — left stick Y.
+    // Stick up produces a negative axis value; translateZ(-n) moves the camera
+    // forward along its local -Z axis, so the raw axis value maps directly.
+    const fwd = this.#applyDeadzone(
+      gamepad.axes[axisMoveForward] ?? 0,
+      deadzone,
+    );
+    if (fwd !== 0) {
+      this.#controls.object.translateZ(fwd * moveMult);
+    }
+
+    // Strafe left / right — left stick X.
+    // Positive axis value (stick right) → translateX positive → move right.
+    const strafe = this.#applyDeadzone(
+      gamepad.axes[axisMoveRight] ?? 0,
+      deadzone,
+    );
+    if (strafe !== 0) {
+      this.#controls.object.translateX(strafe * moveMult);
+    }
+
+    // Move up / down — analog triggers (button value in [0, 1]).
+    const up = gamepad.buttons[buttonMoveUp]?.value ?? 0;
+    const down = gamepad.buttons[buttonMoveDown]?.value ?? 0;
+
+    if (up > deadzone) {
+      this.#controls.object.translateY(up * moveMult);
+    }
+    if (down > deadzone) {
+      this.#controls.object.translateY(-down * moveMult);
+    }
+
+    // --- Rotation ------------------------------------------------------------
+    // Replicates FlyControls' internal rotation exactly:
+    //   #tmpQuaternion.set(rotX * rotMult, rotY * rotMult, rotZ * rotMult, 1)
+    //   .normalize()
+    //   object.quaternion.multiply(#tmpQuaternion)
+    // Scale matches FlyControls' rotMult: delta * rollSpeed.
+    const rotMult = deltaTime * this.#controls.rollSpeed * rotateSpeed;
+
+    // Pitch — right stick Y. Stick up (negative axis) tilts the camera up.
+    // Negate so that a negative axis value produces a positive rotation (up).
+    const pitch = -this.#applyDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
+
+    // Yaw — right stick X. Stick right (positive axis) turns the camera right.
+    // Negate so that a positive axis value produces a negative yaw (right turn).
+    const yaw = -this.#applyDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
+
+    // Roll — shoulder buttons (digital: 0 or 1).
+    const rollLeft = gamepad.buttons[buttonRollLeft]?.pressed ? 1 : 0;
+    const rollRight = gamepad.buttons[buttonRollRight]?.pressed ? 1 : 0;
+    const roll = rollLeft - rollRight;
+
+    if (pitch !== 0 || yaw !== 0 || roll !== 0) {
+      this.#tmpQuaternion
+        .set(pitch * rotMult, yaw * rotMult, roll * rotMult, 1)
+        .normalize();
+      this.#controls.object.quaternion.multiply(this.#tmpQuaternion);
+    }
+  }
+
+  /**
+   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
+   *
+   * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
+   * @param threshold - Dead zone size; values below this magnitude are zeroed.
+   */
+  #applyDeadzone(value: number, threshold: number): number {
+    return Math.abs(value) < threshold ? 0 : value;
+  }
+}
