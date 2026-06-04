@@ -39,5 +39,6 @@ bun add three-gamepad-controls
 - [Core](./docs/core.md) — The fundamental building blocks.
 - [GamepadControls](./docs/gamepad-controls.md) — Abstract base class for custom gamepad controls.
 - [GamepadFlyControls](./docs/gamepad-fly-controls.md) — Gamepad support for `FlyControls`.
+- [GamepadMapControls](./docs/gamepad-map-controls.md) — Gamepad support for `MapControls`.
 - [GamepadOrbitControls](./docs/gamepad-orbit-controls.md) — Gamepad support for `OrbitControls`.
 - [GamepadPointerLockControls](./docs/gamepad-pointer-lock-controls.md) — Gamepad support for `PointerLockControls`.
