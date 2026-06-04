@@ -24,7 +24,7 @@ Every binding is remappable via the `options` parameter.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `controls` | `OrbitControls` | __Required.__ The Three.js `OrbitControls` instance to wrap. |
-| `options` | `Partial<GamepadOrbitControlsOptions>` | Any property not provided falls back to its default. |
+| `options` | `Partial<GamepadOrbitControlsOptions>` | Optional configuration. Any property not provided falls back to its default. |
 
 ### `options`
 
