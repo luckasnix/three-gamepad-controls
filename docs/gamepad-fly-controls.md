@@ -63,8 +63,8 @@ Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
 ## Usage
 
 ```ts
-import { FlyControls } from "three/addons/controls/FlyControls.js";
 import { Timer } from "three";
+import { FlyControls } from "three/addons/controls/FlyControls.js";
 import { GamepadFlyControls } from "three-gamepad-controls";
 
 const flyControls = new FlyControls(camera, renderer.domElement);

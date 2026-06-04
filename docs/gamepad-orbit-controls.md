@@ -58,8 +58,8 @@ Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
 ## Usage
 
 ```ts
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Timer } from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GamepadOrbitControls } from "three-gamepad-controls";
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);

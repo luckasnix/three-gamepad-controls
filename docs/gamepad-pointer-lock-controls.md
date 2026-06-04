@@ -53,12 +53,17 @@ Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
 ## Usage
 
 ```ts
-import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import { Timer } from "three";
+import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import { GamepadPointerLockControls } from "three-gamepad-controls";
 
-const pointerLockControls = new PointerLockControls(camera, renderer.domElement);
-const gamepadPointerLockControls = new GamepadPointerLockControls(pointerLockControls);
+const pointerLockControls = new PointerLockControls(
+  camera,
+  renderer.domElement,
+);
+const gamepadPointerLockControls = new GamepadPointerLockControls(
+  pointerLockControls,
+);
 
 gamepadPointerLockControls.addEventListener("connected", (event) => {
   console.log("Gamepad connected:", event.gamepad.id);

@@ -68,8 +68,8 @@ Called whenever any gamepad fires a `gamepaddisconnected` browser event. The def
 Extend `GamepadControls` and implement `onUpdate(deltaTime, gamepad)`:
 
 ```ts
-import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Timer } from "three";
+import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GamepadControls } from "three-gamepad-controls";
 
 class GamepadOrbitControls extends GamepadControls {

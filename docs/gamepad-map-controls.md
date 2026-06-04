@@ -60,8 +60,8 @@ Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
 ## Usage
 
 ```ts
-import { MapControls } from "three/addons/controls/MapControls.js";
 import { Timer } from "three";
+import { MapControls } from "three/addons/controls/MapControls.js";
 import { GamepadMapControls } from "three-gamepad-controls";
 
 const mapControls = new MapControls(camera, renderer.domElement);
