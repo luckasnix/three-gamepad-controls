@@ -1,5 +1,6 @@
 export * from "./core.ts";
 export * from "./gamepad-controls.ts";
+export * from "./gamepad-first-person-controls.ts";
 export * from "./gamepad-fly-controls.ts";
 export * from "./gamepad-map-controls.ts";
 export * from "./gamepad-orbit-controls.ts";
