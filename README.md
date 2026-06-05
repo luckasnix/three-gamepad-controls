@@ -43,3 +43,4 @@ bun add three-gamepad-controls
 - [GamepadMapControls](./docs/gamepad-map-controls.md) — Gamepad support for `MapControls`.
 - [GamepadOrbitControls](./docs/gamepad-orbit-controls.md) — Gamepad support for `OrbitControls`.
 - [GamepadPointerLockControls](./docs/gamepad-pointer-lock-controls.md) — Gamepad support for `PointerLockControls`.
+- [GamepadTrackballControls](./docs/gamepad-trackball-controls.md) — Gamepad support for `TrackballControls`.
