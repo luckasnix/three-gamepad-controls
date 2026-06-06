@@ -2,7 +2,7 @@
 
 Gamepad support for [Three.js](https://threejs.org) controls, built on top of [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API).
 
-## Installation
+## 📦 Installation
 
 npm:
 
@@ -34,11 +34,11 @@ Bun:
 bun add three-gamepad-controls
 ```
 
-## Documentation
+## 📖 Documentation
 
 - [Core](./docs/core.md) — The fundamental building blocks.
-- [GamepadArcballControls](./docs/gamepad-arcball-controls.md) - Gamepad support for `ArcballControls`.
 - [GamepadControls](./docs/gamepad-controls.md) — Abstract base class for custom gamepad controls.
+- [GamepadArcballControls](./docs/gamepad-arcball-controls.md) - Gamepad support for `ArcballControls`.
 - [GamepadDragControls](./docs/gamepad-drag-controls.md) - Gamepad support for `DragControls`.
 - [GamepadFirstPersonControls](./docs/gamepad-first-person-controls.md) — Gamepad support for `FirstPersonControls`.
 - [GamepadFlyControls](./docs/gamepad-fly-controls.md) — Gamepad support for `FlyControls`.
