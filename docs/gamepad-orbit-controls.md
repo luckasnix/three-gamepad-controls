@@ -10,8 +10,8 @@ All bindings and speed multipliers are configurable via the `options` parameter.
 
 | Input | Action |
 | --- | --- |
-| Left stick X / Left stick Y | Orbit (rotate around target) |
-| Right stick X / Right stick Y | Pan (translate camera + target) |
+| Left stick | Orbit (rotate around target) |
+| Right stick | Pan (translate camera + target) |
 | Left trigger (analog) | Zoom in (dolly in) |
 | Right trigger (analog) | Zoom out (dolly out) |
 

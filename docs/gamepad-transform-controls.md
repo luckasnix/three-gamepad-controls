@@ -12,7 +12,7 @@ All bindings and speed multipliers are configurable via the `options` parameter.
 
 | Input | Action |
 | --- | --- |
-| Left stick X / Left stick Y | Apply transform in the active mode and axis |
+| Left stick | Apply transform in the active mode and axis |
 | South face button | Select `translate` mode |
 | East face button | Select `rotate` mode |
 | West face button | Select `scale` mode |

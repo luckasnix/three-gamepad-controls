@@ -12,8 +12,8 @@ All bindings and speed multipliers are configurable via the `options` parameter.
 
 | Input | Action |
 | --- | --- |
-| Left stick X / Left stick Y | Rotate around the Arcball center |
-| Right stick X / Right stick Y | Pan camera and Arcball center |
+| Left stick | Rotate around the Arcball center |
+| Right stick | Pan camera and Arcball center |
 | Left trigger (analog) | Zoom in |
 | Right trigger (analog) | Zoom out |
 | Left shoulder / Right shoulder | Z-rotate around the camera view axis |

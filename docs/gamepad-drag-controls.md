@@ -13,8 +13,8 @@ All bindings and speed multipliers are configurable via the `options` parameter.
 | Input | Action |
 | --- | --- |
 | South face button | Grab / drop the object under the center reticle |
-| Left stick X / Left stick Y | Drag selected object in camera view space |
-| Right stick X / Right stick Y | Rotate selected object in camera view space |
+| Left stick | Drag selected object in camera view space |
+| Right stick | Rotate selected object in camera view space |
 
 Every binding is remappable via the `options` parameter.
 

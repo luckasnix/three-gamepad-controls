@@ -10,10 +10,10 @@ All bindings and speeds are configurable via the `options` parameter.
 
 | Input | Action |
 | --- | --- |
-| Left stick X / Left stick Y | Move forward / backward / strafe |
+| Left stick | Move forward / backward / strafe |
 | Left trigger (analog) | Move up |
 | Right trigger (analog) | Move down |
-| Right stick X / Right stick Y | Look (yaw and pitch) |
+| Right stick | Look (yaw and pitch) |
 
 Every binding is remappable via the `options` parameter.
 
