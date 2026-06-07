@@ -76,7 +76,7 @@ const gamepadOrbitControls = new GamepadOrbitControls(orbitControls, {
   axisPanX: GAMEPAD_AXIS.LeftX,
   axisPanY: GAMEPAD_AXIS.LeftY,
   // Use bumpers instead of triggers for zoom
-  buttonDollyIn: GAMEPAD_BUTTON.LeftShoulder,
-  buttonDollyOut: GAMEPAD_BUTTON.RightShoulder,
+  buttonDollyIn: GAMEPAD_BUTTON.RightShoulder,
+  buttonDollyOut: GAMEPAD_BUTTON.LeftShoulder,
 });
 ```

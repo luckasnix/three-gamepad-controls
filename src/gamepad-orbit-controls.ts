@@ -59,13 +59,13 @@ export type GamepadOrbitControlsOptions = {
 
   /**
    * Button index for zooming **in** (analog trigger value used for proportional zoom).
-   * @default 6 — Left trigger
+   * @default 7 — Right trigger
    */
   buttonDollyIn: number;
 
   /**
    * Button index for zooming **out** (analog trigger value used for proportional zoom).
-   * @default 7 — Right trigger
+   * @default 6 — Left trigger
    */
   buttonDollyOut: number;
 };
@@ -82,8 +82,8 @@ const DEFAULT_ORBIT_OPTIONS: GamepadOrbitControlsOptions = {
   axisRotateY: GAMEPAD_AXIS.LeftY,
   axisPanX: GAMEPAD_AXIS.RightX,
   axisPanY: GAMEPAD_AXIS.RightY,
-  buttonDollyIn: GAMEPAD_BUTTON.LeftTrigger,
-  buttonDollyOut: GAMEPAD_BUTTON.RightTrigger,
+  buttonDollyIn: GAMEPAD_BUTTON.RightTrigger,
+  buttonDollyOut: GAMEPAD_BUTTON.LeftTrigger,
 };
 
 /**
@@ -161,16 +161,17 @@ export class GamepadOrbitControls extends GamepadControls {
 
     // --- Dolly / zoom (triggers by default) ----------------------------------
     // Triggers return an analog value in [0, 1] via `button.value`.
-    // A dollyScale > 1 moves the camera: dollyIn divides the radius by the
-    // scale (zooms in), dollyOut multiplies it (zooms out).
+    // OrbitControls uses a scale below 1 to zoom in and above 1 to zoom out.
+    // Passing the same below-1 scale to dollyIn/dollyOut maps the triggers to
+    // their semantic actions across perspective and orthographic cameras.
     const triggerIn = gamepad.buttons[buttonDollyIn]?.value ?? 0;
     const triggerOut = gamepad.buttons[buttonDollyOut]?.value ?? 0;
 
     if (triggerIn > deadzone) {
-      this.#controls.dollyIn(1 + zoomSpeed * triggerIn * deltaTime);
+      this.#controls.dollyIn(1 / (1 + zoomSpeed * triggerIn * deltaTime));
     }
     if (triggerOut > deadzone) {
-      this.#controls.dollyOut(1 + zoomSpeed * triggerOut * deltaTime);
+      this.#controls.dollyOut(1 / (1 + zoomSpeed * triggerOut * deltaTime));
     }
   }
 

@@ -12,8 +12,8 @@ All bindings and speed multipliers are configurable via the `options` parameter.
 | --- | --- |
 | Left stick | Orbit (rotate around target) |
 | Right stick | Pan (translate camera + target) |
-| Left trigger (analog) | Zoom in (dolly in) |
-| Right trigger (analog) | Zoom out (dolly out) |
+| Left trigger (analog) | Zoom out (dolly out) |
+| Right trigger (analog) | Zoom in (dolly in) |
 
 Every binding is remappable via the `options` parameter.
 
@@ -38,8 +38,8 @@ Every binding is remappable via the `options` parameter.
 | `axisRotateY` | `number` | `1` | Axis index for vertical orbit (left stick Y). |
 | `axisPanX` | `number` | `2` | Axis index for horizontal pan (right stick X). |
 | `axisPanY` | `number` | `3` | Axis index for vertical pan (right stick Y). |
-| `buttonDollyIn` | `number` | `6` | Button index for zoom in — analog trigger value (left trigger). |
-| `buttonDollyOut` | `number` | `7` | Button index for zoom out — analog trigger value (right trigger). |
+| `buttonDollyIn` | `number` | `7` | Button index for zoom in — analog trigger value (right trigger). |
+| `buttonDollyOut` | `number` | `6` | Button index for zoom out — analog trigger value (left trigger). |
 
 ## Properties
 
