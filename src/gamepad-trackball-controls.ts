@@ -60,13 +60,13 @@ export type GamepadTrackballControlsOptions = {
 
   /**
    * Button index for zooming **in** (analog trigger value used for proportional zoom).
-   * @default 6 - Left trigger
+   * @default 7 - Right trigger
    */
   buttonZoomIn: number;
 
   /**
    * Button index for zooming **out** (analog trigger value used for proportional zoom).
-   * @default 7 - Right trigger
+   * @default 6 - Left trigger
    */
   buttonZoomOut: number;
 };
@@ -83,8 +83,8 @@ const DEFAULT_TRACKBALL_OPTIONS: GamepadTrackballControlsOptions = {
   axisRotateY: GAMEPAD_AXIS.LeftY,
   axisPanX: GAMEPAD_AXIS.RightX,
   axisPanY: GAMEPAD_AXIS.RightY,
-  buttonZoomIn: GAMEPAD_BUTTON.LeftTrigger,
-  buttonZoomOut: GAMEPAD_BUTTON.RightTrigger,
+  buttonZoomIn: GAMEPAD_BUTTON.RightTrigger,
+  buttonZoomOut: GAMEPAD_BUTTON.LeftTrigger,
 };
 
 type TrackballControlsWithInput = TrackballControls & {
