@@ -14,8 +14,8 @@ All bindings and speed multipliers are configurable via the `options` parameter.
 | --- | --- |
 | Left stick | Rotate around the Arcball center |
 | Right stick | Pan camera and Arcball center |
-| Left trigger (analog) | Zoom in |
-| Right trigger (analog) | Zoom out |
+| Right trigger (analog) | Zoom in |
+| Left trigger (analog) | Zoom out |
 | Left shoulder / Right shoulder | Z-rotate around the camera view axis |
 | South face button | Focus the center hit point |
 
@@ -45,8 +45,8 @@ Center focus uses the wrapped `ArcballControls.scene` raycaster path. It only ru
 | `axisRotateY` | `number` | `1` | Axis index for vertical rotation (left stick Y). |
 | `axisPanX` | `number` | `2` | Axis index for horizontal pan (right stick X). |
 | `axisPanY` | `number` | `3` | Axis index for vertical pan (right stick Y). |
-| `buttonZoomIn` | `number` | `6` | Button index for zoom in - analog trigger value (left trigger). |
-| `buttonZoomOut` | `number` | `7` | Button index for zoom out - analog trigger value (right trigger). |
+| `buttonZoomIn` | `number` | `7` | Button index for zoom in - analog trigger value (right trigger). |
+| `buttonZoomOut` | `number` | `6` | Button index for zoom out - analog trigger value (left trigger). |
 | `buttonZRotateLeft` | `number` | `4` | Button index for counterclockwise z-rotation (left shoulder). |
 | `buttonZRotateRight` | `number` | `5` | Button index for clockwise z-rotation (right shoulder). |
 | `buttonFocus` | `number` | `0` | Button index for focusing the center hit point (south face button). |
