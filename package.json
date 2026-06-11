@@ -1,11 +1,18 @@
 {
   "name": "three-gamepad-controls",
   "description": "Gamepad support for Three.js controls.",
-  "author": "Kasnix",
   "version": "0.10.2",
+  "homepage": "https://github.com/luckasnix/three-gamepad-controls#readme",
+  "author": {
+    "name": "Kasnix",
+    "url": "https://github.com/luckasnix"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/luckasnix/three-gamepad-controls.git"
+  },
+  "bugs": {
+    "url": "https://github.com/luckasnix/three-gamepad-controls/issues"
   },
   "type": "module",
   "sideEffects": false,
