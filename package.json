@@ -1,7 +1,7 @@
 {
   "name": "three-gamepad-controls",
   "description": "Gamepad support for Three.js controls.",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "homepage": "https://github.com/luckasnix/three-gamepad-controls#readme",
   "author": {
     "name": "Kasnix",
