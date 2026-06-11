@@ -38,8 +38,12 @@
   "publishConfig": {
     "access": "public"
   },
-  "engines": {
-    "node": ">=24.0.0"
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.0.0",
+      "onFail": "error"
+    }
   },
   "packageManager": "pnpm@11.5.3",
   "scripts": {
