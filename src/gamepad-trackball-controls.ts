@@ -215,7 +215,7 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    const scale = panSpeed * deltaTime;
+    const scale = panSpeed * deltaTime * this.#getInputDampingFactor();
     controls._panEnd.x += panX * scale;
     controls._panEnd.y += panY * scale;
   }
@@ -242,7 +242,20 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    controls._zoomEnd.y += (triggerOut - triggerIn) * zoomSpeed * deltaTime;
+    controls._zoomEnd.y +=
+      (triggerOut - triggerIn) *
+      zoomSpeed *
+      deltaTime *
+      this.#getInputDampingFactor();
+  }
+
+  /**
+   * Compensates for TrackballControls reapplying queued pan and zoom deltas
+   * while their input state catches up through damping.
+   */
+  #getInputDampingFactor(): number {
+    const controls = this.#controls;
+    return controls.staticMoving ? 1 : controls.dynamicDampingFactor;
   }
 
   /**

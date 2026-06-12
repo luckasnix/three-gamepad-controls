@@ -45,6 +45,8 @@ Every binding is remappable via the `options` parameter.
 
 `rotateSpeed`, `panSpeed`, and `zoomSpeed` multiply `TrackballControls`' own speed properties, so adjusting those properties affects both input sources at once. Gamepad input respects `noRotate`, `noPan`, `noZoom`, `staticMoving`, `dynamicDampingFactor`, camera distance limits, and orthographic zoom limits because the native `TrackballControls.update()` still applies the queued movement.
 
+When `staticMoving` is `false`, queued gamepad pan and zoom input is scaled by `dynamicDampingFactor`. `TrackballControls` applies the remaining queued delta over multiple frames, so this compensation prevents damping from multiplying the total gamepad movement. The damping factor still controls how long the inertial tail lasts; setting `staticMoving` to `true` continues to consume each queued delta immediately.
+
 ## Properties
 
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
