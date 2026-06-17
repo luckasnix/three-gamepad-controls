@@ -15,6 +15,7 @@ import type {
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import { applyGamepadDeadzone, getGamepadButtonPressed } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadTransformControls}.
@@ -329,11 +330,11 @@ export class GamepadTransformControls extends GamepadControls {
       return;
     }
 
-    const transformX = this.#applyDeadzone(
+    const transformX = applyGamepadDeadzone(
       gamepad.axes[this.#options.axisTransformX] ?? 0,
       this.#options.deadzone,
     );
-    const transformY = this.#applyDeadzone(
+    const transformY = applyGamepadDeadzone(
       gamepad.axes[this.#options.axisTransformY] ?? 0,
       this.#options.deadzone,
     );
@@ -1179,7 +1180,7 @@ export class GamepadTransformControls extends GamepadControls {
     const startedButtons = new Set<number>();
 
     for (let index = 0; index < gamepad.buttons.length; index += 1) {
-      const pressed = gamepad.buttons[index]?.pressed ?? false;
+      const pressed = getGamepadButtonPressed(gamepad, index);
       const wasPressed = this.#pressedButtons.has(index);
 
       if (pressed) {
@@ -1202,15 +1203,5 @@ export class GamepadTransformControls extends GamepadControls {
 
   #isOrthographicCamera(camera: Camera): camera is OrthographicCamera {
     return (camera as OrthographicCamera).isOrthographicCamera === true;
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }

@@ -21,6 +21,8 @@ Advances the controller by one frame. Call this inside your render loop **before
 
 The Web Gamepad API is snapshot-based: the browser only updates gamepad state when you call `navigator.getGamepads()`, so polling here — rather than caching a stale reference — is required.
 
+If no active gamepad has been selected yet, `update()` also checks for an already-connected gamepad and adopts the first connected device. This covers controllers that were plugged in before the wrapper was constructed or before a `gamepadconnected` event reached the page.
+
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `deltaTime` | `number` | Time elapsed since the last frame, in **seconds**. |

@@ -12,6 +12,7 @@ import type { DragControls } from "three/addons/controls/DragControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import { applyGamepadDeadzone, getGamepadButtonPressed } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadDragControls}.
@@ -154,7 +155,7 @@ export class GamepadDragControls extends GamepadControls {
    */
   protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
     const controls = this.#controls;
-    const selectPressed = this.#getButtonPressed(
+    const selectPressed = getGamepadButtonPressed(
       gamepad,
       this.#options.buttonSelect,
     );
@@ -223,13 +224,13 @@ export class GamepadDragControls extends GamepadControls {
       axisRotateY,
     } = this.#options;
 
-    const dragX = this.#applyDeadzone(gamepad.axes[axisDragX] ?? 0, deadzone);
-    const dragY = this.#applyDeadzone(gamepad.axes[axisDragY] ?? 0, deadzone);
-    const rotateX = this.#applyDeadzone(
+    const dragX = applyGamepadDeadzone(gamepad.axes[axisDragX] ?? 0, deadzone);
+    const dragY = applyGamepadDeadzone(gamepad.axes[axisDragY] ?? 0, deadzone);
+    const rotateX = applyGamepadDeadzone(
       gamepad.axes[axisRotateX] ?? 0,
       deadzone,
     );
-    const rotateY = this.#applyDeadzone(
+    const rotateY = applyGamepadDeadzone(
       gamepad.axes[axisRotateY] ?? 0,
       deadzone,
     );
@@ -468,19 +469,5 @@ export class GamepadDragControls extends GamepadControls {
 
   #isOrthographicCamera(camera: Camera): camera is OrthographicCamera {
     return (camera as OrthographicCamera).isOrthographicCamera === true;
-  }
-
-  #getButtonPressed(gamepad: Gamepad, button: number): boolean {
-    return gamepad.buttons[button]?.pressed ?? false;
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }

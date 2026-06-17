@@ -1,5 +1,7 @@
 import { EventDispatcher } from "three";
 
+import { getFirstConnectedGamepad, getGamepadByIndex } from "./utils.ts";
+
 /**
  * Event map for {@link GamepadControls}.
  *
@@ -70,9 +72,22 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
     }
 
     // Always fetch a fresh snapshot. The Web Gamepad API does not push updates.
-    if (this.gamepad !== null) {
-      const gamepads = navigator.getGamepads();
-      this.gamepad = gamepads[this.gamepad.index] ?? null;
+    if (this.gamepad === null) {
+      const connectedGamepad = getFirstConnectedGamepad();
+
+      if (connectedGamepad !== null) {
+        this.onGamepadConnected(connectedGamepad);
+      }
+    } else {
+      const previousGamepad = this.gamepad;
+      const nextGamepad = getGamepadByIndex(previousGamepad.index);
+
+      if (nextGamepad === null) {
+        this.onGamepadDisconnected(previousGamepad);
+        return;
+      }
+
+      this.gamepad = nextGamepad;
     }
 
     if (this.gamepad === null) {

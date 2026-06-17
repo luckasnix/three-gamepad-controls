@@ -9,6 +9,11 @@ import type { ArcballControls } from "three/addons/controls/ArcballControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  applyGamepadDeadzone,
+  getGamepadButtonPressed,
+  getGamepadButtonValue,
+} from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadArcballControls}.
@@ -228,24 +233,24 @@ export class GamepadArcballControls extends GamepadControls {
     }
 
     const rotateX = controls.enableRotate
-      ? this.#applyDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone)
+      ? applyGamepadDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone)
       : 0;
     const rotateY = controls.enableRotate
-      ? this.#applyDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone)
+      ? applyGamepadDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone)
       : 0;
     const panX = controls.enablePan
-      ? this.#applyDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone)
+      ? applyGamepadDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone)
       : 0;
     const panY = controls.enablePan
-      ? this.#applyDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone)
+      ? applyGamepadDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone)
       : 0;
     const zoom = controls.enableZoom
-      ? this.#getButtonValue(gamepad, buttonZoomIn) -
-        this.#getButtonValue(gamepad, buttonZoomOut)
+      ? getGamepadButtonValue(gamepad, buttonZoomIn) -
+        getGamepadButtonValue(gamepad, buttonZoomOut)
       : 0;
     const zRotation = controls.enableRotate
-      ? this.#getButtonValue(gamepad, buttonZRotateLeft) -
-        this.#getButtonValue(gamepad, buttonZRotateRight)
+      ? getGamepadButtonValue(gamepad, buttonZRotateLeft) -
+        getGamepadButtonValue(gamepad, buttonZRotateRight)
       : 0;
 
     const activeInput =
@@ -440,7 +445,7 @@ export class GamepadArcballControls extends GamepadControls {
 
   #consumeFocusPoint(gamepad: Gamepad, buttonFocus: number): Vector3 | null {
     const controls = this.#controls;
-    const focusPressed = this.#getButtonPressed(gamepad, buttonFocus);
+    const focusPressed = getGamepadButtonPressed(gamepad, buttonFocus);
     const shouldFocus = focusPressed && !this.#focusButtonPressed;
     this.#focusButtonPressed = focusPressed;
 
@@ -464,33 +469,5 @@ export class GamepadArcballControls extends GamepadControls {
 
     this.#controls.dispatchEvent({ type: "end" });
     this.#wasInteracting = false;
-  }
-
-  #getButtonValue(gamepad: Gamepad, button: number): number {
-    const gamepadButton = gamepad.buttons[button];
-
-    if (gamepadButton === undefined) {
-      return 0;
-    }
-
-    if (gamepadButton.value !== 0) {
-      return gamepadButton.value;
-    }
-
-    return gamepadButton.pressed ? 1 : 0;
-  }
-
-  #getButtonPressed(gamepad: Gamepad, button: number): boolean {
-    return gamepad.buttons[button]?.pressed ?? false;
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }

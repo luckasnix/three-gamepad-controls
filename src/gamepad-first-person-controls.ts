@@ -3,6 +3,7 @@ import type { FirstPersonControls } from "three/addons/controls/FirstPersonContr
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import { applyGamepadDeadzone, getGamepadButtonValue } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadFirstPersonControls}.
@@ -180,7 +181,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
 
     // Forward / backward - left stick Y.
     // Stick up produces a negative axis value, which maps directly to local -Z.
-    const forward = this.#applyDeadzone(
+    const forward = applyGamepadDeadzone(
       gamepad.axes[axisMoveForward] ?? 0,
       deadzone,
     );
@@ -203,7 +204,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
 
     // Strafe left / right - left stick X.
     // Positive axis value (stick right) -> translateX positive -> move right.
-    const strafe = this.#applyDeadzone(
+    const strafe = applyGamepadDeadzone(
       gamepad.axes[axisMoveRight] ?? 0,
       deadzone,
     );
@@ -212,8 +213,8 @@ export class GamepadFirstPersonControls extends GamepadControls {
     }
 
     // Move up / down - analog triggers (button value in [0, 1]).
-    const up = gamepad.buttons[buttonMoveUp]?.value ?? 0;
-    const down = gamepad.buttons[buttonMoveDown]?.value ?? 0;
+    const up = getGamepadButtonValue(gamepad, buttonMoveUp);
+    const down = getGamepadButtonValue(gamepad, buttonMoveDown);
 
     if (up > deadzone) {
       controls.object.translateY(up * moveMult);
@@ -231,8 +232,8 @@ export class GamepadFirstPersonControls extends GamepadControls {
     axisLookX: number,
     axisLookY: number,
   ): void {
-    const lookX = this.#applyDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
-    const lookY = this.#applyDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
+    const lookX = applyGamepadDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
+    const lookY = applyGamepadDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
 
     if (lookX === 0 && lookY === 0) {
       return;
@@ -302,15 +303,5 @@ export class GamepadFirstPersonControls extends GamepadControls {
       lat: 90 - MathUtils.radToDeg(this.#spherical.phi),
       lon: MathUtils.radToDeg(this.#spherical.theta),
     };
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }

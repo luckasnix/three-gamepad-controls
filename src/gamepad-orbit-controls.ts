@@ -2,6 +2,7 @@ import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import { applyGamepadDeadzone, getGamepadButtonValue } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadOrbitControls}.
@@ -136,8 +137,8 @@ export class GamepadOrbitControls extends GamepadControls {
     // --- Rotation (left stick by default) ------------------------------------
     // Axes are normalized to [-1, 1]. Multiply by π so a full stick push
     // covers half a rotation per second at rotateSpeed 1.
-    const rotX = this.#applyDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone);
-    const rotY = this.#applyDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone);
+    const rotX = applyGamepadDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone);
+    const rotY = applyGamepadDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone);
 
     if (rotX !== 0) {
       this.#controls.rotateLeft(rotX * rotateSpeed * deltaTime * Math.PI);
@@ -149,8 +150,8 @@ export class GamepadOrbitControls extends GamepadControls {
     // --- Pan (right stick by default) ----------------------------------------
     // `pan()` expects screen-space pixel deltas. 500 px/s at full deflection
     // feels comfortable at typical viewport sizes; tune via `panSpeed`.
-    const panX = this.#applyDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone);
-    const panY = this.#applyDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone);
+    const panX = applyGamepadDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone);
+    const panY = applyGamepadDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone);
 
     if (panX !== 0 || panY !== 0) {
       this.#controls.pan(
@@ -164,8 +165,8 @@ export class GamepadOrbitControls extends GamepadControls {
     // OrbitControls uses a scale below 1 to zoom in and above 1 to zoom out.
     // Passing the same below-1 scale to dollyIn/dollyOut maps the triggers to
     // their semantic actions across perspective and orthographic cameras.
-    const triggerIn = gamepad.buttons[buttonDollyIn]?.value ?? 0;
-    const triggerOut = gamepad.buttons[buttonDollyOut]?.value ?? 0;
+    const triggerIn = getGamepadButtonValue(gamepad, buttonDollyIn);
+    const triggerOut = getGamepadButtonValue(gamepad, buttonDollyOut);
 
     if (triggerIn > deadzone) {
       this.#controls.dollyIn(1 / (1 + zoomSpeed * triggerIn * deltaTime));
@@ -173,15 +174,5 @@ export class GamepadOrbitControls extends GamepadControls {
     if (triggerOut > deadzone) {
       this.#controls.dollyOut(1 / (1 + zoomSpeed * triggerOut * deltaTime));
     }
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }

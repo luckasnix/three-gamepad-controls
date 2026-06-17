@@ -3,6 +3,11 @@ import type { FlyControls } from "three/addons/controls/FlyControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  applyGamepadDeadzone,
+  getGamepadButtonPressed,
+  getGamepadButtonValue,
+} from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadFlyControls}.
@@ -154,7 +159,7 @@ export class GamepadFlyControls extends GamepadControls {
     // Forward / backward — left stick Y.
     // Stick up produces a negative axis value; translateZ(-n) moves the camera
     // forward along its local -Z axis, so the raw axis value maps directly.
-    const fwd = this.#applyDeadzone(
+    const fwd = applyGamepadDeadzone(
       gamepad.axes[axisMoveForward] ?? 0,
       deadzone,
     );
@@ -164,7 +169,7 @@ export class GamepadFlyControls extends GamepadControls {
 
     // Strafe left / right — left stick X.
     // Positive axis value (stick right) → translateX positive → move right.
-    const strafe = this.#applyDeadzone(
+    const strafe = applyGamepadDeadzone(
       gamepad.axes[axisMoveRight] ?? 0,
       deadzone,
     );
@@ -173,8 +178,8 @@ export class GamepadFlyControls extends GamepadControls {
     }
 
     // Move up / down — analog triggers (button value in [0, 1]).
-    const up = gamepad.buttons[buttonMoveUp]?.value ?? 0;
-    const down = gamepad.buttons[buttonMoveDown]?.value ?? 0;
+    const up = getGamepadButtonValue(gamepad, buttonMoveUp);
+    const down = getGamepadButtonValue(gamepad, buttonMoveDown);
 
     if (up > deadzone) {
       this.#controls.object.translateY(up * moveMult);
@@ -193,15 +198,15 @@ export class GamepadFlyControls extends GamepadControls {
 
     // Pitch — right stick Y. Stick up (negative axis) tilts the camera up.
     // Negate so that a negative axis value produces a positive rotation (up).
-    const pitch = -this.#applyDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
+    const pitch = -applyGamepadDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
 
     // Yaw — right stick X. Stick right (positive axis) turns the camera right.
     // Negate so that a positive axis value produces a negative yaw (right turn).
-    const yaw = -this.#applyDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
+    const yaw = -applyGamepadDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
 
     // Roll — shoulder buttons (digital: 0 or 1).
-    const rollLeft = gamepad.buttons[buttonRollLeft]?.pressed ? 1 : 0;
-    const rollRight = gamepad.buttons[buttonRollRight]?.pressed ? 1 : 0;
+    const rollLeft = getGamepadButtonPressed(gamepad, buttonRollLeft) ? 1 : 0;
+    const rollRight = getGamepadButtonPressed(gamepad, buttonRollRight) ? 1 : 0;
     const roll = rollLeft - rollRight;
 
     if (pitch !== 0 || yaw !== 0 || roll !== 0) {
@@ -210,15 +215,5 @@ export class GamepadFlyControls extends GamepadControls {
         .normalize();
       this.#controls.object.quaternion.multiply(this.#tmpQuaternion);
     }
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }

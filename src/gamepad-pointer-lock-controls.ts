@@ -3,6 +3,7 @@ import type { PointerLockControls } from "three/addons/controls/PointerLockContr
 
 import { GAMEPAD_AXIS } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import { applyGamepadDeadzone } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadPointerLockControls}.
@@ -117,11 +118,11 @@ export class GamepadPointerLockControls extends GamepadControls {
 
     // --- Movement (left stick by default) ------------------------------------
     // Negate the forward axis: stick-up = negative Y value = move forward.
-    const fwd = this.#applyDeadzone(
+    const fwd = applyGamepadDeadzone(
       gamepad.axes[axisMoveForward] ?? 0,
       deadzone,
     );
-    const strafe = this.#applyDeadzone(
+    const strafe = applyGamepadDeadzone(
       gamepad.axes[axisMoveRight] ?? 0,
       deadzone,
     );
@@ -139,8 +140,8 @@ export class GamepadPointerLockControls extends GamepadControls {
     // yaw (Y) and pitch (X) deltas, clamp pitch to polar angle constraints,
     // then write the quaternion back. The #euler instance is reused to avoid
     // allocations every frame.
-    const lookX = this.#applyDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
-    const lookY = this.#applyDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
+    const lookX = applyGamepadDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
+    const lookY = applyGamepadDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
 
     if (lookX !== 0 || lookY !== 0) {
       const camera = this.#controls.object;
@@ -156,15 +157,5 @@ export class GamepadPointerLockControls extends GamepadControls {
       );
       camera.quaternion.setFromEuler(this.#euler);
     }
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }

@@ -3,6 +3,7 @@ import type { TrackballControls } from "three/addons/controls/TrackballControls.
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
+import { applyGamepadDeadzone, getGamepadButtonValue } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadTrackballControls}.
@@ -179,8 +180,8 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    const rotX = this.#applyDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone);
-    const rotY = this.#applyDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone);
+    const rotX = applyGamepadDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone);
+    const rotY = applyGamepadDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone);
 
     if (rotX === 0 && rotY === 0) {
       return;
@@ -208,8 +209,8 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    const panX = this.#applyDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone);
-    const panY = this.#applyDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone);
+    const panX = applyGamepadDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone);
+    const panY = applyGamepadDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone);
 
     if (panX === 0 && panY === 0) {
       return;
@@ -235,8 +236,8 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    const triggerIn = gamepad.buttons[buttonZoomIn]?.value ?? 0;
-    const triggerOut = gamepad.buttons[buttonZoomOut]?.value ?? 0;
+    const triggerIn = getGamepadButtonValue(gamepad, buttonZoomIn);
+    const triggerOut = getGamepadButtonValue(gamepad, buttonZoomOut);
 
     if (triggerIn <= deadzone && triggerOut <= deadzone) {
       return;
@@ -256,15 +257,5 @@ export class GamepadTrackballControls extends GamepadControls {
   #getInputDampingFactor(): number {
     const controls = this.#controls;
     return controls.staticMoving ? 1 : controls.dynamicDampingFactor;
-  }
-
-  /**
-   * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
-   *
-   * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
-   * @param threshold - Dead zone size; values below this magnitude are zeroed.
-   */
-  #applyDeadzone(value: number, threshold: number): number {
-    return Math.abs(value) < threshold ? 0 : value;
   }
 }
