@@ -1,6 +1,6 @@
 import { EventDispatcher } from "three";
 
-import { getFirstConnectedGamepad, getGamepadByIndex } from "./utils.ts";
+import { GamepadManager } from "./gamepad-manager.ts";
 
 /**
  * Event map for {@link GamepadControls}.
@@ -42,12 +42,16 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    */
   public gamepad: Gamepad | null = null;
 
+  readonly #manager: GamepadManager;
+
   // Bound handler references kept so they can be removed in `dispose()`.
   readonly #onGamepadConnected: (event: GamepadEvent) => void;
   readonly #onGamepadDisconnected: (event: GamepadEvent) => void;
 
   constructor() {
     super();
+
+    this.#manager = new GamepadManager();
 
     this.#onGamepadConnected = (event: GamepadEvent) => {
       this.onGamepadConnected(event.gamepad);
@@ -71,23 +75,21 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
       return;
     }
 
-    // Always fetch a fresh snapshot. The Web Gamepad API does not push updates.
-    if (this.gamepad === null) {
-      const connectedGamepad = getFirstConnectedGamepad();
+    this.#manager.activeGamepad = this.gamepad;
+    const { gamepad, connected, disconnected } = this.#manager.update();
 
-      if (connectedGamepad !== null) {
-        this.onGamepadConnected(connectedGamepad);
-      }
+    if (connected !== null) {
+      this.#manager.activeGamepad = this.gamepad;
+      this.onGamepadConnected(connected);
+      this.#manager.activeGamepad = this.gamepad;
+    } else if (disconnected !== null) {
+      this.#manager.activeGamepad = this.gamepad;
+      this.onGamepadDisconnected(disconnected);
+      this.#manager.activeGamepad = this.gamepad;
+      return;
     } else {
-      const previousGamepad = this.gamepad;
-      const nextGamepad = getGamepadByIndex(previousGamepad.index);
-
-      if (nextGamepad === null) {
-        this.onGamepadDisconnected(previousGamepad);
-        return;
-      }
-
-      this.gamepad = nextGamepad;
+      this.gamepad = gamepad;
+      this.#manager.activeGamepad = this.gamepad;
     }
 
     if (this.gamepad === null) {
@@ -107,6 +109,7 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
       this.#onGamepadDisconnected,
     );
     this.gamepad = null;
+    this.#manager.activeGamepad = null;
     this.enabled = false;
   }
 
@@ -128,14 +131,22 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    */
   protected onGamepadConnected(gamepad: Gamepad): void {
     // Accept only the first gamepad, ignoring any additional ones.
-    if (this.gamepad !== null) {
+    this.#manager.activeGamepad = this.gamepad;
+
+    if (!this.#manager.connect(gamepad)) {
       return;
     }
 
-    this.gamepad = gamepad;
+    const connectedGamepad = this.#manager.activeGamepad;
+
+    if (connectedGamepad === null) {
+      return;
+    }
+
+    this.gamepad = connectedGamepad;
     this.dispatchEvent({
       type: "connected",
-      gamepad,
+      gamepad: connectedGamepad,
     });
   }
 
@@ -148,15 +159,17 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    * @param gamepad - The gamepad that just disconnected.
    */
   protected onGamepadDisconnected(gamepad: Gamepad): void {
-    if (this.gamepad?.index !== gamepad.index) {
+    this.#manager.activeGamepad = this.gamepad;
+    const disconnectedGamepad = this.#manager.disconnect(gamepad);
+
+    if (disconnectedGamepad === null) {
       return;
     }
 
-    const disconnected = this.gamepad;
-    this.gamepad = null;
+    this.gamepad = this.#manager.activeGamepad;
     this.dispatchEvent({
       type: "disconnected",
-      gamepad: disconnected,
+      gamepad: disconnectedGamepad,
     });
   }
 }

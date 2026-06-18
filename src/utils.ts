@@ -54,29 +54,3 @@ export const getGamepadButtonValue = (
 
   return gamepadButton.pressed ? 1 : 0;
 };
-
-/**
- * Returns a fresh connected gamepad snapshot by index.
- *
- * @param index - Gamepad index to look up.
- * @returns The connected gamepad snapshot at the index, or `null` when unavailable.
- */
-export const getGamepadByIndex = (index: number): Gamepad | null => {
-  const gamepad = navigator.getGamepads()[index] ?? null;
-  return gamepad?.connected === true ? gamepad : null;
-};
-
-/**
- * Returns the first currently connected gamepad snapshot.
- *
- * @returns The first connected gamepad snapshot, or `null` when none are connected.
- */
-export const getFirstConnectedGamepad = (): Gamepad | null => {
-  for (const gamepad of navigator.getGamepads()) {
-    if (gamepad?.connected === true) {
-      return gamepad;
-    }
-  }
-
-  return null;
-};
