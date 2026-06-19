@@ -13,6 +13,9 @@ export type GamepadControlsEventMap = {
    * Fired when a gamepad is connected and set as the active gamepad.
    */
   connected: {
+    /**
+     * Gamepad snapshot that became active.
+     */
     gamepad: Gamepad;
   };
 
@@ -20,6 +23,9 @@ export type GamepadControlsEventMap = {
    * Fired when the active gamepad is disconnected.
    */
   disconnected: {
+    /**
+     * Gamepad snapshot that was active before disconnection.
+     */
     gamepad: Gamepad;
   };
 };
@@ -44,25 +50,48 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
 
   readonly #manager: GamepadManager;
 
-  // Bound handler references kept so they can be removed in `dispose()`.
+  /**
+   * Bound browser connection listener kept so it can be removed in {@link dispose}.
+   */
   readonly #onGamepadConnected: (event: GamepadEvent) => void;
+
+  /**
+   * Bound browser disconnection listener kept so it can be removed in {@link dispose}.
+   */
   readonly #onGamepadDisconnected: (event: GamepadEvent) => void;
 
+  /**
+   * Creates the base gamepad lifecycle manager and attaches browser listeners.
+   */
   constructor() {
     super();
 
     this.#manager = new GamepadManager();
 
-    this.#onGamepadConnected = (event: GamepadEvent) => {
-      this.onGamepadConnected(event.gamepad);
-    };
-
-    this.#onGamepadDisconnected = (event: GamepadEvent) => {
-      this.onGamepadDisconnected(event.gamepad);
-    };
+    this.#onGamepadConnected = this.#handleGamepadConnectedEvent.bind(this);
+    this.#onGamepadDisconnected =
+      this.#handleGamepadDisconnectedEvent.bind(this);
 
     window.addEventListener("gamepadconnected", this.#onGamepadConnected);
     window.addEventListener("gamepaddisconnected", this.#onGamepadDisconnected);
+  }
+
+  /**
+   * Forwards a browser connection event to the overridable lifecycle hook.
+   *
+   * @param event - Browser event containing the connected gamepad snapshot.
+   */
+  #handleGamepadConnectedEvent(event: GamepadEvent): void {
+    this.onGamepadConnected(event.gamepad);
+  }
+
+  /**
+   * Forwards a browser disconnection event to the overridable lifecycle hook.
+   *
+   * @param event - Browser event containing the disconnected gamepad snapshot.
+   */
+  #handleGamepadDisconnectedEvent(event: GamepadEvent): void {
+    this.onGamepadDisconnected(event.gamepad);
   }
 
   /**

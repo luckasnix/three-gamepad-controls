@@ -89,12 +89,39 @@ const DEFAULT_TRACKBALL_OPTIONS: GamepadTrackballControlsOptions = {
 };
 
 type TrackballControlsWithInput = TrackballControls & {
+  /**
+   * Internal last rotation angle tracked by TrackballControls.
+   */
   _lastAngle: number;
+
+  /**
+   * Previous normalized pointer position used for rotation.
+   */
   _movePrev: Vector2;
+
+  /**
+   * Current normalized pointer position used for rotation.
+   */
   _moveCurr: Vector2;
+
+  /**
+   * Previous normalized pointer position used for zoom damping.
+   */
   _zoomStart: Vector2;
+
+  /**
+   * Current normalized pointer position used for zoom damping.
+   */
   _zoomEnd: Vector2;
+
+  /**
+   * Previous normalized pointer position used for pan damping.
+   */
   _panStart: Vector2;
+
+  /**
+   * Current normalized pointer position used for pan damping.
+   */
   _panEnd: Vector2;
 };
 
@@ -164,6 +191,16 @@ export class GamepadTrackballControls extends GamepadControls {
     );
   }
 
+  /**
+   * Queues rotation input into TrackballControls' normalized move state.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   * @param rotateSpeed - User-configured rotation speed multiplier.
+   * @param deadzone - Axis dead zone threshold.
+   * @param axisRotateX - Axis index for horizontal rotation.
+   * @param axisRotateY - Axis index for vertical rotation.
+   */
   #queueRotation(
     deltaTime: number,
     gamepad: Gamepad,
@@ -194,6 +231,16 @@ export class GamepadTrackballControls extends GamepadControls {
     controls._moveCurr.y += -rotY * scale;
   }
 
+  /**
+   * Queues pan input into TrackballControls' normalized pan state.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   * @param panSpeed - User-configured pan speed multiplier.
+   * @param deadzone - Axis dead zone threshold.
+   * @param axisPanX - Axis index for horizontal panning.
+   * @param axisPanY - Axis index for vertical panning.
+   */
   #queuePan(
     deltaTime: number,
     gamepad: Gamepad,
@@ -221,6 +268,16 @@ export class GamepadTrackballControls extends GamepadControls {
     controls._panEnd.y += panY * scale;
   }
 
+  /**
+   * Queues trigger zoom input into TrackballControls' normalized zoom state.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   * @param zoomSpeed - User-configured zoom speed multiplier.
+   * @param deadzone - Trigger dead zone threshold.
+   * @param buttonZoomIn - Button index for zooming in.
+   * @param buttonZoomOut - Button index for zooming out.
+   */
   #queueZoom(
     deltaTime: number,
     gamepad: Gamepad,
@@ -253,6 +310,8 @@ export class GamepadTrackballControls extends GamepadControls {
   /**
    * Compensates for TrackballControls reapplying queued pan and zoom deltas
    * while their input state catches up through damping.
+   *
+   * @returns Multiplier that matches TrackballControls' damping mode.
    */
   #getInputDampingFactor(): number {
     const controls = this.#controls;

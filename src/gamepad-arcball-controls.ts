@@ -129,26 +129,108 @@ const DEFAULT_ARCBALL_OPTIONS: GamepadArcballControlsOptions = {
 const ZOOM_NOTCHES_PER_SECOND = 8;
 
 type ArcballTransformation = {
+  /**
+   * Camera matrix produced by an Arcball runtime transform.
+   */
   camera: Matrix4 | null;
+
+  /**
+   * Gizmo matrix produced by an Arcball runtime transform.
+   */
   gizmos: Matrix4 | null;
 };
 
 type ArcballControlsWithRuntimeHelpers = ArcballControls & {
+  /**
+   * Camera controlled by the Arcball instance.
+   */
   object: Camera;
+
+  /**
+   * Internal gizmo object used as the center for scale and z-rotation.
+   */
   _gizmos: Object3D;
+
+  /**
+   * Internal reusable axis vector used by ArcballControls z-rotation.
+   */
   _rotationAxis: Vector3;
+
+  /**
+   * Internal trackball radius used to scale pan deltas.
+   */
   _tbRadius: number;
+
+  /**
+   * Refreshes ArcballControls cached camera and gizmo matrices.
+   */
   updateMatrixState(): void;
+
+  /**
+   * Applies a runtime transformation matrix returned by an Arcball helper.
+   *
+   * @param transformation - Camera and gizmo matrices to apply.
+   */
   applyTransformMatrix(transformation: ArcballTransformation): void;
+
+  /**
+   * Builds a camera rotation transformation around a world axis.
+   *
+   * @param axis - Normalized world axis to rotate around.
+   * @param angle - Rotation amount in radians.
+   * @returns The transformation matrices to apply.
+   */
   rotate(axis: Vector3, angle: number): ArcballTransformation;
+
+  /**
+   * Builds a camera pan transformation between two virtual trackball points.
+   *
+   * @param p0 - Start point in Arcball's virtual trackball space.
+   * @param p1 - End point in Arcball's virtual trackball space.
+   * @param adjust - Whether ArcballControls should adjust the pan internally.
+   * @returns The transformation matrices to apply.
+   */
   pan(p0: Vector3, p1: Vector3, adjust?: boolean): ArcballTransformation;
+
+  /**
+   * Builds a zoom transformation around a world-space point.
+   *
+   * @param size - Scale factor to apply.
+   * @param point - World-space point to zoom around.
+   * @param scaleGizmos - Whether ArcballControls should scale gizmos too.
+   * @returns The transformation matrices to apply, or `undefined` when ignored.
+   */
   scale(
     size: number,
     point: Vector3,
     scaleGizmos?: boolean,
   ): ArcballTransformation | undefined;
+
+  /**
+   * Builds a rotation transformation around the camera view axis.
+   *
+   * @param point - World-space center point for the z-rotation.
+   * @param angle - Rotation amount in radians.
+   * @returns The transformation matrices to apply.
+   */
   zRotate(point: Vector3, angle: number): ArcballTransformation;
+
+  /**
+   * Focuses the Arcball camera on a world-space point.
+   *
+   * @param point - World-space focus target.
+   * @param size - Arcball scale factor used for focus distance.
+   * @param amount - Optional interpolation amount.
+   */
   focus(point: Vector3, size: number, amount?: number): void;
+
+  /**
+   * Projects a normalized-device coordinate onto the controlled scene object.
+   *
+   * @param cursor - Normalized-device coordinate to project.
+   * @param camera - Camera used for projection.
+   * @returns The hit point, or `null` when the cursor does not hit an object.
+   */
   unprojectOnObj(cursor: Vector2, camera: Camera): Vector3 | null;
 };
 
@@ -294,6 +376,15 @@ export class GamepadArcballControls extends GamepadControls {
     }
   }
 
+  /**
+   * Applies gamepad stick rotation through Arcball's runtime rotation helper.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param rotateX - Horizontal rotation input after dead zone processing.
+   * @param rotateY - Vertical rotation input after dead zone processing.
+   * @param rotateSpeed - User-configured rotation speed multiplier.
+   * @returns `true` when a rotation was applied.
+   */
   #applyRotation(
     deltaTime: number,
     rotateX: number,
@@ -328,6 +419,13 @@ export class GamepadArcballControls extends GamepadControls {
     return changed;
   }
 
+  /**
+   * Applies an Arcball rotation around a specific world axis.
+   *
+   * @param axis - World axis to rotate around.
+   * @param angle - Rotation amount in radians.
+   * @returns `true` when ArcballControls produced and applied a transform.
+   */
   #applyRotationAroundAxis(axis: Vector3, angle: number): boolean {
     if (axis.lengthSq() === 0 || angle === 0) {
       return false;
@@ -345,6 +443,15 @@ export class GamepadArcballControls extends GamepadControls {
     return changed;
   }
 
+  /**
+   * Applies gamepad pan by converting stick input to Arcball trackball points.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param panX - Horizontal pan input after dead zone processing.
+   * @param panY - Vertical pan input after dead zone processing.
+   * @param panSpeed - User-configured pan speed multiplier.
+   * @returns `true` when a pan transform was applied.
+   */
   #applyPan(
     deltaTime: number,
     panX: number,
@@ -365,6 +472,15 @@ export class GamepadArcballControls extends GamepadControls {
     return this.#applyTransform(controls.pan(this.#panStart, this.#panEnd));
   }
 
+  /**
+   * Applies trigger-driven zoom around Arcball's gizmo center.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param zoom - Signed zoom input from the configured trigger pair.
+   * @param zoomSpeed - User-configured zoom speed multiplier.
+   * @param deadzone - Trigger dead zone threshold.
+   * @returns `true` when a zoom transform was applied.
+   */
   #applyZoom(
     deltaTime: number,
     zoom: number,
@@ -390,6 +506,15 @@ export class GamepadArcballControls extends GamepadControls {
     );
   }
 
+  /**
+   * Applies shoulder-button rotation around the current camera view axis.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param zRotation - Signed z-rotation input from the configured buttons.
+   * @param zRotateSpeed - User-configured z-rotation speed multiplier.
+   * @param deadzone - Button value dead zone threshold.
+   * @returns `true` when a z-rotation transform was applied.
+   */
   #applyZRotation(
     deltaTime: number,
     zRotation: number,
@@ -420,6 +545,12 @@ export class GamepadArcballControls extends GamepadControls {
     return changed;
   }
 
+  /**
+   * Focuses ArcballControls on the given point when one was consumed.
+   *
+   * @param point - World-space focus point, or `null` when no focus is pending.
+   * @returns `true` when focus was applied.
+   */
   #applyFocus(point: Vector3 | null): boolean {
     if (point === null) {
       return false;
@@ -433,6 +564,12 @@ export class GamepadArcballControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Applies a transformation returned by an Arcball runtime helper.
+   *
+   * @param transformation - Arcball transformation matrices, if any.
+   * @returns `true` when a transformation was applied.
+   */
   #applyTransform(transformation: ArcballTransformation | undefined): boolean {
     if (transformation === undefined) {
       return false;
@@ -443,6 +580,13 @@ export class GamepadArcballControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Consumes a focus-button press and resolves the viewport center hit point.
+   *
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   * @param buttonFocus - Button index configured for focus.
+   * @returns The center hit point, or `null` when focus should not run.
+   */
   #consumeFocusPoint(gamepad: Gamepad, buttonFocus: number): Vector3 | null {
     const controls = this.#controls;
     const focusPressed = getGamepadButtonPressed(gamepad, buttonFocus);
@@ -462,6 +606,9 @@ export class GamepadArcballControls extends GamepadControls {
     return controls.unprojectOnObj(this.#centerNdc, controls.object);
   }
 
+  /**
+   * Dispatches Arcball's `end` event when an active gamepad interaction stops.
+   */
   #endInteraction(): void {
     if (!this.#wasInteracting) {
       return;

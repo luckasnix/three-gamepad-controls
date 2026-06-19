@@ -164,18 +164,69 @@ type AxisLetter = "X" | "Y" | "Z";
 type TransformSpace = "world" | "local";
 
 type RuntimeTransformControls = TransformControls & {
+  /**
+   * Object currently attached to TransformControls.
+   */
   object: Object3D | undefined;
+
+  /**
+   * Active TransformControls axis or plane.
+   */
   axis: TransformAxis | null;
+
+  /**
+   * Minimum allowed local X position.
+   */
   minX: number;
+
+  /**
+   * Maximum allowed local X position.
+   */
   maxX: number;
+
+  /**
+   * Minimum allowed local Y position.
+   */
   minY: number;
+
+  /**
+   * Maximum allowed local Y position.
+   */
   maxY: number;
+
+  /**
+   * Minimum allowed local Z position.
+   */
   minZ: number;
+
+  /**
+   * Maximum allowed local Z position.
+   */
   maxZ: number;
+
+  /**
+   * Internal start position captured by TransformControls during a drag.
+   */
   _positionStart: Vector3;
+
+  /**
+   * Internal start quaternion captured by TransformControls during a drag.
+   */
   _quaternionStart: Quaternion;
+
+  /**
+   * Internal start scale captured by TransformControls during a drag.
+   */
   _scaleStart: Vector3;
+
+  /**
+   * Internal pointer start point used by TransformControls.
+   */
   pointStart: Vector3;
+
+  /**
+   * Internal pointer end point used by TransformControls.
+   */
   pointEnd: Vector3;
 };
 
@@ -374,6 +425,11 @@ export class GamepadTransformControls extends GamepadControls {
     super.onGamepadDisconnected(gamepad);
   }
 
+  /**
+   * Applies mode, space, and axis button transitions from the current frame.
+   *
+   * @param startedButtons - Button indices that transitioned to pressed.
+   */
   #handleModeAndAxisButtons(startedButtons: Set<number>): void {
     const {
       buttonTranslate,
@@ -429,6 +485,11 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Switches TransformControls mode and refreshes the active axis.
+   *
+   * @param mode - TransformControls mode to activate.
+   */
   #setMode(mode: TransformControlsMode): void {
     if (this.#controls.mode === mode) {
       return;
@@ -439,12 +500,20 @@ export class GamepadTransformControls extends GamepadControls {
     this.#ensureValidAxis();
   }
 
+  /**
+   * Toggles TransformControls between local and world transform space.
+   */
   #toggleSpace(): void {
     const nextSpace = this.#controls.space === "world" ? "local" : "world";
     this.#endTransform(false);
     this.#controls.setSpace(nextSpace);
   }
 
+  /**
+   * Selects an explicit axis when it is valid for the current mode.
+   *
+   * @param axis - Axis requested by the gamepad button mapping.
+   */
   #selectAxis(axis: TransformAxis): void {
     if (!this.#isAxisAllowed(this.#controls.mode, axis)) {
       return;
@@ -455,18 +524,30 @@ export class GamepadTransformControls extends GamepadControls {
     this.#ensureValidAxis();
   }
 
+  /**
+   * Cycles through composite axes available in the current mode.
+   */
   #cycleCompositeAxis(): void {
-    const validAxes = COMPOSITE_AXES[this.#controls.mode].filter((axis) =>
-      this.#isAxisVisible(axis),
-    );
+    const validAxes = this.#getVisibleAxes(COMPOSITE_AXES[this.#controls.mode]);
 
     this.#cycleThroughAxes(validAxes, 1);
   }
 
+  /**
+   * Cycles through all valid axes for the current mode.
+   *
+   * @param direction - `1` for next axis, `-1` for previous axis.
+   */
   #cycleAxis(direction: -1 | 1): void {
     this.#cycleThroughAxes(this.#getValidAxes(this.#controls.mode), direction);
   }
 
+  /**
+   * Moves the active axis through a candidate axis list.
+   *
+   * @param axes - Candidate axes to cycle through.
+   * @param direction - `1` for next axis, `-1` for previous axis.
+   */
   #cycleThroughAxes(axes: readonly TransformAxis[], direction: -1 | 1): void {
     if (axes.length === 0) {
       this.#setActiveAxis(null);
@@ -486,6 +567,11 @@ export class GamepadTransformControls extends GamepadControls {
     this.#ensureValidAxis();
   }
 
+  /**
+   * Ensures the highlighted TransformControls axis is valid and visible.
+   *
+   * @returns The active valid axis, or `null` when no axis is available.
+   */
   #ensureValidAxis(): TransformAxis | null {
     const mode = this.#controls.mode;
     const current = this.#activeAxisByMode[mode];
@@ -504,6 +590,11 @@ export class GamepadTransformControls extends GamepadControls {
     return nextAxis;
   }
 
+  /**
+   * Updates both the remembered axis for the current mode and the control axis.
+   *
+   * @param axis - Axis to activate, or `null` to clear selection.
+   */
   #setActiveAxis(axis: TransformAxis | null): void {
     this.#activeAxisByMode[this.#controls.mode] = axis;
 
@@ -512,14 +603,51 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Returns all visible axes supported by a TransformControls mode.
+   *
+   * @param mode - Mode whose axes should be inspected.
+   * @returns Visible axes for the mode.
+   */
   #getValidAxes(mode: TransformControlsMode): readonly TransformAxis[] {
-    return MODE_AXES[mode].filter((axis) => this.#isAxisVisible(axis));
+    return this.#getVisibleAxes(MODE_AXES[mode]);
   }
 
+  /**
+   * Filters a list of axes to those enabled by TransformControls visibility flags.
+   *
+   * @param axes - Axes to inspect.
+   * @returns Axes whose component visibility flags are enabled.
+   */
+  #getVisibleAxes(axes: readonly TransformAxis[]): readonly TransformAxis[] {
+    const visibleAxes: TransformAxis[] = [];
+
+    for (const axis of axes) {
+      if (this.#isAxisVisible(axis)) {
+        visibleAxes.push(axis);
+      }
+    }
+
+    return visibleAxes;
+  }
+
+  /**
+   * Checks whether an axis can be used in a mode and is currently visible.
+   *
+   * @param mode - TransformControls mode to validate against.
+   * @param axis - Axis to validate.
+   * @returns `true` when the axis is supported and visible.
+   */
   #isAxisAllowed(mode: TransformControlsMode, axis: TransformAxis): boolean {
     return MODE_AXES[mode].includes(axis) && this.#isAxisVisible(axis);
   }
 
+  /**
+   * Reads TransformControls visibility flags for an axis or plane.
+   *
+   * @param axis - Axis whose visibility should be checked.
+   * @returns `true` when all components required by the axis are visible.
+   */
   #isAxisVisible(axis: TransformAxis): boolean {
     const controls = this.#controls;
 
@@ -544,6 +672,11 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Starts a TransformControls drag interaction for the active object and axis.
+   *
+   * @returns `true` when a transform interaction was started.
+   */
   #startTransform(): boolean {
     const controls = this.#controls;
     const object = controls.object;
@@ -563,6 +696,11 @@ export class GamepadTransformControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Ends an active TransformControls drag interaction.
+   *
+   * @param clearAxis - Whether to clear the highlighted axis after ending.
+   */
   #endTransform(clearAxis: boolean): void {
     const controls = this.#controls;
 
@@ -580,6 +718,9 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Resets the active object to TransformControls' captured drag start state.
+   */
   #resetActiveTransform(): void {
     const object = this.#controls.object;
 
@@ -595,6 +736,11 @@ export class GamepadTransformControls extends GamepadControls {
     this.#freeRotationY = 0;
   }
 
+  /**
+   * Captures object and control state needed to apply gamepad transforms.
+   *
+   * @param object - Object attached to TransformControls.
+   */
   #captureTransformStart(object: Object3D): void {
     object.updateWorldMatrix(true, false);
     object.parent?.updateWorldMatrix(true, false);
@@ -624,6 +770,11 @@ export class GamepadTransformControls extends GamepadControls {
     this.#freeRotationY = 0;
   }
 
+  /**
+   * Captures the attached object's parent world transform for local conversions.
+   *
+   * @param object - Object attached to TransformControls.
+   */
   #captureParentTransform(object: Object3D): void {
     if (object.parent === null) {
       this.#parentPosition.set(0, 0, 0);
@@ -642,6 +793,14 @@ export class GamepadTransformControls extends GamepadControls {
     this.#parentQuaternionInv.copy(this.#parentQuaternion).invert();
   }
 
+  /**
+   * Dispatches the current stick input to the active TransformControls mode.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @returns `true` when the attached object changed.
+   */
   #applyCurrentTransform(
     deltaTime: number,
     transformX: number,
@@ -657,6 +816,14 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Applies translation in the selected axis, plane, or screen-facing plane.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @returns `true` when the attached object moved.
+   */
   #applyTranslate(
     deltaTime: number,
     transformX: number,
@@ -705,6 +872,15 @@ export class GamepadTransformControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Accumulates a world-space translation delta along selected axis letters.
+   *
+   * @param axis - Transform axis or plane currently selected.
+   * @param space - Transform space used to resolve axis directions.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @param distance - World-space distance scale for the frame.
+   */
   #addAxisTranslation(
     axis: TransformAxis,
     space: TransformSpace,
@@ -730,6 +906,13 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Applies accumulated translation with snapping and bounds.
+   *
+   * @param object - Object attached to TransformControls.
+   * @param axis - Transform axis or plane currently selected.
+   * @param space - Transform space used for snapping.
+   */
   #applyAccumulatedPosition(
     object: Object3D,
     axis: TransformAxis,
@@ -758,6 +941,14 @@ export class GamepadTransformControls extends GamepadControls {
     object.updateMatrixWorld();
   }
 
+  /**
+   * Snaps the pending position in world or local transform space.
+   *
+   * @param object - Object attached to TransformControls.
+   * @param axis - Axis letters that should be snapped.
+   * @param space - Transform space used for snapping.
+   * @param snap - Snap interval.
+   */
   #snapPosition(
     object: Object3D,
     axis: TransformAxis,
@@ -807,6 +998,14 @@ export class GamepadTransformControls extends GamepadControls {
     this.#snappedPosition.applyQuaternion(this.#quaternionStart);
   }
 
+  /**
+   * Applies rotation for the selected axis or free-rotation mode.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @returns `true` when the attached object rotated.
+   */
   #applyRotate(
     deltaTime: number,
     transformX: number,
@@ -866,6 +1065,13 @@ export class GamepadTransformControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Applies a rotation around a world-space axis while preserving local parent space.
+   *
+   * @param object - Object attached to TransformControls.
+   * @param worldAxis - World-space axis to rotate around.
+   * @param angle - Rotation amount in radians from the drag start.
+   */
   #applyWorldRotation(
     object: Object3D,
     worldAxis: Vector3,
@@ -882,6 +1088,11 @@ export class GamepadTransformControls extends GamepadControls {
       .normalize();
   }
 
+  /**
+   * Applies screen-relative free rotation from accumulated stick input.
+   *
+   * @param object - Object attached to TransformControls.
+   */
   #applyFreeRotation(object: Object3D): void {
     const angleX = this.#snapRotation(this.#freeRotationX);
     const angleY = this.#snapRotation(this.#freeRotationY);
@@ -909,6 +1120,14 @@ export class GamepadTransformControls extends GamepadControls {
     object.updateMatrixWorld();
   }
 
+  /**
+   * Applies scale along the selected axis or uniformly across all axes.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @returns `true` when the attached object scaled.
+   */
   #applyScale(
     deltaTime: number,
     transformX: number,
@@ -977,6 +1196,14 @@ export class GamepadTransformControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Projects stick input onto the selected scale axis.
+   *
+   * @param axis - Transform axis or plane currently selected.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @returns Signed scale input for the current frame.
+   */
   #getProjectedScaleInput(
     axis: TransformAxis,
     transformX: number,
@@ -995,6 +1222,11 @@ export class GamepadTransformControls extends GamepadControls {
     );
   }
 
+  /**
+   * Refreshes camera vectors, object world position, and viewport scale.
+   *
+   * @param object - Object attached to TransformControls.
+   */
   #updateCameraState(object: Object3D): void {
     const camera = this.#controls.camera;
 
@@ -1014,6 +1246,11 @@ export class GamepadTransformControls extends GamepadControls {
     this.#updateViewSizeAtObjectDepth(camera);
   }
 
+  /**
+   * Computes world-space viewport size at the attached object's depth.
+   *
+   * @param camera - TransformControls camera.
+   */
   #updateViewSizeAtObjectDepth(camera: Camera): void {
     if (this.#isOrthographicCamera(camera)) {
       this.#viewSize.set(
@@ -1038,6 +1275,14 @@ export class GamepadTransformControls extends GamepadControls {
     this.#viewSize.set(1, 1);
   }
 
+  /**
+   * Resolves a transform axis letter to a normalized world-space direction.
+   *
+   * @param axis - Axis letter to resolve.
+   * @param space - Transform space used to orient the axis.
+   * @param target - Vector that receives the axis direction.
+   * @returns The normalized target vector.
+   */
   #getTransformAxisWorld(
     axis: AxisLetter,
     space: TransformSpace,
@@ -1052,6 +1297,14 @@ export class GamepadTransformControls extends GamepadControls {
     return target.normalize();
   }
 
+  /**
+   * Projects stick input onto the screen-space tangent of a rotation axis.
+   *
+   * @param axisWorld - Rotation axis in world space.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @returns Signed rotation input for the current frame.
+   */
   #getRotationAxisInput(
     axisWorld: Vector3,
     transformX: number,
@@ -1071,6 +1324,15 @@ export class GamepadTransformControls extends GamepadControls {
     );
   }
 
+  /**
+   * Projects two-axis stick input onto a world axis as seen by the camera.
+   *
+   * @param axisWorld - World-space axis to project onto the screen.
+   * @param transformX - Horizontal transform input after dead zone processing.
+   * @param transformY - Vertical transform input after dead zone processing.
+   * @param fallback - Value to use when the axis has no stable screen projection.
+   * @returns Signed input along the projected axis.
+   */
   #getProjectedAxisInput(
     axisWorld: Vector3,
     transformX: number,
@@ -1088,12 +1350,25 @@ export class GamepadTransformControls extends GamepadControls {
     return (transformX * screenX + transformY * screenY) / length;
   }
 
+  /**
+   * Converts a world-space movement delta into the object's parent-local space.
+   *
+   * @param worldDelta - World-space delta to convert.
+   * @param target - Vector that receives the local delta.
+   * @returns The target vector containing the local delta.
+   */
   #worldDeltaToLocalDelta(worldDelta: Vector3, target: Vector3): Vector3 {
     target.copy(worldDelta).applyQuaternion(this.#parentQuaternionInv);
     this.#divideByParentScale(target);
     return target;
   }
 
+  /**
+   * Converts a local position to world space into the reusable world position.
+   *
+   * @param object - Object whose parent space contains the local position.
+   * @param localPosition - Local position to convert.
+   */
   #localPositionToWorld(object: Object3D, localPosition: Vector3): void {
     if (object.parent === null) {
       this.#worldPosition.copy(localPosition);
@@ -1106,6 +1381,12 @@ export class GamepadTransformControls extends GamepadControls {
       .applyMatrix4(object.parent.matrixWorld);
   }
 
+  /**
+   * Converts a world position to object parent-local space into snapped position.
+   *
+   * @param object - Object whose parent space should receive the result.
+   * @param worldPosition - World-space position to convert.
+   */
   #worldPositionToLocal(object: Object3D, worldPosition: Vector3): void {
     if (object.parent === null) {
       this.#snappedPosition.copy(worldPosition);
@@ -1117,12 +1398,24 @@ export class GamepadTransformControls extends GamepadControls {
     this.#snappedPosition.copy(worldPosition).applyMatrix4(this.#parentInverse);
   }
 
+  /**
+   * Removes captured parent scale from a local-space delta.
+   *
+   * @param target - Vector to adjust in place.
+   */
   #divideByParentScale(target: Vector3): void {
     target.x = this.#parentScale.x === 0 ? 0 : target.x / this.#parentScale.x;
     target.y = this.#parentScale.y === 0 ? 0 : target.y / this.#parentScale.y;
     target.z = this.#parentScale.z === 0 ? 0 : target.z / this.#parentScale.z;
   }
 
+  /**
+   * Writes a unit axis vector into a target vector.
+   *
+   * @param axis - Axis letter to write.
+   * @param target - Vector that receives the unit axis.
+   * @returns The target vector.
+   */
   #setUnitAxis(axis: AxisLetter, target: Vector3): Vector3 {
     switch (axis) {
       case "X":
@@ -1134,6 +1427,13 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Reads one component from a vector by axis letter.
+   *
+   * @param vector - Vector to inspect.
+   * @param axis - Component axis to read.
+   * @returns The selected component value.
+   */
   #getVectorComponent(vector: Vector3, axis: AxisLetter): number {
     switch (axis) {
       case "X":
@@ -1145,6 +1445,13 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Writes one component on a vector by axis letter.
+   *
+   * @param vector - Vector to modify.
+   * @param axis - Component axis to write.
+   * @param value - Component value to assign.
+   */
   #setVectorComponent(vector: Vector3, axis: AxisLetter, value: number): void {
     switch (axis) {
       case "X":
@@ -1159,23 +1466,56 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
+  /**
+   * Applies TransformControls rotation snapping to an angle.
+   *
+   * @param value - Angle in radians.
+   * @returns Snapped angle, or the original angle when snapping is disabled.
+   */
   #snapRotation(value: number): number {
     const snap = this.#controls.rotationSnap;
     return snap === null || snap <= 0 ? value : this.#snapValue(value, snap);
   }
 
+  /**
+   * Snaps a numeric value to the nearest interval.
+   *
+   * @param value - Value to snap.
+   * @param snap - Snap interval.
+   * @returns Value rounded to the nearest snap interval.
+   */
   #snapValue(value: number, snap: number): number {
     return Math.round(value / snap) * snap;
   }
 
+  /**
+   * Snaps a scale component while avoiding zero scale.
+   *
+   * @param value - Scale component to snap.
+   * @param snap - Snap interval.
+   * @returns Snapped scale component.
+   */
   #snapScale(value: number, snap: number): number {
     return this.#snapValue(value, snap) || snap;
   }
 
+  /**
+   * Chooses the larger-magnitude stick component for ambiguous transforms.
+   *
+   * @param inputX - Horizontal input component.
+   * @param inputY - Vertical input component.
+   * @returns The input component with the larger absolute magnitude.
+   */
   #getDominantInput(inputX: number, inputY: number): number {
     return Math.abs(inputX) >= Math.abs(inputY) ? inputX : inputY;
   }
 
+  /**
+   * Tracks pressed buttons and returns those newly pressed this frame.
+   *
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   * @returns Button indices that transitioned to pressed.
+   */
   #getStartedButtons(gamepad: Gamepad): Set<number> {
     const startedButtons = new Set<number>();
 
@@ -1197,10 +1537,22 @@ export class GamepadTransformControls extends GamepadControls {
     return startedButtons;
   }
 
+  /**
+   * Narrows a Three.js camera to `PerspectiveCamera`.
+   *
+   * @param camera - Camera to inspect.
+   * @returns `true` when the camera is perspective.
+   */
   #isPerspectiveCamera(camera: Camera): camera is PerspectiveCamera {
     return (camera as PerspectiveCamera).isPerspectiveCamera === true;
   }
 
+  /**
+   * Narrows a Three.js camera to `OrthographicCamera`.
+   *
+   * @param camera - Camera to inspect.
+   * @returns `true` when the camera is orthographic.
+   */
   #isOrthographicCamera(camera: Camera): camera is OrthographicCamera {
     return (camera as OrthographicCamera).isOrthographicCamera === true;
   }

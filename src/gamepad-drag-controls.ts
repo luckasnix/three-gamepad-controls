@@ -84,10 +84,16 @@ const DEFAULT_DRAG_OPTIONS: GamepadDragControlsOptions = {
 };
 
 type DragControlsWithCamera = DragControls & {
+  /**
+   * Camera used by DragControls for raycasting.
+   */
   object: Camera;
 };
 
 type GroupLikeObject = Object3D & {
+  /**
+   * Runtime flag set by Three.js `Group` instances.
+   */
   isGroup?: boolean;
 };
 
@@ -207,6 +213,12 @@ export class GamepadDragControls extends GamepadControls {
     super.onGamepadDisconnected(gamepad);
   }
 
+  /**
+   * Updates the selected object from gamepad drag and rotation input.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   */
   #updateSelected(deltaTime: number, gamepad: Gamepad): void {
     const selected = this.#selected;
 
@@ -251,6 +263,15 @@ export class GamepadDragControls extends GamepadControls {
     }
   }
 
+  /**
+   * Moves the selected object in the camera-facing plane.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param dragX - Horizontal drag input after dead zone processing.
+   * @param dragY - Vertical drag input after dead zone processing.
+   * @param dragSpeed - User-configured drag speed multiplier.
+   * @returns `true` when the selected object moved.
+   */
   #applyDrag(
     deltaTime: number,
     dragX: number,
@@ -280,6 +301,15 @@ export class GamepadDragControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Rotates the selected object around camera-relative world axes.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param rotateX - Horizontal rotation input after dead zone processing.
+   * @param rotateY - Vertical rotation input after dead zone processing.
+   * @param rotateSpeed - User-configured rotation speed multiplier.
+   * @returns `true` when the selected object rotated.
+   */
   #applyRotation(
     deltaTime: number,
     rotateX: number,
@@ -308,6 +338,11 @@ export class GamepadDragControls extends GamepadControls {
     return true;
   }
 
+  /**
+   * Raycasts from the center of the viewport into DragControls objects.
+   *
+   * @returns The closest center hit, or `undefined` when nothing is hit.
+   */
   #intersectCenter(): Intersection | undefined {
     const controls = this.#controls;
 
@@ -322,6 +357,11 @@ export class GamepadDragControls extends GamepadControls {
     return this.#intersections[0];
   }
 
+  /**
+   * Updates DragControls hover state for the object under the center reticle.
+   *
+   * @param object - Object currently under the reticle, or `null`.
+   */
   #updateHover(object: Object3D | null): void {
     if (this.#hovered === object) {
       return;
@@ -340,6 +380,9 @@ export class GamepadDragControls extends GamepadControls {
     });
   }
 
+  /**
+   * Clears the current hover object and dispatches `hoveroff` when needed.
+   */
   #clearHover(): void {
     if (this.#hovered === null) {
       return;
@@ -353,6 +396,11 @@ export class GamepadDragControls extends GamepadControls {
     });
   }
 
+  /**
+   * Selects an object and dispatches DragControls `dragstart`.
+   *
+   * @param object - Object hit by the center reticle.
+   */
   #grabObject(object: Object3D): void {
     const selected = this.#getSelectedObject(object);
 
@@ -366,6 +414,9 @@ export class GamepadDragControls extends GamepadControls {
     });
   }
 
+  /**
+   * Releases the selected object and dispatches DragControls `dragend`.
+   */
   #releaseSelected(): void {
     if (this.#selected === null) {
       return;
@@ -379,6 +430,12 @@ export class GamepadDragControls extends GamepadControls {
     });
   }
 
+  /**
+   * Resolves which object should be dragged for a reticle hit.
+   *
+   * @param object - Object hit by the center reticle.
+   * @returns The hit object, or its outermost group when group dragging is enabled.
+   */
   #getSelectedObject(object: Object3D): Object3D {
     if (!this.#controls.transformGroup) {
       return object;
@@ -387,6 +444,12 @@ export class GamepadDragControls extends GamepadControls {
     return this.#findOutermostGroup(object) ?? object;
   }
 
+  /**
+   * Finds the highest ancestor that is a Three.js `Group`.
+   *
+   * @param object - Object where the ancestor search starts.
+   * @returns The outermost group ancestor, or `null` when none exists.
+   */
   #findOutermostGroup(object: Object3D): Object3D | null {
     let group: Object3D | null = null;
     let current: Object3D | null = object;
@@ -402,6 +465,9 @@ export class GamepadDragControls extends GamepadControls {
     return group;
   }
 
+  /**
+   * Writes the accumulated world-space selected position back to the object.
+   */
   #applySelectedWorldPosition(): void {
     const selected = this.#selected;
 
@@ -424,6 +490,9 @@ export class GamepadDragControls extends GamepadControls {
     selected.updateMatrixWorld();
   }
 
+  /**
+   * Refreshes camera-relative axes used for dragging and rotation.
+   */
   #updateCameraAxes(): void {
     const camera = this.#controls.object;
 
@@ -435,6 +504,9 @@ export class GamepadDragControls extends GamepadControls {
     camera.getWorldDirection(this.#cameraForward).normalize();
   }
 
+  /**
+   * Computes the world-space viewport size at the selected object's depth.
+   */
   #updateViewSizeAtSelectedDepth(): void {
     const camera = this.#controls.object;
 
@@ -463,10 +535,22 @@ export class GamepadDragControls extends GamepadControls {
     this.#viewSize.set(1, 1);
   }
 
+  /**
+   * Narrows a Three.js camera to `PerspectiveCamera`.
+   *
+   * @param camera - Camera to inspect.
+   * @returns `true` when the camera is perspective.
+   */
   #isPerspectiveCamera(camera: Camera): camera is PerspectiveCamera {
     return (camera as PerspectiveCamera).isPerspectiveCamera === true;
   }
 
+  /**
+   * Narrows a Three.js camera to `OrthographicCamera`.
+   *
+   * @param camera - Camera to inspect.
+   * @returns `true` when the camera is orthographic.
+   */
   #isOrthographicCamera(camera: Camera): camera is OrthographicCamera {
     return (camera as OrthographicCamera).isOrthographicCamera === true;
   }

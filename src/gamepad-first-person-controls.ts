@@ -86,8 +86,27 @@ const DEFAULT_FIRST_PERSON_OPTIONS: GamepadFirstPersonControlsOptions = {
 const LOOK_SPEED_SCALE = 36000;
 
 type FirstPersonControlsWithOrientation = FirstPersonControls & {
+  /**
+   * Internal latitude angle maintained by FirstPersonControls.
+   */
   _lat: number;
+
+  /**
+   * Internal longitude angle maintained by FirstPersonControls.
+   */
   _lon: number;
+};
+
+type FirstPersonOrientation = {
+  /**
+   * Vertical look angle in degrees.
+   */
+  lat: number;
+
+  /**
+   * Horizontal look angle in degrees.
+   */
+  lon: number;
 };
 
 /**
@@ -166,6 +185,18 @@ export class GamepadFirstPersonControls extends GamepadControls {
     );
   }
 
+  /**
+   * Applies local translation input to FirstPersonControls' object.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   * @param moveSpeed - User-configured movement speed multiplier.
+   * @param deadzone - Axis and trigger dead zone threshold.
+   * @param axisMoveForward - Axis index for forward and backward movement.
+   * @param axisMoveRight - Axis index for right and left strafe movement.
+   * @param buttonMoveUp - Button index for upward movement.
+   * @param buttonMoveDown - Button index for downward movement.
+   */
   #applyMovement(
     deltaTime: number,
     gamepad: Gamepad,
@@ -224,6 +255,16 @@ export class GamepadFirstPersonControls extends GamepadControls {
     }
   }
 
+  /**
+   * Applies camera look input while keeping FirstPersonControls state in sync.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   * @param gamepad - Fresh gamepad snapshot to read from.
+   * @param lookSpeed - User-configured look speed multiplier.
+   * @param deadzone - Axis dead zone threshold.
+   * @param axisLookX - Axis index for yaw input.
+   * @param axisLookY - Axis index for pitch input.
+   */
   #applyLook(
     deltaTime: number,
     gamepad: Gamepad,
@@ -284,7 +325,12 @@ export class GamepadFirstPersonControls extends GamepadControls {
     controls._lon = lon;
   }
 
-  #getOrientation(): { lat: number; lon: number } {
+  /**
+   * Reads the current FirstPersonControls orientation, deriving it if needed.
+   *
+   * @returns Current latitude and longitude in degrees.
+   */
+  #getOrientation(): FirstPersonOrientation {
     const { _lat, _lon } = this.#controls;
 
     if (Number.isFinite(_lat) && Number.isFinite(_lon)) {
