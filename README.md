@@ -37,6 +37,7 @@ bun add three-gamepad-controls
 ## 📖 Documentation
 
 - [Core](./docs/core.md) — The fundamental building blocks.
+- [GamepadInput](./docs/gamepad-input.md) - Gamepad input state reader for gameplay and menus.
 - [GamepadControls](./docs/gamepad-controls.md) — Abstract base class for custom gamepad controls.
 - [GamepadArcballControls](./docs/gamepad-arcball-controls.md) - Gamepad support for `ArcballControls`.
 - [GamepadDragControls](./docs/gamepad-drag-controls.md) - Gamepad support for `DragControls`.
