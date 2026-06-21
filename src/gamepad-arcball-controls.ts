@@ -9,11 +9,6 @@ import type { ArcballControls } from "three/addons/controls/ArcballControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
-import {
-  applyGamepadDeadzone,
-  getGamepadButtonPressed,
-  getGamepadButtonValue,
-} from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadArcballControls}.
@@ -253,7 +248,6 @@ export class GamepadArcballControls extends GamepadControls {
   readonly #cameraRight: Vector3;
   readonly #previousUp: Vector3;
 
-  #focusButtonPressed = false;
   #wasInteracting = false;
 
   /**
@@ -286,9 +280,8 @@ export class GamepadArcballControls extends GamepadControls {
    * z-rotation, and center focus.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot provided by the base class.
    */
-  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
+  protected override onUpdate(deltaTime: number): void {
     const controls = this.#controls;
     const {
       rotateSpeed,
@@ -306,8 +299,9 @@ export class GamepadArcballControls extends GamepadControls {
       buttonZRotateRight,
       buttonFocus,
     } = this.#options;
+    const input = this.gamepadInput;
 
-    const focusPoint = this.#consumeFocusPoint(gamepad, buttonFocus);
+    const focusPoint = this.#consumeFocusPoint(buttonFocus);
 
     if (!controls.enabled) {
       this.#endInteraction();
@@ -315,24 +309,19 @@ export class GamepadArcballControls extends GamepadControls {
     }
 
     const rotateX = controls.enableRotate
-      ? applyGamepadDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone)
+      ? input.axis(axisRotateX, { deadzone })
       : 0;
     const rotateY = controls.enableRotate
-      ? applyGamepadDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone)
+      ? input.axis(axisRotateY, { deadzone })
       : 0;
-    const panX = controls.enablePan
-      ? applyGamepadDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone)
-      : 0;
-    const panY = controls.enablePan
-      ? applyGamepadDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone)
-      : 0;
+    const panX = controls.enablePan ? input.axis(axisPanX, { deadzone }) : 0;
+    const panY = controls.enablePan ? input.axis(axisPanY, { deadzone }) : 0;
     const zoom = controls.enableZoom
-      ? getGamepadButtonValue(gamepad, buttonZoomIn) -
-        getGamepadButtonValue(gamepad, buttonZoomOut)
+      ? input.buttonValue(buttonZoomIn) - input.buttonValue(buttonZoomOut)
       : 0;
     const zRotation = controls.enableRotate
-      ? getGamepadButtonValue(gamepad, buttonZRotateLeft) -
-        getGamepadButtonValue(gamepad, buttonZRotateRight)
+      ? input.buttonValue(buttonZRotateLeft) -
+        input.buttonValue(buttonZRotateRight)
       : 0;
 
     const activeInput =
@@ -583,15 +572,12 @@ export class GamepadArcballControls extends GamepadControls {
   /**
    * Consumes a focus-button press and resolves the viewport center hit point.
    *
-   * @param gamepad - Fresh gamepad snapshot to read from.
    * @param buttonFocus - Button index configured for focus.
    * @returns The center hit point, or `null` when focus should not run.
    */
-  #consumeFocusPoint(gamepad: Gamepad, buttonFocus: number): Vector3 | null {
+  #consumeFocusPoint(buttonFocus: number): Vector3 | null {
     const controls = this.#controls;
-    const focusPressed = getGamepadButtonPressed(gamepad, buttonFocus);
-    const shouldFocus = focusPressed && !this.#focusButtonPressed;
-    this.#focusButtonPressed = focusPressed;
+    const shouldFocus = this.gamepadInput.wasPressed(buttonFocus);
 
     if (
       !shouldFocus ||

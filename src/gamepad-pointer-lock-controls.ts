@@ -3,7 +3,6 @@ import type { PointerLockControls } from "three/addons/controls/PointerLockContr
 
 import { GAMEPAD_AXIS } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
-import { applyGamepadDeadzone } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadPointerLockControls}.
@@ -103,9 +102,8 @@ export class GamepadPointerLockControls extends GamepadControls {
    * Maps the current gamepad state to `PointerLockControls` movement and look.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot provided by the base class.
    */
-  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
+  protected override onUpdate(deltaTime: number): void {
     const {
       moveSpeed,
       lookSpeed,
@@ -115,17 +113,12 @@ export class GamepadPointerLockControls extends GamepadControls {
       axisLookX,
       axisLookY,
     } = this.#options;
+    const input = this.gamepadInput;
 
     // --- Movement (left stick by default) ------------------------------------
     // Negate the forward axis: stick-up = negative Y value = move forward.
-    const fwd = applyGamepadDeadzone(
-      gamepad.axes[axisMoveForward] ?? 0,
-      deadzone,
-    );
-    const strafe = applyGamepadDeadzone(
-      gamepad.axes[axisMoveRight] ?? 0,
-      deadzone,
-    );
+    const fwd = input.axis(axisMoveForward, { deadzone });
+    const strafe = input.axis(axisMoveRight, { deadzone });
 
     if (fwd !== 0) {
       this.#controls.moveForward(-fwd * moveSpeed * deltaTime);
@@ -140,8 +133,8 @@ export class GamepadPointerLockControls extends GamepadControls {
     // yaw (Y) and pitch (X) deltas, clamp pitch to polar angle constraints,
     // then write the quaternion back. The #euler instance is reused to avoid
     // allocations every frame.
-    const lookX = applyGamepadDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
-    const lookY = applyGamepadDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
+    const lookX = input.axis(axisLookX, { deadzone });
+    const lookY = input.axis(axisLookY, { deadzone });
 
     if (lookX !== 0 || lookY !== 0) {
       const camera = this.#controls.object;

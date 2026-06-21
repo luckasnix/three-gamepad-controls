@@ -3,7 +3,6 @@ import type { FirstPersonControls } from "three/addons/controls/FirstPersonContr
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
-import { applyGamepadDeadzone, getGamepadButtonValue } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadFirstPersonControls}.
@@ -149,9 +148,8 @@ export class GamepadFirstPersonControls extends GamepadControls {
    * Maps the current gamepad state to `FirstPersonControls` translation and look.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot provided by the base class.
    */
-  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
+  protected override onUpdate(deltaTime: number): void {
     const {
       moveSpeed,
       lookSpeed,
@@ -166,7 +164,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
 
     this.#applyMovement(
       deltaTime,
-      gamepad,
       moveSpeed,
       deadzone,
       axisMoveForward,
@@ -175,21 +172,13 @@ export class GamepadFirstPersonControls extends GamepadControls {
       buttonMoveDown,
     );
 
-    this.#applyLook(
-      deltaTime,
-      gamepad,
-      lookSpeed,
-      deadzone,
-      axisLookX,
-      axisLookY,
-    );
+    this.#applyLook(deltaTime, lookSpeed, deadzone, axisLookX, axisLookY);
   }
 
   /**
    * Applies local translation input to FirstPersonControls' object.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot to read from.
    * @param moveSpeed - User-configured movement speed multiplier.
    * @param deadzone - Axis and trigger dead zone threshold.
    * @param axisMoveForward - Axis index for forward and backward movement.
@@ -199,7 +188,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
    */
   #applyMovement(
     deltaTime: number,
-    gamepad: Gamepad,
     moveSpeed: number,
     deadzone: number,
     axisMoveForward: number,
@@ -208,14 +196,12 @@ export class GamepadFirstPersonControls extends GamepadControls {
     buttonMoveDown: number,
   ): void {
     const controls = this.#controls;
+    const input = this.gamepadInput;
     const moveMult = deltaTime * controls.movementSpeed * moveSpeed;
 
     // Forward / backward - left stick Y.
     // Stick up produces a negative axis value, which maps directly to local -Z.
-    const forward = applyGamepadDeadzone(
-      gamepad.axes[axisMoveForward] ?? 0,
-      deadzone,
-    );
+    const forward = input.axis(axisMoveForward, { deadzone });
     if (forward !== 0) {
       let distance = forward * moveMult;
 
@@ -235,17 +221,14 @@ export class GamepadFirstPersonControls extends GamepadControls {
 
     // Strafe left / right - left stick X.
     // Positive axis value (stick right) -> translateX positive -> move right.
-    const strafe = applyGamepadDeadzone(
-      gamepad.axes[axisMoveRight] ?? 0,
-      deadzone,
-    );
+    const strafe = input.axis(axisMoveRight, { deadzone });
     if (strafe !== 0) {
       controls.object.translateX(strafe * moveMult);
     }
 
     // Move up / down - analog triggers (button value in [0, 1]).
-    const up = getGamepadButtonValue(gamepad, buttonMoveUp);
-    const down = getGamepadButtonValue(gamepad, buttonMoveDown);
+    const up = input.buttonValue(buttonMoveUp);
+    const down = input.buttonValue(buttonMoveDown);
 
     if (up > deadzone) {
       controls.object.translateY(up * moveMult);
@@ -259,7 +242,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
    * Applies camera look input while keeping FirstPersonControls state in sync.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot to read from.
    * @param lookSpeed - User-configured look speed multiplier.
    * @param deadzone - Axis dead zone threshold.
    * @param axisLookX - Axis index for yaw input.
@@ -267,14 +249,14 @@ export class GamepadFirstPersonControls extends GamepadControls {
    */
   #applyLook(
     deltaTime: number,
-    gamepad: Gamepad,
     lookSpeed: number,
     deadzone: number,
     axisLookX: number,
     axisLookY: number,
   ): void {
-    const lookX = applyGamepadDeadzone(gamepad.axes[axisLookX] ?? 0, deadzone);
-    const lookY = applyGamepadDeadzone(gamepad.axes[axisLookY] ?? 0, deadzone);
+    const input = this.gamepadInput;
+    const lookX = input.axis(axisLookX, { deadzone });
+    const lookY = input.axis(axisLookY, { deadzone });
 
     if (lookX === 0 && lookY === 0) {
       return;

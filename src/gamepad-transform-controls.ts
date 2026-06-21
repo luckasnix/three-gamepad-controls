@@ -15,7 +15,6 @@ import type {
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
-import { applyGamepadDeadzone, getGamepadButtonPressed } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadTransformControls}.
@@ -256,7 +255,6 @@ export class GamepadTransformControls extends GamepadControls {
   readonly #controls: RuntimeTransformControls;
   readonly #options: GamepadTransformControlsOptions;
 
-  readonly #pressedButtons: Set<number>;
   readonly #activeAxisByMode: Record<
     TransformControlsMode,
     TransformAxis | null
@@ -313,7 +311,6 @@ export class GamepadTransformControls extends GamepadControls {
       ...options,
     };
 
-    this.#pressedButtons = new Set();
     this.#activeAxisByMode = {
       translate: "X",
       rotate: "X",
@@ -356,10 +353,9 @@ export class GamepadTransformControls extends GamepadControls {
    * translate, rotate, scale, and reset behavior.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot provided by the base class.
    */
-  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
-    const startedButtons = this.#getStartedButtons(gamepad);
+  protected override onUpdate(deltaTime: number): void {
+    const startedButtons = this.#getStartedButtons();
 
     this.#handleModeAndAxisButtons(startedButtons);
 
@@ -381,14 +377,12 @@ export class GamepadTransformControls extends GamepadControls {
       return;
     }
 
-    const transformX = applyGamepadDeadzone(
-      gamepad.axes[this.#options.axisTransformX] ?? 0,
-      this.#options.deadzone,
-    );
-    const transformY = applyGamepadDeadzone(
-      gamepad.axes[this.#options.axisTransformY] ?? 0,
-      this.#options.deadzone,
-    );
+    const transformX = this.gamepadInput.axis(this.#options.axisTransformX, {
+      deadzone: this.#options.deadzone,
+    });
+    const transformY = this.gamepadInput.axis(this.#options.axisTransformY, {
+      deadzone: this.#options.deadzone,
+    });
 
     if (transformX === 0 && transformY === 0) {
       this.#endTransform(false);
@@ -410,7 +404,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   public override dispose(): void {
     this.#endTransform(true);
-    this.#pressedButtons.clear();
     super.dispose();
   }
 
@@ -421,7 +414,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   protected override onGamepadDisconnected(gamepad: Gamepad): void {
     this.#endTransform(true);
-    this.#pressedButtons.clear();
     super.onGamepadDisconnected(gamepad);
   }
 
@@ -1511,26 +1503,30 @@ export class GamepadTransformControls extends GamepadControls {
   }
 
   /**
-   * Tracks pressed buttons and returns those newly pressed this frame.
+   * Returns configured button indices that were newly pressed this frame.
    *
-   * @param gamepad - Fresh gamepad snapshot to read from.
    * @returns Button indices that transitioned to pressed.
    */
-  #getStartedButtons(gamepad: Gamepad): Set<number> {
+  #getStartedButtons(): Set<number> {
     const startedButtons = new Set<number>();
+    const input = this.gamepadInput;
+    const buttons = [
+      this.#options.buttonTranslate,
+      this.#options.buttonRotate,
+      this.#options.buttonScale,
+      this.#options.buttonToggleSpace,
+      this.#options.buttonAxisX,
+      this.#options.buttonAxisY,
+      this.#options.buttonAxisZ,
+      this.#options.buttonAxisComposite,
+      this.#options.buttonAxisPrevious,
+      this.#options.buttonAxisNext,
+      this.#options.buttonReset,
+    ];
 
-    for (let index = 0; index < gamepad.buttons.length; index += 1) {
-      const pressed = getGamepadButtonPressed(gamepad, index);
-      const wasPressed = this.#pressedButtons.has(index);
-
-      if (pressed) {
-        this.#pressedButtons.add(index);
-
-        if (!wasPressed) {
-          startedButtons.add(index);
-        }
-      } else {
-        this.#pressedButtons.delete(index);
+    for (const button of buttons) {
+      if (input.wasPressed(button)) {
+        startedButtons.add(button);
       }
     }
 

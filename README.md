@@ -2,6 +2,20 @@
 
 Gamepad support for [Three.js](https://threejs.org) controls, built on top of [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API).
 
+## Architecture
+
+```mermaid
+flowchart TD
+  GamepadManager["GamepadManager<br/>(internal polling and active device lifecycle)"]
+  GamepadInput["GamepadInput<br/>(public low-level input state)"]
+  GamepadControls["GamepadControls<br/>(abstract Three.js wrapper base)"]
+  Wrappers["Specific wrappers<br/>(Orbit, Map, Fly, Transform, etc.)"]
+
+  GamepadManager --> GamepadInput
+  GamepadInput --> GamepadControls
+  GamepadControls --> Wrappers
+```
+
 ## 📦 Installation
 
 npm:

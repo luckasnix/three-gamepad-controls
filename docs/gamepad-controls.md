@@ -2,7 +2,7 @@
 
 Abstract base class for all [Three.js](https://threejs.org) gamepad control wrappers.
 
-`GamepadControls` handles the full lifecycle of the [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) — listening for connect/disconnect events, polling the active gamepad each frame, and dispatching typed events — so that subclasses only need to implement the input → action mapping.
+`GamepadControls` delegates the [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle and per-frame input state to [`GamepadInput`](./gamepad-input.md). Subclasses only need to map the active input state to the wrapped Three.js control.
 
 It extends Three.js `EventDispatcher` to stay idiomatic with the rest of the Three.js controls ecosystem.
 
@@ -11,7 +11,7 @@ It extends Three.js `EventDispatcher` to stay idiomatic with the rest of the Thr
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `true` | When `false`, all input processing is paused. |
-| `gamepad` | `Gamepad \| null` | `null`  | The currently active gamepad, or `null` if not connected. By default, this is the first gamepad that connects. Override [`onGamepadConnected`](#ongamepadconnectedgamepad) to customize this behavior. |
+| `gamepad` | `Gamepad \| null` | `null` | The currently active gamepad, or `null` if not connected. By default, this is the first gamepad that connects. |
 
 ## Methods
 
@@ -19,9 +19,7 @@ It extends Three.js `EventDispatcher` to stay idiomatic with the rest of the Thr
 
 Advances the controller by one frame. Call this inside your render loop **before** the underlying Three.js control's own `update()`.
 
-The Web Gamepad API is snapshot-based: the browser only updates gamepad state when you call `navigator.getGamepads()`, so polling here — rather than caching a stale reference — is required.
-
-If no active gamepad has been selected yet, `update()` also checks for an already-connected gamepad and adopts the first connected device. This covers controllers that were plugged in before the wrapper was constructed or before a `gamepadconnected` event reached the page.
+`update()` delegates polling to the internal `GamepadInput`, refreshes the active gamepad snapshot, and then calls `onUpdate(deltaTime)` when a gamepad is available.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -29,52 +27,61 @@ If no active gamepad has been selected yet, `update()` also checks for an alread
 
 ### `dispose()`
 
-Removes all window-level event listeners attached by this controller. Call this when the controller is no longer needed to prevent memory leaks. After `dispose()`, `update()` becomes a no-op regardless of whether a gamepad is connected.
+Removes all gamepad input listeners attached by this controller. Call this when the controller is no longer needed to prevent memory leaks. After `dispose()`, `update()` becomes a no-op regardless of whether a gamepad is connected.
 
 ## Events
 
 | Event | Extra fields | Description |
 | --- | --- | --- |
-| `connected`    | `gamepad: Gamepad` | Fired when a gamepad connects and becomes active. |
-| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects.        |
+| `connected` | `gamepad: Gamepad` | Fired when a gamepad connects and becomes active. |
+| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects. |
 
 ## Hooks
 
-### `onUpdate(deltaTime, gamepad)`
+### `gamepadInput`
 
-**Abstract.** Called every frame when a gamepad is available and `enabled` is `true`. This is the only method subclasses are required to implement — map `gamepad` buttons and axes to the wrapped Three.js control here.
+Protected getter that exposes the shared `GamepadInput` used by the control wrapper. Use it inside subclasses to read buttons, button transitions, axes, sticks, and analog button values without polling the browser directly.
+
+### `onUpdate(deltaTime)`
+
+**Abstract.** Called every frame when a gamepad is available and `enabled` is `true`. This is the only method subclasses are required to implement.
+
+Prefer reading input through `this.gamepadInput` inside this hook. Use `this.gamepad` only when you need raw snapshot access.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `deltaTime` | `number` | Seconds since the last frame. |
-| `gamepad` | `Gamepad` | Fresh snapshot of the active gamepad. |
 
 ### `onGamepadConnected(gamepad)`
 
-Called whenever any gamepad fires a `gamepadconnected` browser event. The default implementation accepts the **first** gamepad that connects, dispatches `connected`, and ignores all subsequent ones. Override this if you need different selection behavior (e.g., always use player index 0, or show a "press any button to join" UI).
+Called when `GamepadInput` adopts a gamepad as active. The default implementation dispatches `connected`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `gamepad` | `Gamepad` | The gamepad that just connected. |
+| `gamepad` | `Gamepad` | The gamepad that became active. |
 
 ### `onGamepadDisconnected(gamepad)`
 
-Called whenever any gamepad fires a `gamepaddisconnected` browser event. The default clears `this.gamepad` and dispatches a `disconnected` event if the disconnecting gamepad was the active one. Override to add custom cleanup logic.
+Called when the active gamepad disconnects. The default implementation dispatches `disconnected`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `gamepad` | `Gamepad` | The gamepad that just disconnected. |
+| `gamepad` | `Gamepad` | The gamepad that was active before disconnection. |
 
 ## Usage
 
-Extend `GamepadControls` and implement `onUpdate(deltaTime, gamepad)`:
+Extend `GamepadControls` and implement `onUpdate(deltaTime)`:
 
 ```ts
 import { Timer } from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { GamepadControls } from "three-gamepad-controls";
+import {
+  GAMEPAD_AXIS,
+  GAMEPAD_BUTTON,
+  GamepadControls,
+} from "three-gamepad-controls";
 
-class GamepadOrbitControls extends GamepadControls {
+class CustomGamepadOrbitControls extends GamepadControls {
   readonly #controls: OrbitControls;
 
   constructor(controls: OrbitControls) {
@@ -82,13 +89,22 @@ class GamepadOrbitControls extends GamepadControls {
     this.#controls = controls;
   }
 
-  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
-    // Map buttons and axes to `this.#controls` here
+  protected override onUpdate(deltaTime: number): void {
+    const rotateX = this.gamepadInput.axis(GAMEPAD_AXIS.LeftX);
+    const dollyIn = this.gamepadInput.buttonValue(GAMEPAD_BUTTON.RightTrigger);
+
+    if (rotateX !== 0) {
+      this.#controls.rotateLeft(rotateX * deltaTime * Math.PI);
+    }
+
+    if (dollyIn > 0.1) {
+      this.#controls.dollyIn(1 / (1 + dollyIn * deltaTime));
+    }
   }
 }
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
-const gamepadOrbitControls = new GamepadOrbitControls(orbitControls);
+const gamepadOrbitControls = new CustomGamepadOrbitControls(orbitControls);
 
 gamepadOrbitControls.addEventListener("connected", (event) => {
   console.log("Gamepad ready:", event.gamepad.id);
@@ -99,8 +115,8 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
-  gamepadOrbitControls.update(delta); // 1. read gamepad → queue deltas
-  orbitControls.update(delta);        // 2. apply damping + flush queued deltas
+  gamepadOrbitControls.update(delta);
+  orbitControls.update(delta);
   renderer.render(scene, camera);
 });
 

@@ -12,7 +12,6 @@ import type { DragControls } from "three/addons/controls/DragControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
-import { applyGamepadDeadzone, getGamepadButtonPressed } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadDragControls}.
@@ -121,7 +120,6 @@ export class GamepadDragControls extends GamepadControls {
 
   #hovered: Object3D | null = null;
   #selected: Object3D | null = null;
-  #selectButtonPressed = false;
 
   /**
    * @param controls - A Three.js `DragControls` instance.
@@ -157,16 +155,12 @@ export class GamepadDragControls extends GamepadControls {
    * and rotate behavior.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot provided by the base class.
    */
-  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
+  protected override onUpdate(deltaTime: number): void {
     const controls = this.#controls;
-    const selectPressed = getGamepadButtonPressed(
-      gamepad,
+    const selectStarted = this.gamepadInput.wasPressed(
       this.#options.buttonSelect,
     );
-    const selectStarted = selectPressed && !this.#selectButtonPressed;
-    this.#selectButtonPressed = selectPressed;
 
     if (!controls.enabled) {
       this.#releaseSelected();
@@ -180,7 +174,7 @@ export class GamepadDragControls extends GamepadControls {
         return;
       }
 
-      this.#updateSelected(deltaTime, gamepad);
+      this.#updateSelected(deltaTime);
       return;
     }
 
@@ -217,9 +211,8 @@ export class GamepadDragControls extends GamepadControls {
    * Updates the selected object from gamepad drag and rotation input.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot to read from.
    */
-  #updateSelected(deltaTime: number, gamepad: Gamepad): void {
+  #updateSelected(deltaTime: number): void {
     const selected = this.#selected;
 
     if (selected === null) {
@@ -235,17 +228,12 @@ export class GamepadDragControls extends GamepadControls {
       axisRotateX,
       axisRotateY,
     } = this.#options;
+    const input = this.gamepadInput;
 
-    const dragX = applyGamepadDeadzone(gamepad.axes[axisDragX] ?? 0, deadzone);
-    const dragY = applyGamepadDeadzone(gamepad.axes[axisDragY] ?? 0, deadzone);
-    const rotateX = applyGamepadDeadzone(
-      gamepad.axes[axisRotateX] ?? 0,
-      deadzone,
-    );
-    const rotateY = applyGamepadDeadzone(
-      gamepad.axes[axisRotateY] ?? 0,
-      deadzone,
-    );
+    const dragX = input.axis(axisDragX, { deadzone });
+    const dragY = input.axis(axisDragY, { deadzone });
+    const rotateX = input.axis(axisRotateX, { deadzone });
+    const rotateY = input.axis(axisRotateY, { deadzone });
 
     const dragged = this.#applyDrag(deltaTime, dragX, dragY, dragSpeed);
     const rotated = this.#applyRotation(

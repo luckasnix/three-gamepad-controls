@@ -1,6 +1,31 @@
 import { EventDispatcher } from "three";
 
-import { GamepadManager } from "./gamepad-manager.ts";
+import { GamepadInput, type GamepadInputEventMap } from "./gamepad-input.ts";
+
+/**
+ * Internal listener payload for `GamepadInput` connection events.
+ *
+ * `GamepadInputEventMap` stores only event-specific fields. Three.js
+ * `EventDispatcher` listeners receive those fields plus `type` and `target`,
+ * so this alias keeps the private bridge from `GamepadInput` to
+ * `GamepadControls` fully typed without exporting another public event shape.
+ */
+type GamepadInputConnectedEvent = GamepadInputEventMap["connected"] & {
+  readonly type: "connected";
+  readonly target: GamepadInput;
+};
+
+/**
+ * Internal listener payload for `GamepadInput` disconnection events.
+ *
+ * Kept private for the same reason as {@link GamepadInputConnectedEvent}: users
+ * should consume `GamepadInputEventMap`, `GamepadControlsEventMap`, or the
+ * protected lifecycle hooks instead of this implementation detail.
+ */
+type GamepadInputDisconnectedEvent = GamepadInputEventMap["disconnected"] & {
+  readonly type: "disconnected";
+  readonly target: GamepadInput;
+};
 
 /**
  * Event map for {@link GamepadControls}.
@@ -33,8 +58,8 @@ export type GamepadControlsEventMap = {
 /**
  * Abstract base class for Three.js gamepad controls.
  *
- * Handles the gamepad connection lifecycle and input polling so subclasses
- * only need to implement {@link onUpdate}.
+ * Delegates gamepad connection lifecycle and input polling to {@link GamepadInput}
+ * so subclasses can focus on mapping input to the wrapped Three.js control.
  */
 export abstract class GamepadControls extends EventDispatcher<GamepadControlsEventMap> {
   /**
@@ -48,49 +73,64 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    */
   public gamepad: Gamepad | null = null;
 
-  readonly #manager: GamepadManager;
+  readonly #gamepadInput: GamepadInput;
 
   /**
-   * Bound browser connection listener kept so it can be removed in {@link dispose}.
+   * Bound input connection listener kept so it can be removed in {@link dispose}.
    */
-  readonly #onGamepadConnected: (event: GamepadEvent) => void;
+  readonly #onGamepadConnected: (event: GamepadInputConnectedEvent) => void;
 
   /**
-   * Bound browser disconnection listener kept so it can be removed in {@link dispose}.
+   * Bound input disconnection listener kept so it can be removed in {@link dispose}.
    */
-  readonly #onGamepadDisconnected: (event: GamepadEvent) => void;
+  readonly #onGamepadDisconnected: (
+    event: GamepadInputDisconnectedEvent,
+  ) => void;
 
   /**
-   * Creates the base gamepad lifecycle manager and attaches browser listeners.
+   * Creates the base input reader and attaches lifecycle listeners.
    */
   constructor() {
     super();
 
-    this.#manager = new GamepadManager();
+    this.#gamepadInput = new GamepadInput();
 
-    this.#onGamepadConnected = this.#handleGamepadConnectedEvent.bind(this);
-    this.#onGamepadDisconnected =
-      this.#handleGamepadDisconnectedEvent.bind(this);
+    this.#onGamepadConnected = this.#handleGamepadConnected.bind(this);
+    this.#onGamepadDisconnected = this.#handleGamepadDisconnected.bind(this);
 
-    window.addEventListener("gamepadconnected", this.#onGamepadConnected);
-    window.addEventListener("gamepaddisconnected", this.#onGamepadDisconnected);
+    this.#gamepadInput.addEventListener("connected", this.#onGamepadConnected);
+    this.#gamepadInput.addEventListener(
+      "disconnected",
+      this.#onGamepadDisconnected,
+    );
   }
 
   /**
-   * Forwards a browser connection event to the overridable lifecycle hook.
+   * Low-level gamepad input reader used by subclasses.
    *
-   * @param event - Browser event containing the connected gamepad snapshot.
+   * @returns The shared input reader for the active gamepad.
    */
-  #handleGamepadConnectedEvent(event: GamepadEvent): void {
+  protected get gamepadInput(): GamepadInput {
+    return this.#gamepadInput;
+  }
+
+  /**
+   * Forwards an input connection event to the overridable lifecycle hook.
+   *
+   * @param event - Input event containing the connected gamepad snapshot.
+   */
+  #handleGamepadConnected(event: GamepadInputConnectedEvent): void {
+    this.gamepad = this.#gamepadInput.gamepad;
     this.onGamepadConnected(event.gamepad);
   }
 
   /**
-   * Forwards a browser disconnection event to the overridable lifecycle hook.
+   * Forwards an input disconnection event to the overridable lifecycle hook.
    *
-   * @param event - Browser event containing the disconnected gamepad snapshot.
+   * @param event - Input event containing the disconnected gamepad snapshot.
    */
-  #handleGamepadDisconnectedEvent(event: GamepadEvent): void {
+  #handleGamepadDisconnected(event: GamepadInputDisconnectedEvent): void {
+    this.gamepad = this.#gamepadInput.gamepad;
     this.onGamepadDisconnected(event.gamepad);
   }
 
@@ -104,41 +144,30 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
       return;
     }
 
-    this.#manager.activeGamepad = this.gamepad;
-    const { gamepad, connected, disconnected } = this.#manager.update();
-
-    if (connected !== null) {
-      this.#manager.activeGamepad = this.gamepad;
-      this.onGamepadConnected(connected);
-      this.#manager.activeGamepad = this.gamepad;
-    } else if (disconnected !== null) {
-      this.#manager.activeGamepad = this.gamepad;
-      this.onGamepadDisconnected(disconnected);
-      this.#manager.activeGamepad = this.gamepad;
-      return;
-    } else {
-      this.gamepad = gamepad;
-      this.#manager.activeGamepad = this.gamepad;
-    }
+    this.#gamepadInput.update();
+    this.gamepad = this.#gamepadInput.gamepad;
 
     if (this.gamepad === null) {
       return;
     }
 
-    this.onUpdate(deltaTime, this.gamepad);
+    this.onUpdate(deltaTime);
   }
 
   /**
    * Removes all event listeners attached by this controller. Call when no longer needed.
    */
   public dispose(): void {
-    window.removeEventListener("gamepadconnected", this.#onGamepadConnected);
-    window.removeEventListener(
-      "gamepaddisconnected",
+    this.#gamepadInput.removeEventListener(
+      "connected",
+      this.#onGamepadConnected,
+    );
+    this.#gamepadInput.removeEventListener(
+      "disconnected",
       this.#onGamepadDisconnected,
     );
+    this.#gamepadInput.dispose();
     this.gamepad = null;
-    this.#manager.activeGamepad = null;
     this.enabled = false;
   }
 
@@ -146,59 +175,34 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    * Called every frame when a gamepad is available and `enabled` is `true`.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - A fresh snapshot of the currently active gamepad.
    */
-  protected abstract onUpdate(deltaTime: number, gamepad: Gamepad): void;
+  protected abstract onUpdate(deltaTime: number): void;
 
   /**
-   * Called when any gamepad fires a `gamepadconnected` event.
+   * Called when a gamepad becomes active through the shared input reader.
    *
-   * The default accepts the first gamepad that connects and dispatches `connected`.
-   * Override to customize selection behavior.
+   * The default dispatches a `connected` event.
    *
-   * @param gamepad - The gamepad that just connected.
+   * @param gamepad - The gamepad that became active.
    */
   protected onGamepadConnected(gamepad: Gamepad): void {
-    // Accept only the first gamepad, ignoring any additional ones.
-    this.#manager.activeGamepad = this.gamepad;
-
-    if (!this.#manager.connect(gamepad)) {
-      return;
-    }
-
-    const connectedGamepad = this.#manager.activeGamepad;
-
-    if (connectedGamepad === null) {
-      return;
-    }
-
-    this.gamepad = connectedGamepad;
     this.dispatchEvent({
       type: "connected",
-      gamepad: connectedGamepad,
+      gamepad,
     });
   }
 
   /**
-   * Called when any gamepad fires a `gamepaddisconnected` event.
+   * Called when the active gamepad disconnects through the shared input reader.
    *
-   * The default clears `this.gamepad` and dispatches `disconnected` if the
-   * disconnecting gamepad was the active one. Override to add custom cleanup.
+   * The default dispatches a `disconnected` event.
    *
-   * @param gamepad - The gamepad that just disconnected.
+   * @param gamepad - The gamepad that was active before disconnection.
    */
   protected onGamepadDisconnected(gamepad: Gamepad): void {
-    this.#manager.activeGamepad = this.gamepad;
-    const disconnectedGamepad = this.#manager.disconnect(gamepad);
-
-    if (disconnectedGamepad === null) {
-      return;
-    }
-
-    this.gamepad = this.#manager.activeGamepad;
     this.dispatchEvent({
       type: "disconnected",
-      gamepad: disconnectedGamepad,
+      gamepad,
     });
   }
 }

@@ -3,7 +3,6 @@ import type { TrackballControls } from "three/addons/controls/TrackballControls.
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
 import { GamepadControls } from "./gamepad-controls.ts";
-import { applyGamepadDeadzone, getGamepadButtonValue } from "./utils.ts";
 
 /**
  * Configuration for {@link GamepadTrackballControls}.
@@ -156,9 +155,8 @@ export class GamepadTrackballControls extends GamepadControls {
    * Maps the current gamepad state to `TrackballControls` rotation, pan, and zoom.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot provided by the base class.
    */
-  protected override onUpdate(deltaTime: number, gamepad: Gamepad): void {
+  protected override onUpdate(deltaTime: number): void {
     const {
       rotateSpeed,
       panSpeed,
@@ -174,16 +172,14 @@ export class GamepadTrackballControls extends GamepadControls {
 
     this.#queueRotation(
       deltaTime,
-      gamepad,
       rotateSpeed,
       deadzone,
       axisRotateX,
       axisRotateY,
     );
-    this.#queuePan(deltaTime, gamepad, panSpeed, deadzone, axisPanX, axisPanY);
+    this.#queuePan(deltaTime, panSpeed, deadzone, axisPanX, axisPanY);
     this.#queueZoom(
       deltaTime,
-      gamepad,
       zoomSpeed,
       deadzone,
       buttonZoomIn,
@@ -195,7 +191,6 @@ export class GamepadTrackballControls extends GamepadControls {
    * Queues rotation input into TrackballControls' normalized move state.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot to read from.
    * @param rotateSpeed - User-configured rotation speed multiplier.
    * @param deadzone - Axis dead zone threshold.
    * @param axisRotateX - Axis index for horizontal rotation.
@@ -203,7 +198,6 @@ export class GamepadTrackballControls extends GamepadControls {
    */
   #queueRotation(
     deltaTime: number,
-    gamepad: Gamepad,
     rotateSpeed: number,
     deadzone: number,
     axisRotateX: number,
@@ -217,8 +211,9 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    const rotX = applyGamepadDeadzone(gamepad.axes[axisRotateX] ?? 0, deadzone);
-    const rotY = applyGamepadDeadzone(gamepad.axes[axisRotateY] ?? 0, deadzone);
+    const input = this.gamepadInput;
+    const rotX = input.axis(axisRotateX, { deadzone });
+    const rotY = input.axis(axisRotateY, { deadzone });
 
     if (rotX === 0 && rotY === 0) {
       return;
@@ -235,7 +230,6 @@ export class GamepadTrackballControls extends GamepadControls {
    * Queues pan input into TrackballControls' normalized pan state.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot to read from.
    * @param panSpeed - User-configured pan speed multiplier.
    * @param deadzone - Axis dead zone threshold.
    * @param axisPanX - Axis index for horizontal panning.
@@ -243,7 +237,6 @@ export class GamepadTrackballControls extends GamepadControls {
    */
   #queuePan(
     deltaTime: number,
-    gamepad: Gamepad,
     panSpeed: number,
     deadzone: number,
     axisPanX: number,
@@ -256,8 +249,9 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    const panX = applyGamepadDeadzone(gamepad.axes[axisPanX] ?? 0, deadzone);
-    const panY = applyGamepadDeadzone(gamepad.axes[axisPanY] ?? 0, deadzone);
+    const input = this.gamepadInput;
+    const panX = input.axis(axisPanX, { deadzone });
+    const panY = input.axis(axisPanY, { deadzone });
 
     if (panX === 0 && panY === 0) {
       return;
@@ -272,7 +266,6 @@ export class GamepadTrackballControls extends GamepadControls {
    * Queues trigger zoom input into TrackballControls' normalized zoom state.
    *
    * @param deltaTime - Seconds since the last frame.
-   * @param gamepad - Fresh gamepad snapshot to read from.
    * @param zoomSpeed - User-configured zoom speed multiplier.
    * @param deadzone - Trigger dead zone threshold.
    * @param buttonZoomIn - Button index for zooming in.
@@ -280,7 +273,6 @@ export class GamepadTrackballControls extends GamepadControls {
    */
   #queueZoom(
     deltaTime: number,
-    gamepad: Gamepad,
     zoomSpeed: number,
     deadzone: number,
     buttonZoomIn: number,
@@ -293,8 +285,9 @@ export class GamepadTrackballControls extends GamepadControls {
       return;
     }
 
-    const triggerIn = getGamepadButtonValue(gamepad, buttonZoomIn);
-    const triggerOut = getGamepadButtonValue(gamepad, buttonZoomOut);
+    const input = this.gamepadInput;
+    const triggerIn = input.buttonValue(buttonZoomIn);
+    const triggerOut = input.buttonValue(buttonZoomOut);
 
     if (triggerIn <= deadzone && triggerOut <= deadzone) {
       return;
