@@ -64,14 +64,14 @@
     "@commitlint/config-conventional": "21.0.2",
     "@commitlint/types": "21.0.1",
     "@types/node": "24.13.2",
-    "@types/three": "0.184.1",
+    "@types/three": "0.184.0",
     "husky": "9.1.7",
     "three": "0.184.0",
     "tsdown": "0.22.2",
     "typescript": "6.0.3"
   },
   "peerDependencies": {
-    "@types/three": ">=0.184.1",
+    "@types/three": ">=0.184.0",
     "three": ">=0.184.0"
   }
 }
