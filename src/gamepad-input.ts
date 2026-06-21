@@ -1,11 +1,6 @@
 import { EventDispatcher } from "three";
 
 import { GamepadManager } from "./gamepad-manager.ts";
-import {
-  applyGamepadDeadzone,
-  getGamepadButtonPressed,
-  getGamepadButtonValue,
-} from "./utils.ts";
 
 /**
  * Event map for {@link GamepadInput}.
@@ -77,6 +72,57 @@ type SyncButtonStateOptions = {
 
 const DEFAULT_GAMEPAD_INPUT_OPTIONS: GamepadInputOptions = {
   deadzone: 0.1,
+};
+
+/**
+ * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
+ *
+ * Kept private to this module because `GamepadInput` is the only public API
+ * that currently exposes processed axis values.
+ *
+ * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
+ * @param threshold - Dead zone size; values below this magnitude are zeroed.
+ * @returns The original value when outside the dead zone, otherwise `0`.
+ */
+const applyGamepadDeadzone = (value: number, threshold: number): number => {
+  return Math.abs(value) < threshold ? 0 : value;
+};
+
+/**
+ * Returns whether a gamepad button is currently pressed.
+ *
+ * Missing buttons are treated as not pressed.
+ *
+ * @param gamepad - Gamepad snapshot to read from.
+ * @param button - Button index to inspect.
+ * @returns `true` when the button exists and is pressed, otherwise `false`.
+ */
+const getGamepadButtonPressed = (gamepad: Gamepad, button: number): boolean => {
+  return gamepad.buttons[button]?.pressed ?? false;
+};
+
+/**
+ * Returns the analog value for a gamepad button.
+ *
+ * Some digital buttons may report `pressed` without a meaningful non-zero
+ * `value`, so pressed buttons fall back to `1`.
+ *
+ * @param gamepad - Gamepad snapshot to read from.
+ * @param button - Button index to inspect.
+ * @returns The button value, `1` for pressed digital buttons, or `0` when unavailable.
+ */
+const getGamepadButtonValue = (gamepad: Gamepad, button: number): number => {
+  const gamepadButton = gamepad.buttons[button];
+
+  if (gamepadButton === undefined) {
+    return 0;
+  }
+
+  if (gamepadButton.value !== 0) {
+    return gamepadButton.value;
+  }
+
+  return gamepadButton.pressed ? 1 : 0;
 };
 
 /**
