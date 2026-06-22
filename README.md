@@ -13,31 +13,44 @@ Gamepad support for [Three.js](https://threejs.org) controls, built on top of [W
 npm:
 
 ```bash
-npm i three-gamepad-controls
+npm i three three-gamepad-controls
+npm i -D @types/three # optional: for TypeScript projects
 ```
 
 pnpm:
 
 ```bash
-pnpm add three-gamepad-controls
+pnpm add three three-gamepad-controls
+pnpm add -D @types/three # optional: for TypeScript projects
 ```
 
 Yarn:
 
 ```bash
-yarn add three-gamepad-controls
+yarn add three three-gamepad-controls
+yarn add -D @types/three # optional: for TypeScript projects
 ```
 
 Deno:
 
+When using `deno.json`, Deno stores dependencies in `imports` and does not separate `devDependencies`; `-D` only applies when writing to `package.json`.
+
 ```bash
-deno add npm:three-gamepad-controls
+# deno.json
+deno add three @types/three three-gamepad-controls
+```
+
+```bash
+# package.json
+deno add --package-json three three-gamepad-controls
+deno add --package-json -D @types/three # optional: for TypeScript projects
 ```
 
 Bun:
 
 ```bash
-bun add three-gamepad-controls
+bun add three three-gamepad-controls
+bun add -d @types/three # optional: for TypeScript projects
 ```
 
 ## 📖 Documentation
