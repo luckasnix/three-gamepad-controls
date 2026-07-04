@@ -4,9 +4,7 @@ Gamepad support for [Three.js](https://threejs.org) controls, built on top of [W
 
 ## Architecture
 
-<p align="center">
-  <img src="./assets/architecture-diagram.webp" width="800" alt="Architecture diagram" />
-</p>
+![Architecture diagram showing GamepadManager used by GamepadInput, GamepadInput used by GamepadControls, and specific wrappers extending GamepadControls.](./assets/architecture-diagram.webp "Three.js Gamepad Controls architecture")
 
 ## 📦 Installation
 
