@@ -34,6 +34,8 @@ Using this constant eliminates magic numbers from your codebase, making your inp
 | `DPadRight` | 15 | Right button in left cluster. |
 | `Home` | 16 | Center button in center cluster. |
 
+![Diagram of the standard gamepad mapping, labeling buttons 0 through 16.](../assets/standard-gamepad-mapping.webp "Standard gamepad mapping")
+
 ### `GAMEPAD_AXIS`
 
 An object containing the index mappings for standard analog stick axes.
