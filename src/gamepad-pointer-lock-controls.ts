@@ -2,14 +2,17 @@ import { Euler } from "three";
 import type { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 
 import { GAMEPAD_AXIS } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadPointerLockControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadPointerLockControlsOptions = {
+export type GamepadPointerLockControlsOptions = GamepadControlsOptions & {
   /**
    * Camera movement speed in world units per second at full stick deflection.
    * @default 5.0
@@ -53,9 +56,7 @@ export type GamepadPointerLockControlsOptions = {
   axisLookY: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_POINTER_LOCK_OPTIONS: GamepadPointerLockControlsOptions = {
   moveSpeed: 5.0,
   lookSpeed: 1.0,
@@ -89,7 +90,7 @@ export class GamepadPointerLockControls extends GamepadControls {
     controls: PointerLockControls,
     options?: Partial<GamepadPointerLockControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls;
     this.#options = {
       ...DEFAULT_POINTER_LOCK_OPTIONS,
@@ -115,7 +116,7 @@ export class GamepadPointerLockControls extends GamepadControls {
     } = this.#options;
     const input = this.gamepadInput;
 
-    // --- Movement (left stick by default) ------------------------------------
+    // Movement (left stick by default).
     // Negate the forward axis: stick-up = negative Y value = move forward.
     const fwd = input.axis(axisMoveForward, { deadzone });
     const strafe = input.axis(axisMoveRight, { deadzone });
@@ -127,7 +128,7 @@ export class GamepadPointerLockControls extends GamepadControls {
       this.#controls.moveRight(strafe * moveSpeed * deltaTime);
     }
 
-    // --- Look (right stick by default) ---------------------------------------
+    // Look (right stick by default).
     // PointerLockControls has no public rotate API, so we replicate its
     // internal logic: extract the camera quaternion into a YXZ Euler, apply
     // yaw (Y) and pitch (X) deltas, clamp pitch to polar angle constraints,

@@ -6,18 +6,28 @@ Abstract base class for all [Three.js](https://threejs.org) gamepad control wrap
 
 It extends Three.js `EventDispatcher` to stay idiomatic with the rest of the Three.js controls ecosystem.
 
+## Constructor
+
+Subclasses pass selection options to `super(options?)`.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
+
+`gamepadIndex` must be an integer from `0` through `2147483647`; any other value throws a `RangeError`. Selecting an explicit slot disables automatic fallback. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and examples using multiple controls.
+
 ## Properties
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `true` | When `false`, all input processing is paused. |
-| `gamepad` | `Gamepad \| null` | `null` | The currently active gamepad, or `null` if not connected. By default, this is the first gamepad that connects. |
+| `gamepad` | `Gamepad \| null` | `null` | The currently active gamepad, or `null` if not connected. By default, this is the connected gamepad with the lowest index. |
 
 ## Methods
 
 ### `update(deltaTime)`
 
-Advances the controller by one frame. Call this inside your render loop **before** the underlying Three.js control's own `update()`.
+Advances the controller by one frame. Call this inside your render loop. When the wrapped Three.js control has a per-frame `update()` method, call this first and then call the native method. See the individual wrapper documentation: `ArcballControls` does not need a per-frame native update, and `PointerLockControls` has no `update()` method.
 
 `update()` delegates polling to the internal `GamepadInput`, refreshes the active gamepad snapshot, and then calls `onUpdate(deltaTime)` when a gamepad is available.
 
@@ -29,12 +39,15 @@ Advances the controller by one frame. Call this inside your render loop **before
 
 Removes all gamepad input listeners attached by this controller. Call this when the controller is no longer needed to prevent memory leaks. After `dispose()`, `update()` becomes a no-op regardless of whether a gamepad is connected.
 
+This method does not dispose the wrapped Three.js control. The application owns
+that instance and must call its own `dispose()` separately.
+
 ## Events
 
 | Event | Extra fields | Description |
 | --- | --- | --- |
-| `connected` | `gamepad: Gamepad` | Fired when a gamepad connects and becomes active. |
-| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects. |
+| `connected` | `gamepad: Gamepad` | Fired when a gamepad is adopted as active. |
+| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects or is replaced in the same slot. |
 
 ## Hooks
 
@@ -74,22 +87,24 @@ Extend `GamepadControls` and implement `onUpdate(deltaTime)`:
 
 ```ts
 import { Timer } from "three";
-import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
   GamepadControls,
+  type GamepadControlsOptions,
 } from "three-gamepad-controls";
 
 class CustomGamepadOrbitControls extends GamepadControls {
   readonly #controls: OrbitControls;
 
-  constructor(controls: OrbitControls) {
-    super();
+  constructor(controls: OrbitControls, options?: GamepadControlsOptions) {
+    super(options);
     this.#controls = controls;
   }
 
   protected override onUpdate(deltaTime: number): void {
+    // `GamepadControls.update()` has already refreshed this input for the frame.
     const rotateX = this.gamepadInput.axis(GAMEPAD_AXIS.LeftX);
     const dollyIn = this.gamepadInput.buttonValue(GAMEPAD_BUTTON.RightTrigger);
 
@@ -104,7 +119,9 @@ class CustomGamepadOrbitControls extends GamepadControls {
 }
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
-const gamepadOrbitControls = new CustomGamepadOrbitControls(orbitControls);
+const gamepadOrbitControls = new CustomGamepadOrbitControls(orbitControls, {
+  gamepadIndex: 0,
+});
 
 gamepadOrbitControls.addEventListener("connected", (event) => {
   console.log("Gamepad ready:", event.gamepad.id);
@@ -115,11 +132,16 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
+  // Queue gamepad changes before the native control applies them.
   gamepadOrbitControls.update(delta);
+  // Apply damping and native pointer input after the gamepad changes.
   orbitControls.update(delta);
   renderer.render(scene, camera);
 });
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
 gamepadOrbitControls.dispose();
+orbitControls.dispose();
+timer.dispose();
 ```

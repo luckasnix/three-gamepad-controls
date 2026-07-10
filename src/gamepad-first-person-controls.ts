@@ -2,14 +2,17 @@ import { MathUtils, Spherical, Vector3 } from "three";
 import type { FirstPersonControls } from "three/addons/controls/FirstPersonControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadFirstPersonControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadFirstPersonControlsOptions = {
+export type GamepadFirstPersonControlsOptions = GamepadControlsOptions & {
   /**
    * Multiplier on `FirstPersonControls.movementSpeed` for translation.
    * @default 1.0
@@ -65,9 +68,7 @@ export type GamepadFirstPersonControlsOptions = {
   buttonMoveDown: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_FIRST_PERSON_OPTIONS: GamepadFirstPersonControlsOptions = {
   moveSpeed: 1.0,
   lookSpeed: 1.0,
@@ -85,26 +86,18 @@ const DEFAULT_FIRST_PERSON_OPTIONS: GamepadFirstPersonControlsOptions = {
 const LOOK_SPEED_SCALE = 36000;
 
 type FirstPersonControlsWithOrientation = FirstPersonControls & {
-  /**
-   * Internal latitude angle maintained by FirstPersonControls.
-   */
+  // Internal latitude angle maintained by FirstPersonControls.
   _lat: number;
 
-  /**
-   * Internal longitude angle maintained by FirstPersonControls.
-   */
+  // Internal longitude angle maintained by FirstPersonControls.
   _lon: number;
 };
 
 type FirstPersonOrientation = {
-  /**
-   * Vertical look angle in degrees.
-   */
+  // Vertical look angle in degrees.
   lat: number;
 
-  /**
-   * Horizontal look angle in degrees.
-   */
+  // Horizontal look angle in degrees.
   lon: number;
 };
 
@@ -133,7 +126,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
     controls: FirstPersonControls,
     options?: Partial<GamepadFirstPersonControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls as FirstPersonControlsWithOrientation;
     this.#options = {
       ...DEFAULT_FIRST_PERSON_OPTIONS,

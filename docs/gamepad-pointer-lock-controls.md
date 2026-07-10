@@ -28,6 +28,7 @@ Every binding is remappable via the `options` parameter.
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot (`0` to `2147483647`). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `moveSpeed` | `number` | `5.0` | Camera movement speed in world units per second at full stick deflection. |
 | `lookSpeed` | `number` | `1.0` | Multiplier on look rotation speed (combined with `PointerLockControls.pointerSpeed`). |
 | `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
@@ -65,6 +66,10 @@ const gamepadPointerLockControls = new GamepadPointerLockControls(
   pointerLockControls,
 );
 
+// Pointer lock must be requested from a user activation such as a click.
+const requestPointerLock = () => pointerLockControls.lock();
+renderer.domElement.addEventListener("click", requestPointerLock);
+
 gamepadPointerLockControls.addEventListener("connected", (event) => {
   console.log("Gamepad connected:", event.gamepad.id);
 });
@@ -74,10 +79,15 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
+  // Gamepad look works whether or not the pointer is currently locked.
   gamepadPointerLockControls.update(delta);
   renderer.render(scene, camera);
 });
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
+renderer.domElement.removeEventListener("click", requestPointerLock);
 gamepadPointerLockControls.dispose();
+pointerLockControls.dispose();
+timer.dispose();
 ```

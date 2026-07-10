@@ -6,6 +6,8 @@ By directly implementing the [W3C Standard Gamepad mapping](https://www.w3.org/T
 
 Most modern controllers (PlayStation, Xbox, Switch Pro) follow this layout when connected to a browser.
 
+Use these indices only when [`Gamepad.mapping`](https://www.w3.org/TR/gamepad/#dom-gamepad-mapping) is `"standard"`. Browsers may expose unmapped controllers with a different button or axis order; check [`GamepadInput.mapping`](./gamepad-input.md#properties) before relying on these constants for such devices.
+
 ## Constants
 
 ### `GAMEPAD_BUTTON`
@@ -72,12 +74,12 @@ import {
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
 const gamepadOrbitControls = new GamepadOrbitControls(orbitControls, {
-  // Swap sticks: right stick rotates, left stick pans
+  // Swap sticks: the right stick rotates and the left stick pans.
   axisRotateX: GAMEPAD_AXIS.RightX,
   axisRotateY: GAMEPAD_AXIS.RightY,
   axisPanX: GAMEPAD_AXIS.LeftX,
   axisPanY: GAMEPAD_AXIS.LeftY,
-  // Use bumpers instead of triggers for zoom
+  // Use bumpers instead of triggers for zoom.
   buttonDollyIn: GAMEPAD_BUTTON.RightShoulder,
   buttonDollyOut: GAMEPAD_BUTTON.LeftShoulder,
 });

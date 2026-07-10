@@ -1,27 +1,19 @@
 import { EventDispatcher } from "three";
 
-import { GamepadInput, type GamepadInputEventMap } from "./gamepad-input.ts";
+import {
+  GamepadInput,
+  type GamepadInputEventMap,
+  type GamepadInputOptions,
+} from "./gamepad-input.ts";
 
-/**
- * Internal listener payload for `GamepadInput` connection events.
- *
- * `GamepadInputEventMap` stores only event-specific fields. Three.js
- * `EventDispatcher` listeners receive those fields plus `type` and `target`,
- * so this alias keeps the private bridge from `GamepadInput` to
- * `GamepadControls` fully typed without exporting another public event shape.
- */
+// `EventDispatcher` listeners add `type` and `target` to the event-specific
+// fields in `GamepadInputEventMap`, keeping this private bridge fully typed.
 type GamepadInputConnectedEvent = GamepadInputEventMap["connected"] & {
   readonly type: "connected";
   readonly target: GamepadInput;
 };
 
-/**
- * Internal listener payload for `GamepadInput` disconnection events.
- *
- * Kept private for the same reason as {@link GamepadInputConnectedEvent}: users
- * should consume `GamepadInputEventMap`, `GamepadControlsEventMap`, or the
- * protected lifecycle hooks instead of this implementation detail.
- */
+// Private equivalent of `GamepadInputConnectedEvent` for disconnection events.
 type GamepadInputDisconnectedEvent = GamepadInputEventMap["disconnected"] & {
   readonly type: "disconnected";
   readonly target: GamepadInput;
@@ -45,7 +37,7 @@ export type GamepadControlsEventMap = {
   };
 
   /**
-   * Fired when the active gamepad is disconnected.
+   * Fired when the active gamepad is disconnected or replaced in its slot.
    */
   disconnected: {
     /**
@@ -54,6 +46,11 @@ export type GamepadControlsEventMap = {
     gamepad: Gamepad;
   };
 };
+
+/**
+ * Shared configuration for Three.js gamepad control wrappers.
+ */
+export type GamepadControlsOptions = Pick<GamepadInputOptions, "gamepadIndex">;
 
 /**
  * Abstract base class for Three.js gamepad controls.
@@ -75,25 +72,25 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
 
   readonly #gamepadInput: GamepadInput;
 
-  /**
-   * Bound input connection listener kept so it can be removed in {@link dispose}.
-   */
+  // Bound input connection listener kept so it can be removed in `dispose()`.
   readonly #onGamepadConnected: (event: GamepadInputConnectedEvent) => void;
 
-  /**
-   * Bound input disconnection listener kept so it can be removed in {@link dispose}.
-   */
+  // Bound input disconnection listener kept so it can be removed in `dispose()`.
   readonly #onGamepadDisconnected: (
     event: GamepadInputDisconnectedEvent,
   ) => void;
 
   /**
    * Creates the base input reader and attaches lifecycle listeners.
+   *
+   * @param options - Shared gamepad selection options.
+   * @throws {RangeError} When `gamepadIndex` is not an integer in the inclusive
+   * range `[0, 2147483647]`.
    */
-  constructor() {
+  constructor(options?: GamepadControlsOptions) {
     super();
 
-    this.#gamepadInput = new GamepadInput();
+    this.#gamepadInput = new GamepadInput(options);
 
     this.#onGamepadConnected = this.#handleGamepadConnected.bind(this);
     this.#onGamepadDisconnected = this.#handleGamepadDisconnected.bind(this);
@@ -193,7 +190,8 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
   }
 
   /**
-   * Called when the active gamepad disconnects through the shared input reader.
+   * Called when the active gamepad disconnects or is replaced through the
+   * shared input reader.
    *
    * The default dispatches a `disconnected` event.
    *

@@ -17,7 +17,7 @@ export type GamepadInputEventMap = {
   };
 
   /**
-   * Fired when the active gamepad is disconnected.
+   * Fired when the active gamepad is disconnected or replaced in its slot.
    */
   disconnected: {
     /**
@@ -36,6 +36,16 @@ export type GamepadInputOptions = {
    * @default 0.1
    */
   deadzone: number;
+
+  /**
+   * Browser-assigned gamepad slot to use.
+   *
+   * When omitted, the connected gamepad with the lowest index is selected.
+   * The index must be an integer in the inclusive range `[0, 2147483647]`.
+   * A valid but empty slot keeps this input disconnected without falling back
+   * to another gamepad.
+   */
+  gamepadIndex?: number;
 };
 
 /**
@@ -64,9 +74,7 @@ export type GamepadStick = {
 };
 
 type SyncButtonStateOptions = {
-  /**
-   * Whether to copy current button state into previous state after syncing.
-   */
+  // Whether to copy current button state into previous state after syncing.
   seedPrevious: boolean;
 };
 
@@ -142,14 +150,10 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   readonly #pressedButtons: Set<number>;
   readonly #previousPressedButtons: Set<number>;
 
-  /**
-   * Bound browser connection listener kept so it can be removed in {@link dispose}.
-   */
+  // Bound browser connection listener kept so it can be removed in `dispose()`.
   readonly #onGamepadConnected: (event: GamepadEvent) => void;
 
-  /**
-   * Bound browser disconnection listener kept so it can be removed in {@link dispose}.
-   */
+  // Bound browser disconnection listener kept so it can be removed in `dispose()`.
   readonly #onGamepadDisconnected: (event: GamepadEvent) => void;
 
   #gamepad: Gamepad | null = null;
@@ -158,15 +162,19 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
    * Creates a gamepad input reader.
    *
    * @param options - Optional overrides for the default input behavior.
+   * @throws {RangeError} When `gamepadIndex` is not an integer in the inclusive
+   * range `[0, 2147483647]`.
    */
   constructor(options?: Partial<GamepadInputOptions>) {
     super();
 
-    this.#manager = new GamepadManager();
     this.#options = {
       ...DEFAULT_GAMEPAD_INPUT_OPTIONS,
       ...options,
     };
+    this.#manager = new GamepadManager({
+      gamepadIndex: this.#options.gamepadIndex,
+    });
     this.#pressedButtons = new Set();
     this.#previousPressedButtons = new Set();
 
@@ -371,15 +379,17 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
    * @param gamepad - Browser-provided connected gamepad snapshot.
    */
   #handleGamepadConnected(gamepad: Gamepad): void {
-    if (!this.#manager.connect(gamepad)) {
+    const connectedGamepad = this.#manager.connect(gamepad);
+
+    if (connectedGamepad === null) {
       return;
     }
 
-    this.#gamepad = this.#manager.activeGamepad;
+    this.#gamepad = connectedGamepad;
     this.#syncButtonState({ seedPrevious: true });
     this.dispatchEvent({
       type: "connected",
-      gamepad,
+      gamepad: connectedGamepad,
     });
   }
 
@@ -444,9 +454,7 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
     }
   }
 
-  /**
-   * Clears all stored button state.
-   */
+  // Clears all stored button state.
   #clearButtonState(): void {
     this.#pressedButtons.clear();
     this.#previousPressedButtons.clear();

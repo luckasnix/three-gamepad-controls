@@ -8,14 +8,17 @@ import {
 import type { ArcballControls } from "three/addons/controls/ArcballControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadArcballControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadArcballControlsOptions = {
+export type GamepadArcballControlsOptions = GamepadControlsOptions & {
   /**
    * Multiplier on `ArcballControls.rotateSpeed` for rotation.
    * @default 1.0
@@ -101,9 +104,7 @@ export type GamepadArcballControlsOptions = {
   buttonFocus: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_ARCBALL_OPTIONS: GamepadArcballControlsOptions = {
   rotateSpeed: 1.0,
   panSpeed: 1.0,
@@ -124,41 +125,27 @@ const DEFAULT_ARCBALL_OPTIONS: GamepadArcballControlsOptions = {
 const ZOOM_NOTCHES_PER_SECOND = 8;
 
 type ArcballTransformation = {
-  /**
-   * Camera matrix produced by an Arcball runtime transform.
-   */
+  // Camera matrix produced by an Arcball runtime transform.
   camera: Matrix4 | null;
 
-  /**
-   * Gizmo matrix produced by an Arcball runtime transform.
-   */
+  // Gizmo matrix produced by an Arcball runtime transform.
   gizmos: Matrix4 | null;
 };
 
 type ArcballControlsWithRuntimeHelpers = ArcballControls & {
-  /**
-   * Camera controlled by the Arcball instance.
-   */
+  // Camera controlled by the Arcball instance.
   object: Camera;
 
-  /**
-   * Internal gizmo object used as the center for scale and z-rotation.
-   */
+  // Internal gizmo object used as the center for scale and z-rotation.
   _gizmos: Object3D;
 
-  /**
-   * Internal reusable axis vector used by ArcballControls z-rotation.
-   */
+  // Internal reusable axis vector used by ArcballControls z-rotation.
   _rotationAxis: Vector3;
 
-  /**
-   * Internal trackball radius used to scale pan deltas.
-   */
+  // Internal trackball radius used to scale pan deltas.
   _tbRadius: number;
 
-  /**
-   * Refreshes ArcballControls cached camera and gizmo matrices.
-   */
+  // Refreshes ArcballControls cached camera and gizmo matrices.
   updateMatrixState(): void;
 
   /**
@@ -259,7 +246,7 @@ export class GamepadArcballControls extends GamepadControls {
     controls: ArcballControls,
     options?: Partial<GamepadArcballControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls as ArcballControlsWithRuntimeHelpers;
     this.#options = {
       ...DEFAULT_ARCBALL_OPTIONS,
@@ -592,9 +579,7 @@ export class GamepadArcballControls extends GamepadControls {
     return controls.unprojectOnObj(this.#centerNdc, controls.object);
   }
 
-  /**
-   * Dispatches Arcball's `end` event when an active gamepad interaction stops.
-   */
+  // Dispatches Arcball's `end` event when an active gamepad interaction stops.
   #endInteraction(): void {
     if (!this.#wasInteracting) {
       return;

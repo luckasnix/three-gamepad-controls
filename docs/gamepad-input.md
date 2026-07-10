@@ -4,15 +4,21 @@ Gamepad input state reader for gameplay, menus, and custom interactions.
 
 `GamepadInput` uses the same [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle as the [Three.js](https://threejs.org) control wrappers, but it does not wrap a Three.js control. Use it when you want direct button, axis, or stick state in your own application code.
 
+`GamepadInput` owns its internal gamepad manager. Applications create and update only `GamepadInput`; `GamepadManager` is not part of the public API.
+
 ## Constructor
 
-```ts
-const gamepadInput = new GamepadInput(options);
-```
+`new GamepadInput(options?)`
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `deadzone` | `number` | `0.1` | Default axis dead zone threshold. |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
+
+`gamepadIndex` must be an integer from `0` through `2147483647`; any other value
+throws a `RangeError`. An explicit index never falls back to another gamepad.
+See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and
+multi-player examples.
 
 ## Properties
 
@@ -62,31 +68,64 @@ Returns `{ x, y }` using the same dead zone behavior as `axis()`.
 
 | Event | Extra fields | Description |
 | --- | --- | --- |
-| `connected` | `gamepad: Gamepad` | Fired when a gamepad connects and becomes active. |
-| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects. |
+| `connected` | `gamepad: Gamepad` | Fired when a gamepad is adopted as active. |
+| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects or is replaced in the same slot. |
 
 ## Usage
 
+### Character movement
+
+Use `GamepadInput` directly when input drives gameplay rather than a Three.js controls wrapper. The following example moves a character across the XZ plane, supports a held sprint button, and starts a jump on a button transition:
+
 ```ts
+import { Timer, Vector3 } from "three";
 import {
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
   GamepadInput,
 } from "three-gamepad-controls";
 
-const gamepadInput = new GamepadInput();
+const gamepadInput = new GamepadInput({ deadzone: 0.15 });
+const timer = new Timer();
+const movement = new Vector3();
 
-const update = () => {
+renderer.setAnimationLoop((timestamp) => {
+  timer.update(timestamp);
+  const delta = timer.getDelta();
+
+  // Poll before reading buttons or axes.
   gamepadInput.update();
 
-  if (gamepadInput.wasPressed(GAMEPAD_BUTTON.South)) {
-    player.jump();
+  const stick = gamepadInput.stick(
+    GAMEPAD_AXIS.LeftX,
+    GAMEPAD_AXIS.LeftY,
+  );
+
+  // Stick up is negative Y, which maps naturally to forward (-Z).
+  movement.set(stick.x, 0, stick.y);
+
+  // Prevent diagonal movement from being faster.
+  if (movement.lengthSq() > 1) {
+    movement.normalize();
   }
 
-  const move = gamepadInput.stick(GAMEPAD_AXIS.LeftX, GAMEPAD_AXIS.LeftY);
-  player.move(move.x, move.y);
-};
+  const speed = gamepadInput.isPressed(GAMEPAD_BUTTON.RightShoulder)
+    ? 8
+    : 4;
 
-// When done:
+  player.position.addScaledVector(movement, speed * delta);
+
+  if (gamepadInput.wasPressed(GAMEPAD_BUTTON.South)) {
+    startJump();
+  }
+
+  renderer.render(scene, camera);
+});
+
+// Clean up when the input is no longer needed.
+renderer.setAnimationLoop(null);
 gamepadInput.dispose();
+timer.dispose();
 ```
+
+Call `update()` once per frame before reading input. Use `stick()` for continuous movement, `isPressed()` for held actions such as sprinting, and `wasPressed()` for one-shot transitions such as starting a jump. Vertical movement, collision handling, and jump physics remain application responsibilities; `startJump()` represents that integration point.

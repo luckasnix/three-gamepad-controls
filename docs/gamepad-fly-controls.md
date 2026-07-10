@@ -32,6 +32,7 @@ Every binding is remappable via the `options` parameter.
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot (`0` to `2147483647`). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `moveSpeed` | `number` | `1.0` | Multiplier on `FlyControls.movementSpeed` for translation. |
 | `rotateSpeed` | `number` | `1.0` | Multiplier on `FlyControls.rollSpeed` for rotation. |
 | `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
@@ -81,11 +82,16 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
-  gamepadFlyControls.update(delta); // 1. read gamepad → apply translation & rotation
-  flyControls.update(delta);        // 2. apply keyboard / mouse input
+  // Apply gamepad translation and rotation first.
+  gamepadFlyControls.update(delta);
+  // Then let FlyControls apply keyboard and mouse input.
+  flyControls.update(delta);
   renderer.render(scene, camera);
 });
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
 gamepadFlyControls.dispose();
+flyControls.dispose();
+timer.dispose();
 ```

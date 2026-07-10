@@ -1,14 +1,17 @@
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadOrbitControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadOrbitControlsOptions = {
+export type GamepadOrbitControlsOptions = GamepadControlsOptions & {
   /**
    * Multiplier on orbit rotation speed.
    * @default 1.0
@@ -70,9 +73,7 @@ export type GamepadOrbitControlsOptions = {
   buttonDollyOut: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_ORBIT_OPTIONS: GamepadOrbitControlsOptions = {
   rotateSpeed: 1.0,
   panSpeed: 1.0,
@@ -105,7 +106,7 @@ export class GamepadOrbitControls extends GamepadControls {
     controls: OrbitControls,
     options?: Partial<GamepadOrbitControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls;
     this.#options = {
       ...DEFAULT_ORBIT_OPTIONS,
@@ -133,7 +134,7 @@ export class GamepadOrbitControls extends GamepadControls {
     } = this.#options;
     const input = this.gamepadInput;
 
-    // --- Rotation (left stick by default) ------------------------------------
+    // Rotation (left stick by default).
     // Axes are normalized to [-1, 1]. Multiply by π so a full stick push
     // covers half a rotation per second at rotateSpeed 1.
     const rotX = input.axis(axisRotateX, { deadzone });
@@ -146,7 +147,7 @@ export class GamepadOrbitControls extends GamepadControls {
       this.#controls.rotateUp(rotY * rotateSpeed * deltaTime * Math.PI);
     }
 
-    // --- Pan (right stick by default) ----------------------------------------
+    // Pan (right stick by default).
     // `pan()` expects screen-space pixel deltas. 500 px/s at full deflection
     // feels comfortable at typical viewport sizes; tune via `panSpeed`.
     const panX = input.axis(axisPanX, { deadzone });
@@ -159,7 +160,7 @@ export class GamepadOrbitControls extends GamepadControls {
       );
     }
 
-    // --- Dolly / zoom (triggers by default) ----------------------------------
+    // Dolly and zoom (triggers by default).
     // Triggers return an analog value in [0, 1] via `button.value`.
     // OrbitControls uses a scale below 1 to zoom in and above 1 to zoom out.
     // Passing the same below-1 scale to dollyIn/dollyOut maps the triggers to

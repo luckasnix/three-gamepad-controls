@@ -2,14 +2,17 @@ import { Quaternion } from "three";
 import type { FlyControls } from "three/addons/controls/FlyControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadFlyControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadFlyControlsOptions = {
+export type GamepadFlyControlsOptions = GamepadControlsOptions & {
   /**
    * Multiplier on `FlyControls.movementSpeed` for translation.
    * @default 1.0
@@ -77,9 +80,7 @@ export type GamepadFlyControlsOptions = {
   buttonMoveDown: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_FLY_OPTIONS: GamepadFlyControlsOptions = {
   moveSpeed: 1.0,
   rotateSpeed: 1.0,
@@ -117,7 +118,7 @@ export class GamepadFlyControls extends GamepadControls {
     controls: FlyControls,
     options?: Partial<GamepadFlyControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls;
     this.#options = {
       ...DEFAULT_FLY_OPTIONS,
@@ -147,7 +148,7 @@ export class GamepadFlyControls extends GamepadControls {
     } = this.#options;
     const input = this.gamepadInput;
 
-    // --- Translation ---------------------------------------------------------
+    // Translation.
     // Scale matches FlyControls' internal: delta * movementSpeed.
     const moveMult = deltaTime * this.#controls.movementSpeed * moveSpeed;
 
@@ -177,7 +178,7 @@ export class GamepadFlyControls extends GamepadControls {
       this.#controls.object.translateY(-down * moveMult);
     }
 
-    // --- Rotation ------------------------------------------------------------
+    // Rotation.
     // Replicates FlyControls' internal rotation exactly:
     //   #tmpQuaternion.set(rotX * rotMult, rotY * rotMult, rotZ * rotMult, 1)
     //   .normalize()

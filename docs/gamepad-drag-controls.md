@@ -4,7 +4,7 @@ A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js]
 
 Built on top of `GamepadControls`, it inherits the full [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle (connect/disconnect events, per-frame polling, and `dispose()`), so you only need to instantiate it and drop `update()` into your render loop.
 
-Unlike mouse-driven `DragControls`, this wrapper does not render or move a cursor. It raycasts from NDC `(0, 0)`, emits native `DragControls` events from the wrapped instance, and uses a pega/solta flow: press the select button once to grab the centered object, then press it again to drop.
+Unlike mouse-driven `DragControls`, this wrapper does not render or move a cursor. It raycasts from NDC `(0, 0)`, emits native `DragControls` events from the wrapped instance, and uses a grab/drop flow: press the select button once to grab the centered object, then press it again to drop.
 
 All bindings and speed multipliers are configurable via the `options` parameter.
 
@@ -33,6 +33,7 @@ No visual reticle is rendered by the library. Draw your own center marker in the
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot (`0` to `2147483647`). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `dragSpeed` | `number` | `1.0` | Screen-relative translation speed multiplier. |
 | `rotateSpeed` | `number` | `1.0` | Multiplier on `DragControls.rotateSpeed` for rotation. |
 | `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
@@ -42,7 +43,7 @@ No visual reticle is rendered by the library. Draw your own center marker in the
 | `axisRotateY` | `number` | `3` | Axis index for vertical rotation (right stick Y). |
 | `buttonSelect` | `number` | `0` | Button index for grab / drop (south face button). |
 
-Gamepad input respects `DragControls.enabled`, `objects`, `recursive`, `transformGroup`, `raycaster`, and `rotateSpeed`. When `transformGroup` is `true`, selection resolves to the outermost group in the intersected object's parent chain, matching native `DragControls`.
+Gamepad input respects `DragControls.enabled`, `objects`, `recursive`, `transformGroup`, `raycaster`, and `rotateSpeed`. When `transformGroup` is `true`, this wrapper selects the outermost `Group` in the intersected object's parent chain. This differs from the native pointer implementation, whose group behavior is limited to the configured draggable-object list.
 
 ## Properties
 
@@ -60,7 +61,7 @@ The wrapped `DragControls` instance continues to dispatch its native events:
 | `hoveroff` | Fired when the center reticle ray moves off the current hovered object. |
 | `dragstart` | Fired when a gamepad press grabs an object. |
 | `drag` | Fired once per frame when gamepad input moves or rotates the selected object. |
-| `dragend` | Fired when a gamepad press drops an object, when the wrapped controls are disabled, or when the gamepad disconnects. |
+| `dragend` | Fired when a gamepad press drops an object, when the wrapped controls are disabled, when the gamepad disconnects, or when the wrapper is disposed. |
 
 If you use the same sticks for camera navigation and dragging, pause the camera gamepad control on `dragstart` and re-enable it on `dragend`.
 
@@ -78,6 +79,7 @@ import { DragControls } from "three/addons/controls/DragControls.js";
 import { GamepadDragControls } from "three-gamepad-controls";
 
 const dragControls = new DragControls(objects, camera, renderer.domElement);
+// The wrapper raycasts from the viewport center; provide a visual reticle if needed.
 const gamepadDragControls = new GamepadDragControls(dragControls);
 
 dragControls.addEventListener("dragstart", (event) => {
@@ -98,6 +100,9 @@ renderer.setAnimationLoop((timestamp) => {
   renderer.render(scene, camera);
 });
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
 gamepadDragControls.dispose();
+dragControls.dispose();
+timer.dispose();
 ```

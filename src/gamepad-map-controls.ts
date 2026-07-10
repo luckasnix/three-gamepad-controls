@@ -6,9 +6,7 @@ import {
   type GamepadOrbitControlsOptions,
 } from "./gamepad-orbit-controls.ts";
 
-/**
- * Axis overrides for {@link GamepadMapControls}: left stick pans, right stick orbits.
- */
+// Axis overrides: left stick pans and right stick orbits.
 const DEFAULT_MAP_OPTIONS: Partial<GamepadOrbitControlsOptions> = {
   axisPanX: GAMEPAD_AXIS.LeftX,
   axisPanY: GAMEPAD_AXIS.LeftY,

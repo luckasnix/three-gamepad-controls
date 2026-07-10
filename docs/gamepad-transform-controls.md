@@ -39,6 +39,7 @@ Every binding is remappable via the `options` parameter.
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot (`0` to `2147483647`). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `translateSpeed` | `number` | `1.0` | Screen-relative translation speed multiplier. |
 | `rotateSpeed` | `number` | `1.0` | Rotation speed multiplier. |
 | `scaleSpeed` | `number` | `1.0` | Scale speed multiplier. |
@@ -72,6 +73,8 @@ Axis selection respects `showX`, `showY`, `showZ`, `showXY`, `showYZ`, and `show
 Moving the transform stick outside the dead zone starts a native-style transform interaction: `controls.dragging` becomes `true` and the wrapped instance emits `mouseDown`. Returning the stick to neutral emits `mouseUp` once and sets `controls.dragging` back to `false`, while preserving the selected axis highlight.
 
 Gamepad transforms respect `TransformControls.enabled`, `mode`, `axis`, `space`, `translationSnap`, `rotationSnap`, `scaleSnap`, and translation min/max bounds. The wrapper maintains unsnapped internal accumulators, so small stick movements are not lost while snap settings are active.
+
+`buttonReset` restores the object to the state captured when the current gamepad transform interaction began. It has no effect until moving the transform stick has started that interaction.
 
 If you use the same sticks for camera navigation and object transforms, pause the camera gamepad control on `mouseDown` and re-enable it on `mouseUp`.
 
@@ -107,7 +110,9 @@ import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { GamepadTransformControls } from "three-gamepad-controls";
 
 const transformControls = new TransformControls(camera, renderer.domElement);
-scene.add(transformControls.getHelper());
+// Add the helper separately; TransformControls itself is not an Object3D.
+const transformControlsHelper = transformControls.getHelper();
+scene.add(transformControlsHelper);
 transformControls.attach(mesh);
 
 const gamepadTransformControls = new GamepadTransformControls(transformControls);
@@ -124,10 +129,16 @@ transformControls.addEventListener("mouseUp", () => {
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
+  // Poll input and update the selected transform.
   gamepadTransformControls.update(delta);
   renderer.render(scene, camera);
 });
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
 gamepadTransformControls.dispose();
+transformControls.detach();
+scene.remove(transformControlsHelper);
+transformControls.dispose();
+timer.dispose();
 ```

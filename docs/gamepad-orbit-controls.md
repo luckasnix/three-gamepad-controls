@@ -30,6 +30,7 @@ Every binding is remappable via the `options` parameter.
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot (`0` to `2147483647`). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `rotateSpeed` | `number` | `1.0` | Multiplier on orbit rotation speed. |
 | `panSpeed` | `number` | `1.0` | Multiplier on pan speed. |
 | `zoomSpeed` | `number` | `1.0` | Multiplier on zoom (dolly) speed. |
@@ -74,11 +75,16 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
-  gamepadOrbitControls.update(delta); // 1. read gamepad → queue deltas
-  orbitControls.update(delta);        // 2. apply damping + flush queued deltas
+  // Queue gamepad deltas before OrbitControls applies them.
+  gamepadOrbitControls.update(delta);
+  // Apply damping and flush the queued deltas.
+  orbitControls.update(delta);
   renderer.render(scene, camera);
 });
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
 gamepadOrbitControls.dispose();
+orbitControls.dispose();
+timer.dispose();
 ```

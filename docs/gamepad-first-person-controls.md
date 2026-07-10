@@ -30,6 +30,7 @@ Every binding is remappable via the `options` parameter.
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot (`0` to `2147483647`). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `moveSpeed` | `number` | `1.0` | Multiplier on `FirstPersonControls.movementSpeed` for translation. |
 | `lookSpeed` | `number` | `1.0` | Multiplier on `FirstPersonControls.lookSpeed` for camera look. |
 | `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
@@ -82,11 +83,16 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
-  gamepadFirstPersonControls.update(delta); // 1. read gamepad -> apply movement & sync look
-  firstPersonControls.update(delta);        // 2. apply keyboard / mouse input
+  // Apply gamepad movement and synchronize the native look state first.
+  gamepadFirstPersonControls.update(delta);
+  // Then let FirstPersonControls apply keyboard and mouse input.
+  firstPersonControls.update(delta);
   renderer.render(scene, camera);
 });
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
 gamepadFirstPersonControls.dispose();
+firstPersonControls.dispose();
+timer.dispose();
 ```

@@ -14,14 +14,17 @@ import type {
 } from "three/addons/controls/TransformControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadTransformControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadTransformControlsOptions = {
+export type GamepadTransformControlsOptions = GamepadControlsOptions & {
   /**
    * Screen-relative translation speed multiplier.
    * @default 1.0
@@ -125,9 +128,7 @@ export type GamepadTransformControlsOptions = {
   buttonReset: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_TRANSFORM_OPTIONS: GamepadTransformControlsOptions = {
   translateSpeed: 1.0,
   rotateSpeed: 1.0,
@@ -163,69 +164,43 @@ type AxisLetter = "X" | "Y" | "Z";
 type TransformSpace = "world" | "local";
 
 type RuntimeTransformControls = TransformControls & {
-  /**
-   * Object currently attached to TransformControls.
-   */
+  // Object currently attached to TransformControls.
   object: Object3D | undefined;
 
-  /**
-   * Active TransformControls axis or plane.
-   */
+  // Active TransformControls axis or plane.
   axis: TransformAxis | null;
 
-  /**
-   * Minimum allowed local X position.
-   */
+  // Minimum allowed local X position.
   minX: number;
 
-  /**
-   * Maximum allowed local X position.
-   */
+  // Maximum allowed local X position.
   maxX: number;
 
-  /**
-   * Minimum allowed local Y position.
-   */
+  // Minimum allowed local Y position.
   minY: number;
 
-  /**
-   * Maximum allowed local Y position.
-   */
+  // Maximum allowed local Y position.
   maxY: number;
 
-  /**
-   * Minimum allowed local Z position.
-   */
+  // Minimum allowed local Z position.
   minZ: number;
 
-  /**
-   * Maximum allowed local Z position.
-   */
+  // Maximum allowed local Z position.
   maxZ: number;
 
-  /**
-   * Internal start position captured by TransformControls during a drag.
-   */
+  // Internal start position captured by TransformControls during a drag.
   _positionStart: Vector3;
 
-  /**
-   * Internal start quaternion captured by TransformControls during a drag.
-   */
+  // Internal start quaternion captured by TransformControls during a drag.
   _quaternionStart: Quaternion;
 
-  /**
-   * Internal start scale captured by TransformControls during a drag.
-   */
+  // Internal start scale captured by TransformControls during a drag.
   _scaleStart: Vector3;
 
-  /**
-   * Internal pointer start point used by TransformControls.
-   */
+  // Internal pointer start point used by TransformControls.
   pointStart: Vector3;
 
-  /**
-   * Internal pointer end point used by TransformControls.
-   */
+  // Internal pointer end point used by TransformControls.
   pointEnd: Vector3;
 };
 
@@ -304,7 +279,7 @@ export class GamepadTransformControls extends GamepadControls {
     controls: TransformControls,
     options?: Partial<GamepadTransformControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls as RuntimeTransformControls;
     this.#options = {
       ...DEFAULT_TRANSFORM_OPTIONS,
@@ -492,9 +467,7 @@ export class GamepadTransformControls extends GamepadControls {
     this.#ensureValidAxis();
   }
 
-  /**
-   * Toggles TransformControls between local and world transform space.
-   */
+  // Toggles TransformControls between local and world transform space.
   #toggleSpace(): void {
     const nextSpace = this.#controls.space === "world" ? "local" : "world";
     this.#endTransform(false);
@@ -516,9 +489,7 @@ export class GamepadTransformControls extends GamepadControls {
     this.#ensureValidAxis();
   }
 
-  /**
-   * Cycles through composite axes available in the current mode.
-   */
+  // Cycles through composite axes available in the current mode.
   #cycleCompositeAxis(): void {
     const validAxes = this.#getVisibleAxes(COMPOSITE_AXES[this.#controls.mode]);
 
@@ -710,9 +681,7 @@ export class GamepadTransformControls extends GamepadControls {
     }
   }
 
-  /**
-   * Resets the active object to TransformControls' captured drag start state.
-   */
+  // Resets the active object to TransformControls' captured drag start state.
   #resetActiveTransform(): void {
     const object = this.#controls.object;
 

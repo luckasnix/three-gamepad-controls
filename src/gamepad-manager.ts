@@ -17,10 +17,34 @@ export type GamepadManagerUpdateResult = {
   connected: Gamepad | null;
 
   /**
-   * Previously active gamepad that was lost during this update, or `null`.
+   * Previously active gamepad that was lost or replaced during this update,
+   * or `null`.
    */
   disconnected: Gamepad | null;
 };
+
+// Internal options for active gamepad selection.
+export type GamepadManagerOptions = {
+  // Browser-assigned gamepad index to use, or `undefined` for the first available gamepad.
+  gamepadIndex?: number;
+};
+
+type GamepadSelection =
+  | {
+      // Selects the connected gamepad with the lowest browser-assigned index.
+      type: "first-available";
+    }
+  | {
+      // Selects one browser-assigned gamepad index.
+      type: "index";
+
+      // Browser-assigned gamepad index.
+      index: number;
+    };
+
+// Gamepad.index is a Web IDL `long` (a signed 32-bit integer). Gamepad slots
+// cannot be negative, so the largest valid index is 2^31 - 1.
+const MAX_GAMEPAD_INDEX = 2_147_483_647;
 
 const EMPTY_UPDATE_RESULT: GamepadManagerUpdateResult = {
   gamepad: null,
@@ -31,63 +55,97 @@ const EMPTY_UPDATE_RESULT: GamepadManagerUpdateResult = {
 /**
  * Internal input core that owns active gamepad polling and snapshot refresh.
  *
- * This class intentionally tracks only one active gamepad. Higher-level
- * multi-gamepad selection should be built on top of this lifecycle in a
- * later phase.
+ * Each manager instance tracks one active gamepad, optionally selected by its
+ * browser-assigned `Gamepad.index`.
  *
  * @internal
  */
 export class GamepadManager {
-  /**
-   * The active gamepad snapshot, or `null` when none is active.
-   */
+  // The active gamepad snapshot, or `null` when none is active.
   public activeGamepad: Gamepad | null = null;
 
-  /**
-   * Accepts a gamepad as active when no active gamepad exists.
-   *
-   * Additional connected gamepads are ignored so the current controls keep
-   * using the first active device by default.
-   *
-   * @param gamepad - Gamepad snapshot to activate.
-   * @returns `true` when the gamepad became active, otherwise `false`.
-   */
-  public connect(gamepad: Gamepad): boolean {
-    if (this.activeGamepad !== null || !gamepad.connected) {
-      return false;
-    }
+  // Prevents a connection event from replacing a gamepad before the next poll
+  // has observed the disconnected state.
+  #connectionDeferredUntilUpdate = false;
+  readonly #selection: GamepadSelection;
 
-    this.activeGamepad = gamepad;
-    return true;
+  /**
+   * Creates an active-gamepad manager.
+   *
+   * @param options - Optional active gamepad selection options.
+   * @throws {RangeError} When `gamepadIndex` is outside the valid Web IDL
+   * `long` range for a gamepad index.
+   */
+  constructor(options?: GamepadManagerOptions) {
+    this.#selection = this.#resolveSelection(options?.gamepadIndex);
   }
 
   /**
-   * Clears the active gamepad when it matches the disconnecting gamepad index.
+   * Uses a connection event to resolve and activate the configured gamepad.
+   *
+   * In first-available mode, the event is only a signal to inspect the complete
+   * Gamepad API state. The connected gamepad with the lowest index is adopted,
+   * which may differ from the gamepad carried by the event.
+   * Connection events are deferred after losing an active gamepad so its
+   * replacement can only be adopted by the next {@link update}.
+   *
+   * @param gamepad - Gamepad snapshot carried by the connection event.
+   * @returns The gamepad that became active, or `null` when none was adopted.
+   */
+  public connect(gamepad: Gamepad): Gamepad | null {
+    if (
+      this.activeGamepad !== null ||
+      this.#connectionDeferredUntilUpdate ||
+      !gamepad.connected ||
+      !this.#matchesSelection(gamepad)
+    ) {
+      return null;
+    }
+
+    const selectedGamepad = this.#getSelectableGamepad();
+
+    if (selectedGamepad === null) {
+      return null;
+    }
+
+    this.activeGamepad = selectedGamepad;
+    return selectedGamepad;
+  }
+
+  /**
+   * Clears the active gamepad when it is the disconnecting gamepad instance.
+   *
+   * Identity is intentionally checked in addition to the browser-assigned
+   * index. Indices may be reused, so a late event from a previous device must
+   * not disconnect a replacement that now occupies the same slot.
+   * A matching disconnection defers any replacement until the next update.
    *
    * @param gamepad - Gamepad snapshot that disconnected.
    * @returns The previously active gamepad when it was cleared, otherwise `null`.
    */
   public disconnect(gamepad: Gamepad): Gamepad | null {
-    if (this.activeGamepad?.index !== gamepad.index) {
+    if (this.activeGamepad !== gamepad) {
       return null;
     }
 
     const disconnectedGamepad = this.activeGamepad;
     this.activeGamepad = null;
+    this.#connectionDeferredUntilUpdate = true;
     return disconnectedGamepad;
   }
 
   /**
    * Polls the Gamepad API and refreshes the active gamepad snapshot.
    *
-   * The browser exposes gamepad state as snapshots, so polling must replace
-   * the stored reference before controls read axes or buttons.
+   * Polling re-resolves the browser slot so a disconnected device, a reused
+   * index, or an updated active device is observed before controls read input.
    *
    * @returns The active gamepad and any connect/disconnect transition found.
    */
   public update(): GamepadManagerUpdateResult {
     if (this.activeGamepad === null) {
-      const connectedGamepad = this.#getFirstConnectedGamepad();
+      this.#connectionDeferredUntilUpdate = false;
+      const connectedGamepad = this.#getSelectableGamepad();
 
       if (connectedGamepad === null) {
         return EMPTY_UPDATE_RESULT;
@@ -104,8 +162,13 @@ export class GamepadManager {
     const previousGamepad = this.activeGamepad;
     const nextGamepad = this.#getGamepadByIndex(previousGamepad.index);
 
-    if (nextGamepad === null) {
+    if (
+      !previousGamepad.connected ||
+      nextGamepad === null ||
+      nextGamepad !== previousGamepad
+    ) {
       this.activeGamepad = null;
+      this.#connectionDeferredUntilUpdate = true;
       return {
         gamepad: null,
         connected: null,
@@ -122,6 +185,19 @@ export class GamepadManager {
   }
 
   /**
+   * Finds the connected gamepad matching the configured selection.
+   *
+   * @returns A selectable gamepad snapshot, or `null` if none is available.
+   */
+  #getSelectableGamepad(): Gamepad | null {
+    if (this.#selection.type === "index") {
+      return this.#getGamepadByIndex(this.#selection.index);
+    }
+
+    return this.#getFirstAvailableGamepad();
+  }
+
+  /**
    * Reads the latest connected gamepad snapshot at a known index.
    *
    * @param index - Browser-assigned gamepad index to refresh.
@@ -133,17 +209,69 @@ export class GamepadManager {
   }
 
   /**
-   * Finds the first currently connected gamepad snapshot.
+   * Finds the connected gamepad with the lowest browser-assigned index.
    *
-   * @returns The first connected gamepad snapshot, or `null` if none exist.
+   * The array is normally sparse and ordered by index, but comparing the
+   * reported indices keeps the selection deterministic for API mocks as well.
+   *
+   * @returns The lowest-index connected gamepad, or `null` if none exist.
    */
-  #getFirstConnectedGamepad(): Gamepad | null {
+  #getFirstAvailableGamepad(): Gamepad | null {
+    let firstAvailableGamepad: Gamepad | null = null;
+
     for (const gamepad of navigator.getGamepads()) {
-      if (gamepad?.connected === true) {
-        return gamepad;
+      if (
+        gamepad?.connected === true &&
+        (firstAvailableGamepad === null ||
+          gamepad.index < firstAvailableGamepad.index)
+      ) {
+        firstAvailableGamepad = gamepad;
       }
     }
 
-    return null;
+    return firstAvailableGamepad;
+  }
+
+  /**
+   * Checks whether a connection event is relevant to this manager.
+   *
+   * @param gamepad - Gamepad snapshot carried by the event.
+   * @returns `true` when the event may trigger configured selection.
+   */
+  #matchesSelection(gamepad: Gamepad): boolean {
+    if (this.#selection.type === "index") {
+      return gamepad.index === this.#selection.index;
+    }
+
+    return true;
+  }
+
+  /**
+   * Resolves a public index option to an immutable internal selection mode.
+   *
+   * @param gamepadIndex - Browser-assigned gamepad index option.
+   * @returns Internal active-gamepad selection mode.
+   * @throws {RangeError} When the explicit index is not an integer in the
+   * inclusive range `[0, 2147483647]`.
+   */
+  #resolveSelection(gamepadIndex: number | undefined): GamepadSelection {
+    if (gamepadIndex === undefined) {
+      return { type: "first-available" };
+    }
+
+    if (
+      !Number.isInteger(gamepadIndex) ||
+      gamepadIndex < 0 ||
+      gamepadIndex > MAX_GAMEPAD_INDEX
+    ) {
+      throw new RangeError(
+        `gamepadIndex must be an integer between 0 and ${MAX_GAMEPAD_INDEX}.`,
+      );
+    }
+
+    return {
+      type: "index",
+      index: gamepadIndex,
+    };
   }
 }

@@ -11,14 +11,17 @@ import {
 import type { DragControls } from "three/addons/controls/DragControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadDragControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadDragControlsOptions = {
+export type GamepadDragControlsOptions = GamepadControlsOptions & {
   /**
    * Screen-relative translation speed multiplier.
    * @default 1.0
@@ -68,9 +71,7 @@ export type GamepadDragControlsOptions = {
   buttonSelect: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_DRAG_OPTIONS: GamepadDragControlsOptions = {
   dragSpeed: 1.0,
   rotateSpeed: 1.0,
@@ -83,16 +84,12 @@ const DEFAULT_DRAG_OPTIONS: GamepadDragControlsOptions = {
 };
 
 type DragControlsWithCamera = DragControls & {
-  /**
-   * Camera used by DragControls for raycasting.
-   */
+  // Camera used by DragControls for raycasting.
   object: Camera;
 };
 
 type GroupLikeObject = Object3D & {
-  /**
-   * Runtime flag set by Three.js `Group` instances.
-   */
+  // Runtime flag set by Three.js `Group` instances.
   isGroup?: boolean;
 };
 
@@ -130,7 +127,7 @@ export class GamepadDragControls extends GamepadControls {
     controls: DragControls,
     options?: Partial<GamepadDragControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls as DragControlsWithCamera;
     this.#options = {
       ...DEFAULT_DRAG_OPTIONS,
@@ -368,9 +365,7 @@ export class GamepadDragControls extends GamepadControls {
     });
   }
 
-  /**
-   * Clears the current hover object and dispatches `hoveroff` when needed.
-   */
+  // Clears the current hover object and dispatches `hoveroff` when needed.
   #clearHover(): void {
     if (this.#hovered === null) {
       return;
@@ -402,9 +397,7 @@ export class GamepadDragControls extends GamepadControls {
     });
   }
 
-  /**
-   * Releases the selected object and dispatches DragControls `dragend`.
-   */
+  // Releases the selected object and dispatches DragControls `dragend`.
   #releaseSelected(): void {
     if (this.#selected === null) {
       return;
@@ -453,9 +446,7 @@ export class GamepadDragControls extends GamepadControls {
     return group;
   }
 
-  /**
-   * Writes the accumulated world-space selected position back to the object.
-   */
+  // Writes the accumulated world-space selected position back to the object.
   #applySelectedWorldPosition(): void {
     const selected = this.#selected;
 
@@ -478,9 +469,7 @@ export class GamepadDragControls extends GamepadControls {
     selected.updateMatrixWorld();
   }
 
-  /**
-   * Refreshes camera-relative axes used for dragging and rotation.
-   */
+  // Refreshes camera-relative axes used for dragging and rotation.
   #updateCameraAxes(): void {
     const camera = this.#controls.object;
 
@@ -492,9 +481,7 @@ export class GamepadDragControls extends GamepadControls {
     camera.getWorldDirection(this.#cameraForward).normalize();
   }
 
-  /**
-   * Computes the world-space viewport size at the selected object's depth.
-   */
+  // Computes the world-space viewport size at the selected object's depth.
   #updateViewSizeAtSelectedDepth(): void {
     const camera = this.#controls.object;
 

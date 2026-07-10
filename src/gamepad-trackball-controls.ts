@@ -2,14 +2,17 @@ import type { Vector2 } from "three";
 import type { TrackballControls } from "three/addons/controls/TrackballControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
-import { GamepadControls } from "./gamepad-controls.ts";
+import {
+  GamepadControls,
+  type GamepadControlsOptions,
+} from "./gamepad-controls.ts";
 
 /**
  * Configuration for {@link GamepadTrackballControls}.
  *
  * Every property has a sensible default, so you only need to pass the properties you want to override.
  */
-export type GamepadTrackballControlsOptions = {
+export type GamepadTrackballControlsOptions = GamepadControlsOptions & {
   /**
    * Multiplier on `TrackballControls.rotateSpeed` for rotation.
    * @default 1.0
@@ -71,9 +74,7 @@ export type GamepadTrackballControlsOptions = {
   buttonZoomOut: number;
 };
 
-/**
- * Default options merged in the constructor when no explicit configuration is provided.
- */
+// Default options merged in the constructor when no explicit configuration is provided.
 const DEFAULT_TRACKBALL_OPTIONS: GamepadTrackballControlsOptions = {
   rotateSpeed: 1.0,
   panSpeed: 1.0,
@@ -88,39 +89,25 @@ const DEFAULT_TRACKBALL_OPTIONS: GamepadTrackballControlsOptions = {
 };
 
 type TrackballControlsWithInput = TrackballControls & {
-  /**
-   * Internal last rotation angle tracked by TrackballControls.
-   */
+  // Internal last rotation angle tracked by TrackballControls.
   _lastAngle: number;
 
-  /**
-   * Previous normalized pointer position used for rotation.
-   */
+  // Previous normalized pointer position used for rotation.
   _movePrev: Vector2;
 
-  /**
-   * Current normalized pointer position used for rotation.
-   */
+  // Current normalized pointer position used for rotation.
   _moveCurr: Vector2;
 
-  /**
-   * Previous normalized pointer position used for zoom damping.
-   */
+  // Previous normalized pointer position used for zoom damping.
   _zoomStart: Vector2;
 
-  /**
-   * Current normalized pointer position used for zoom damping.
-   */
+  // Current normalized pointer position used for zoom damping.
   _zoomEnd: Vector2;
 
-  /**
-   * Previous normalized pointer position used for pan damping.
-   */
+  // Previous normalized pointer position used for pan damping.
   _panStart: Vector2;
 
-  /**
-   * Current normalized pointer position used for pan damping.
-   */
+  // Current normalized pointer position used for pan damping.
   _panEnd: Vector2;
 };
 
@@ -143,7 +130,7 @@ export class GamepadTrackballControls extends GamepadControls {
     controls: TrackballControls,
     options?: Partial<GamepadTrackballControlsOptions>,
   ) {
-    super();
+    super(options);
     this.#controls = controls as TrackballControlsWithInput;
     this.#options = {
       ...DEFAULT_TRACKBALL_OPTIONS,

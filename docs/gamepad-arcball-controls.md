@@ -36,6 +36,7 @@ Center focus uses the wrapped `ArcballControls.scene` raycaster path. It only ru
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot (`0` to `2147483647`). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `rotateSpeed` | `number` | `1.0` | Multiplier on `ArcballControls.rotateSpeed` for rotation. |
 | `panSpeed` | `number` | `1.0` | Multiplier on panning speed. |
 | `zoomSpeed` | `number` | `1.0` | Multiplier on zooming speed. |
@@ -96,13 +97,17 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
-  gamepadArcballControls.update(delta); // read gamepad -> apply Arcball transforms
+  // Read gamepad input and apply Arcball transforms.
+  gamepadArcballControls.update(delta);
   renderer.render(scene, camera);
 });
 
-// Call this only after manual camera or target changes:
+// Synchronize ArcballControls after manual camera or target changes.
 arcballControls.update();
 
-// When done:
+// Clean up when the controls are no longer needed.
+renderer.setAnimationLoop(null);
 gamepadArcballControls.dispose();
+arcballControls.dispose();
+timer.dispose();
 ```
