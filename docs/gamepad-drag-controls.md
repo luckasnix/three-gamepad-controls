@@ -1,6 +1,6 @@
 # GamepadDragControls
 
-A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js](https://threejs.org) `DragControls` - hover, grab/drop, drag, and rotate - using the center of the viewport as a logical reticle.
+A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js DragControls](https://threejs.org/docs/#DragControls) - hover, grab/drop, drag, and rotate - using the center of the viewport as a logical reticle.
 
 Built on top of `GamepadControls`, it inherits the full [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle (connect/disconnect events, per-frame polling, and `dispose()`), so you only need to instantiate it and drop `update()` into your render loop.
 

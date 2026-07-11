@@ -1,6 +1,6 @@
 # GamepadArcballControls
 
-A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js](https://threejs.org) `ArcballControls` - rotation, pan, zoom, z-rotation, and center focus - all driven by analog sticks, triggers, shoulders, and a face button.
+A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js ArcballControls](https://threejs.org/docs/#ArcballControls) - rotation, pan, zoom, z-rotation, and center focus - all driven by analog sticks, triggers, shoulders, and a face button.
 
 Built on top of `GamepadControls`, it inherits the full [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle (connect/disconnect events, per-frame polling, and `dispose()`), so you call `gamepadArcballControls.update(delta)` in your render loop.
 

@@ -1,6 +1,6 @@
 # GamepadFirstPersonControls
 
-A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js](https://threejs.org) `FirstPersonControls` - first-person movement and camera look - all driven by analog sticks and triggers.
+A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js FirstPersonControls](https://threejs.org/docs/#FirstPersonControls) - first-person movement and camera look - all driven by analog sticks and triggers.
 
 Built on top of `GamepadControls`, it inherits the full [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle (connect/disconnect events, per-frame polling, and `dispose()`), so you only need to instantiate it and drop `update()` into your render loop. Gamepad input is additive with keyboard/mouse input - both sources work simultaneously.
 

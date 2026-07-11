@@ -1,6 +1,6 @@
 # GamepadPointerLockControls
 
-A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js](https://threejs.org) `PointerLockControls` — camera movement and look — all driven by analog sticks.
+A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js PointerLockControls](https://threejs.org/docs/#PointerLockControls) — camera movement and look — all driven by analog sticks.
 
 Built on top of `GamepadControls`, it inherits the full [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle (connect/disconnect events, per-frame polling, and `dispose()`), so you only need to instantiate it and drop `update()` into your render loop. Gamepad input works independently of pointer lock state — when the pointer is locked, mouse and gamepad look inputs are additive.
 

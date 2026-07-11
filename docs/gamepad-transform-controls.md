@@ -1,6 +1,6 @@
 # GamepadTransformControls
 
-A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js](https://threejs.org) `TransformControls` - translate, rotate, scale, axis selection, space toggling, and reset - using explicit button-selected modes and axes.
+A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js TransformControls](https://threejs.org/docs/#TransformControls) - translate, rotate, scale, axis selection, space toggling, and reset - using explicit button-selected modes and axes.
 
 Built on top of `GamepadControls`, it inherits the full [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle (connect/disconnect events, per-frame polling, and `dispose()`), so you call `gamepadTransformControls.update(delta)` in your render loop.
 

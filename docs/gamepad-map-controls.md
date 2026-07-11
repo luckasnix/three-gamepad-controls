@@ -1,6 +1,6 @@
 # GamepadMapControls
 
-A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js](https://threejs.org) `MapControls` — orbit, pan, and dolly — designed for bird's-eye map navigation where **pan is the primary action**.
+A ready-to-use `GamepadControls` subclass that maps gamepad inputs to [Three.js MapControls](https://threejs.org/docs/#MapControls) — orbit, pan, and dolly — designed for bird's-eye map navigation where **pan is the primary action**.
 
 Built on top of `GamepadControls`, it inherits the full [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle (connect/disconnect events, per-frame polling, and `dispose()`), so you only need to instantiate it and drop `update()` into your render loop.
 
