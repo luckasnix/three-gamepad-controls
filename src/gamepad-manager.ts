@@ -17,8 +17,7 @@ export type GamepadManagerUpdateResult = {
   connected: Gamepad | null;
 
   /**
-   * Previously active gamepad that was lost or replaced during this update,
-   * or `null`.
+   * Previously active gamepad that was lost during this update, or `null`.
    */
   disconnected: Gamepad | null;
 };
@@ -113,18 +112,22 @@ export class GamepadManager {
   }
 
   /**
-   * Clears the active gamepad when it is the disconnecting gamepad instance.
+   * Clears the active gamepad when its browser-assigned index matches the
+   * disconnecting gamepad.
    *
-   * Identity is intentionally checked in addition to the browser-assigned
-   * index. Indices may be reused, so a late event from a previous device must
-   * not disconnect a replacement that now occupies the same slot.
-   * A matching disconnection defers any replacement until the next update.
+   * Gamepad API snapshots are not guaranteed to preserve JavaScript object
+   * identity between events and polls, so the active device is correlated by
+   * its logical slot. A matching disconnection defers any replacement until
+   * the next update.
    *
    * @param gamepad - Gamepad snapshot that disconnected.
    * @returns The previously active gamepad when it was cleared, otherwise `null`.
    */
   public disconnect(gamepad: Gamepad): Gamepad | null {
-    if (this.activeGamepad !== gamepad) {
+    if (
+      this.activeGamepad === null ||
+      this.activeGamepad.index !== gamepad.index
+    ) {
       return null;
     }
 
@@ -162,11 +165,7 @@ export class GamepadManager {
     const previousGamepad = this.activeGamepad;
     const nextGamepad = this.#getGamepadByIndex(previousGamepad.index);
 
-    if (
-      !previousGamepad.connected ||
-      nextGamepad === null ||
-      nextGamepad !== previousGamepad
-    ) {
+    if (nextGamepad === null) {
       this.activeGamepad = null;
       this.#connectionDeferredUntilUpdate = true;
       return {
