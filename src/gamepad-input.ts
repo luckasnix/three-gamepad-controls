@@ -1,5 +1,10 @@
 import { EventDispatcher } from "three";
 
+import {
+  isGamepadVibrationSupported,
+  playGamepadVibrationEffect,
+  resetGamepadVibration,
+} from "./gamepad-haptics.ts";
 import { GamepadManager } from "./gamepad-manager.ts";
 
 /**
@@ -241,6 +246,17 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   }
 
   /**
+   * Whether the active gamepad exposes a callable primary vibration actuator.
+   *
+   * This does not guarantee support for every {@link GamepadHapticEffectType}.
+   *
+   * @returns `true` when vibration effects can be requested.
+   */
+  public get vibrationSupported(): boolean {
+    return isGamepadVibrationSupported(this.#gamepad);
+  }
+
+  /**
    * Polls the gamepad and refreshes current and previous button state.
    */
   public update(): void {
@@ -368,6 +384,36 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
       x: this.axis(xAxis, options),
       y: this.axis(yAxis, options),
     };
+  }
+
+  /**
+   * Plays an effect through the active gamepad's primary vibration actuator.
+   *
+   * Missing browser, gamepad, or effect support is treated as a safe no-op.
+   * Environmental failures such as a hidden document are also ignored.
+   * Invalid parameters and unexpected failures remain rejected.
+   *
+   * @param type - Haptic effect type to play.
+   * @param parameters - Optional parameters describing the effect.
+   * @returns The browser result, or `null` when the effect is ignored.
+   */
+  public playVibrationEffect(
+    type: GamepadHapticEffectType,
+    parameters?: GamepadEffectParameters,
+  ): Promise<GamepadHapticsResult | null> {
+    return playGamepadVibrationEffect(this.#gamepad, type, parameters);
+  }
+
+  /**
+   * Stops the active effect on the gamepad's primary vibration actuator.
+   *
+   * Missing or temporarily unavailable haptics are treated as a safe no-op.
+   * Unexpected failures remain rejected.
+   *
+   * @returns The browser result, or `null` when reset is ignored.
+   */
+  public resetVibration(): Promise<GamepadHapticsResult | null> {
+    return resetGamepadVibration(this.#gamepad);
   }
 
   /**

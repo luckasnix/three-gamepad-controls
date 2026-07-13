@@ -112,6 +112,17 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
   }
 
   /**
+   * Whether the active gamepad exposes a callable primary vibration actuator.
+   *
+   * This does not guarantee support for every {@link GamepadHapticEffectType}.
+   *
+   * @returns `true` when vibration effects can be requested.
+   */
+  public get vibrationSupported(): boolean {
+    return this.#gamepadInput.vibrationSupported;
+  }
+
+  /**
    * Forwards an input connection event to the overridable lifecycle hook.
    *
    * @param event - Input event containing the connected gamepad snapshot.
@@ -149,6 +160,36 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
     }
 
     this.onUpdate(deltaTime);
+  }
+
+  /**
+   * Plays an effect through the active gamepad's primary vibration actuator.
+   *
+   * Missing browser, gamepad, or effect support is treated as a safe no-op.
+   * Environmental failures such as a hidden document are also ignored.
+   * Invalid parameters and unexpected failures remain rejected.
+   *
+   * @param type - Haptic effect type to play.
+   * @param parameters - Optional parameters describing the effect.
+   * @returns The browser result, or `null` when the effect is ignored.
+   */
+  public playVibrationEffect(
+    type: GamepadHapticEffectType,
+    parameters?: GamepadEffectParameters,
+  ): Promise<GamepadHapticsResult | null> {
+    return this.#gamepadInput.playVibrationEffect(type, parameters);
+  }
+
+  /**
+   * Stops the active effect on the gamepad's primary vibration actuator.
+   *
+   * Missing or temporarily unavailable haptics are treated as a safe no-op.
+   * Unexpected failures remain rejected.
+   *
+   * @returns The browser result, or `null` when reset is ignored.
+   */
+  public resetVibration(): Promise<GamepadHapticsResult | null> {
+    return this.#gamepadInput.resetVibration();
   }
 
   /**

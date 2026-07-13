@@ -29,6 +29,7 @@ multi-player examples.
 | `connected` | `boolean` | Whether a gamepad is currently active. |
 | `mapping` | `GamepadMappingType \| null` | Mapping reported by the active gamepad. |
 | `rawGamepad` | `Gamepad \| null` | Alias for the active raw gamepad snapshot. |
+| `vibrationSupported` | `boolean` | Whether the active gamepad exposes the current vibration API. |
 
 ## Methods
 
@@ -63,6 +64,16 @@ Returns an axis value after dead zone processing. Pass `options.deadzone` to ove
 ### `stick(xAxis, yAxis, options)`
 
 Returns `{ x, y }` using the same dead zone behavior as `axis()`.
+
+### `playVibrationEffect(type, parameters?)`
+
+Plays an effect through the active gamepad's primary vibration actuator. It returns a `Promise<GamepadHapticsResult | null>` and resolves to `null` when vibration is unavailable or temporarily cannot be played.
+
+### `resetVibration()`
+
+Stops the active vibration effect. It returns a `Promise<GamepadHapticsResult | null>` and resolves to `null` when no supported actuator is available.
+
+See [Haptic Feedback](./haptic-feedback.md) for effect parameters, graceful degradation behavior, and examples.
 
 ## Events
 

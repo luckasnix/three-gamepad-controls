@@ -22,6 +22,7 @@ Subclasses pass selection options to `super(options?)`.
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `true` | When `false`, all input processing is paused. |
 | `gamepad` | `Gamepad \| null` | `null` | The currently active gamepad, or `null` if not connected. By default, this is the connected gamepad with the lowest index. |
+| `vibrationSupported` | `boolean` | `false` | Whether the active gamepad exposes the current vibration API. |
 
 ## Methods
 
@@ -41,6 +42,16 @@ Removes all gamepad input listeners attached by this controller. Call this when 
 
 This method does not dispose the wrapped Three.js control. The application owns
 that instance and must call its own `dispose()` separately.
+
+### `playVibrationEffect(type, parameters?)`
+
+Delegates a haptic effect to the active gamepad's primary vibration actuator. It returns a `Promise<GamepadHapticsResult | null>` and resolves to `null` when vibration is unavailable or temporarily cannot be played.
+
+### `resetVibration()`
+
+Stops the active vibration effect. It returns a `Promise<GamepadHapticsResult | null>` and resolves to `null` when no supported actuator is available.
+
+These methods are inherited by every `Gamepad*Controls` wrapper. See [Haptic Feedback](./haptic-feedback.md) for effect parameters, graceful degradation behavior, and examples.
 
 ## Events
 
