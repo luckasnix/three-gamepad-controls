@@ -84,8 +84,8 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    * Creates the base input reader and attaches lifecycle listeners.
    *
    * @param options - Shared gamepad selection options.
-   * @throws {RangeError} When `gamepadIndex` is not an integer in the inclusive
-   * range `[0, 2147483647]`.
+   * @throws {RangeError} When `gamepadIndex` is not an integer from
+   * `MIN_GAMEPAD_INDEX` through `MAX_GAMEPAD_INDEX`.
    */
   constructor(options?: GamepadControlsOptions) {
     super();

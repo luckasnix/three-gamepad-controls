@@ -6,7 +6,7 @@ Each `GamepadInput` or `Gamepad*Controls` instance manages one active gamepad. C
 
 When `gamepadIndex` is omitted, an instance selects the connected gamepad with the lowest index. This preserves the single-gamepad setup without extra configuration. Multiple unconfigured instances can intentionally select the same gamepad.
 
-When `gamepadIndex` is provided, the instance waits for that exact slot and never falls back to another one. Valid indices are integers from `0` through `2147483647`; constructing an instance with any other value throws a `RangeError`.
+When `gamepadIndex` is provided, the instance waits for that exact slot and never falls back to another one. Valid indices are integers from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); constructing an instance with any other value throws a `RangeError`.
 
 [`Gamepad.index`](https://www.w3.org/TR/gamepad/#dom-gamepad-index) is a browser-assigned, reusable slot, not a persistent device identity. If another device replaces the active gamepad in the same slot, the instance reports the old device as disconnected and adopts the replacement on a later update. [`Gamepad.id`](https://www.w3.org/TR/gamepad/#dom-gamepad-id) describes the device but is not guaranteed to be unique, so neither field should be used as a permanent player or physical-device identifier.
 

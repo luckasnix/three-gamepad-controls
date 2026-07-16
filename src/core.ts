@@ -1,4 +1,19 @@
 /**
+ * Smallest valid browser-assigned gamepad index.
+ *
+ * Gamepad slots cannot be negative.
+ */
+export const MIN_GAMEPAD_INDEX = 0;
+
+/**
+ * Largest valid browser-assigned gamepad index.
+ *
+ * `Gamepad.index` is a Web IDL `long`, a signed 32-bit integer. Because
+ * gamepad slots cannot be negative, the largest valid index is 2^31 - 1.
+ */
+export const MAX_GAMEPAD_INDEX = 2_147_483_647;
+
+/**
  * Button indices for the W3C Standard Gamepad mapping.
  * @see https://www.w3.org/TR/gamepad/#dfn-standard-gamepad
  */

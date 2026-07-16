@@ -1,3 +1,5 @@
+import { MAX_GAMEPAD_INDEX, MIN_GAMEPAD_INDEX } from "./core.ts";
+
 /**
  * Result returned after polling the current gamepad state.
  *
@@ -40,10 +42,6 @@ type GamepadSelection =
       // Browser-assigned gamepad index.
       index: number;
     };
-
-// Gamepad.index is a Web IDL `long` (a signed 32-bit integer). Gamepad slots
-// cannot be negative, so the largest valid index is 2^31 - 1.
-const MAX_GAMEPAD_INDEX = 2_147_483_647;
 
 const EMPTY_UPDATE_RESULT: GamepadManagerUpdateResult = {
   gamepad: null,
@@ -251,7 +249,7 @@ export class GamepadManager {
    * @param gamepadIndex - Browser-assigned gamepad index option.
    * @returns Internal active-gamepad selection mode.
    * @throws {RangeError} When the explicit index is not an integer in the
-   * inclusive range `[0, 2147483647]`.
+   * inclusive range [{@link MIN_GAMEPAD_INDEX}, {@link MAX_GAMEPAD_INDEX}].
    */
   #resolveSelection(gamepadIndex: number | undefined): GamepadSelection {
     if (gamepadIndex === undefined) {
@@ -260,11 +258,11 @@ export class GamepadManager {
 
     if (
       !Number.isInteger(gamepadIndex) ||
-      gamepadIndex < 0 ||
+      gamepadIndex < MIN_GAMEPAD_INDEX ||
       gamepadIndex > MAX_GAMEPAD_INDEX
     ) {
       throw new RangeError(
-        `gamepadIndex must be an integer between 0 and ${MAX_GAMEPAD_INDEX}.`,
+        `gamepadIndex must be an integer between ${MIN_GAMEPAD_INDEX} and ${MAX_GAMEPAD_INDEX}.`,
       );
     }
 

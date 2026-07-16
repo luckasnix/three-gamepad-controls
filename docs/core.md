@@ -10,6 +10,14 @@ Use these indices only when [`Gamepad.mapping`](https://www.w3.org/TR/gamepad/#d
 
 ## Constants
 
+### `MIN_GAMEPAD_INDEX`
+
+The smallest valid browser-assigned gamepad index. Its value is `0`, because gamepad slots cannot be negative.
+
+### `MAX_GAMEPAD_INDEX`
+
+The largest valid browser-assigned gamepad index. Its value is `2147483647`, the largest non-negative value representable by the Web IDL `long` used by `Gamepad.index`.
+
 ### `GAMEPAD_BUTTON`
 
 An object containing the index mappings for all standard gamepad buttons.

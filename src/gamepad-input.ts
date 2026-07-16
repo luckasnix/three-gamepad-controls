@@ -46,7 +46,8 @@ export type GamepadInputOptions = {
    * Browser-assigned gamepad slot to use.
    *
    * When omitted, the connected gamepad with the lowest index is selected.
-   * The index must be an integer in the inclusive range `[0, 2147483647]`.
+   * The index must be an integer from `MIN_GAMEPAD_INDEX` through
+   * `MAX_GAMEPAD_INDEX`.
    * A valid but empty slot keeps this input disconnected without falling back
    * to another gamepad.
    */
@@ -167,8 +168,8 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
    * Creates a gamepad input reader.
    *
    * @param options - Optional overrides for the default input behavior.
-   * @throws {RangeError} When `gamepadIndex` is not an integer in the inclusive
-   * range `[0, 2147483647]`.
+   * @throws {RangeError} When `gamepadIndex` is not an integer from
+   * `MIN_GAMEPAD_INDEX` through `MAX_GAMEPAD_INDEX`.
    */
   constructor(options?: Partial<GamepadInputOptions>) {
     super();

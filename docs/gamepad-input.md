@@ -15,10 +15,7 @@ Gamepad input state reader for gameplay, menus, and custom interactions.
 | `deadzone` | `number` | `0.1` | Default axis dead zone threshold. |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
 
-`gamepadIndex` must be an integer from `0` through `2147483647`; any other value
-throws a `RangeError`. An explicit index never falls back to another gamepad.
-See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and
-multi-player examples.
+`gamepadIndex` must be an integer from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); any other value throws a `RangeError`. An explicit index never falls back to another gamepad. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and multi-player examples.
 
 ## Properties
 

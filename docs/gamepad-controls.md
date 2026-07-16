@@ -14,7 +14,7 @@ Subclasses pass selection options to `super(options?)`.
 | --- | --- | --- | --- |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
 
-`gamepadIndex` must be an integer from `0` through `2147483647`; any other value throws a `RangeError`. Selecting an explicit slot disables automatic fallback. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and examples using multiple controls.
+`gamepadIndex` must be an integer from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); any other value throws a `RangeError`. Selecting an explicit slot disables automatic fallback. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and examples using multiple controls.
 
 ## Properties
 
