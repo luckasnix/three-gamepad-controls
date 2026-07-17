@@ -45,7 +45,7 @@
       "onFail": "error"
     }
   },
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.13.1",
   "scripts": {
     "build": "tsc && tsdown",
     "type:check": "tsc --noEmit",
@@ -59,16 +59,16 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.1",
-    "@commitlint/cli": "21.2.0",
+    "@biomejs/biome": "2.5.4",
+    "@commitlint/cli": "21.2.1",
     "@commitlint/config-conventional": "21.2.0",
     "@commitlint/types": "21.2.0",
-    "@types/node": "24.13.2",
+    "@types/node": "24.13.3",
     "@types/three": "0.184.0",
     "husky": "9.1.7",
     "three": "0.184.0",
-    "tsdown": "0.22.3",
-    "typescript": "6.0.3"
+    "tsdown": "0.22.8",
+    "typescript": "7.0.2"
   },
   "peerDependencies": {
     "@types/three": ">=0.184.0",
