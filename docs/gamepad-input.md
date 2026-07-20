@@ -68,10 +68,11 @@ Returns `{ x, y }` after dead zone processing. The default `options.deadzoneMode
 const look = gamepadInput.stick(GAMEPAD_AXIS.RightX, GAMEPAD_AXIS.RightY, {
   deadzone: 0.15,
   deadzoneMode: "radial",
+  rescale: true,
 });
 ```
 
-Both modes return the original values outside the dead zone; they do not rescale the output.
+By default, both modes return the original values outside the dead zone. Pass `rescale: true` to remap the remaining range so the dead zone boundary produces `0` and full stick travel produces `1`. Axial mode rescales each axis independently; radial mode rescales the stick magnitude while preserving its direction.
 
 ### `playVibrationEffect(type, parameters?)`
 

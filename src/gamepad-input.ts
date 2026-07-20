@@ -76,6 +76,12 @@ export type GamepadStickOptions = GamepadAxisOptions & {
    * @default "axial"
    */
   deadzoneMode?: "axial" | "radial";
+
+  /**
+   * Whether to remap values outside the dead zone to the full output range.
+   * @default false
+   */
+  rescale?: boolean;
 };
 
 /**
@@ -103,17 +109,49 @@ const DEFAULT_GAMEPAD_INPUT_OPTIONS: GamepadInputOptions = {
 };
 
 /**
- * Returns `value` unchanged, or `0` if below the dead zone `threshold`.
+ * Applies a dead zone and remaps the remaining magnitude to `[0, 1]`.
  *
- * Kept private to this module because `GamepadInput` is the only public API
- * that currently exposes processed axis values.
- *
- * @param value - Raw axis or trigger value, typically in `[-1, 1]`.
- * @param threshold - Dead zone size; values below this magnitude are zeroed.
- * @returns The original value when outside the dead zone, otherwise `0`.
+ * @param magnitude - Non-negative input magnitude.
+ * @param threshold - Dead zone size.
+ * @returns Rescaled magnitude, or `0` when inside a fully closed dead zone.
  */
-const applyGamepadDeadzone = (value: number, threshold: number): number => {
-  return Math.abs(value) < threshold ? 0 : value;
+const rescaleGamepadDeadzoneMagnitude = (
+  magnitude: number,
+  threshold: number,
+): number => {
+  if (magnitude <= threshold || threshold >= 1) {
+    return 0;
+  }
+
+  return Math.min((magnitude - threshold) / (1 - threshold), 1);
+};
+
+/**
+ * Applies an axial dead zone, optionally rescaling the remaining range.
+ *
+ * @param value - Raw axis value.
+ * @param threshold - Dead zone size.
+ * @param rescale - Whether to remap the remaining magnitude to `[0, 1]`.
+ * @returns Processed signed axis value.
+ */
+const applyGamepadAxialDeadzone = (
+  value: number,
+  threshold: number,
+  rescale: boolean,
+): number => {
+  const magnitude = Math.abs(value);
+
+  if (magnitude < threshold) {
+    return 0;
+  }
+
+  if (!rescale) {
+    return value;
+  }
+
+  return (
+    Math.sign(value) * rescaleGamepadDeadzoneMagnitude(magnitude, threshold)
+  );
 };
 
 /**
@@ -123,17 +161,42 @@ const applyGamepadDeadzone = (value: number, threshold: number): number => {
  * @param x - Raw horizontal stick value.
  * @param y - Raw vertical stick value.
  * @param threshold - Radial dead zone size.
- * @returns The original stick when outside the dead zone, otherwise `{ x: 0, y: 0 }`.
+ * @param rescale - Whether to remap the remaining magnitude to `[0, 1]`.
+ * @returns The processed stick, or `{ x: 0, y: 0 }` inside the dead zone.
  */
 const applyGamepadRadialDeadzone = (
   x: number,
   y: number,
   threshold: number,
+  rescale: boolean,
 ): GamepadStick => {
-  if (Math.hypot(x, y) < threshold) {
+  const magnitude = Math.hypot(x, y);
+
+  if (magnitude < threshold) {
     return {
       x: 0,
       y: 0,
+    };
+  }
+
+  if (rescale) {
+    const rescaledMagnitude = rescaleGamepadDeadzoneMagnitude(
+      magnitude,
+      threshold,
+    );
+
+    if (rescaledMagnitude === 0 || magnitude === 0) {
+      return {
+        x: 0,
+        y: 0,
+      };
+    }
+
+    const scale = rescaledMagnitude / magnitude;
+
+    return {
+      x: x * scale,
+      y: y * scale,
     };
   }
 
@@ -407,7 +470,7 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   public axis(axis: number, options?: GamepadAxisOptions): number {
     const value = this.#gamepad?.axes[axis] ?? 0;
 
-    return applyGamepadDeadzone(value, this.#getDeadzone(options));
+    return applyGamepadAxialDeadzone(value, this.#getDeadzone(options), false);
   }
 
   /**
@@ -423,16 +486,18 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
     yAxis: number,
     options?: GamepadStickOptions,
   ): GamepadStick {
-    if (options?.deadzoneMode === "radial") {
-      const x = this.#gamepad?.axes[xAxis] ?? 0;
-      const y = this.#gamepad?.axes[yAxis] ?? 0;
+    const rescale = options?.rescale ?? false;
+    const threshold = this.#getDeadzone(options);
+    const x = this.#gamepad?.axes[xAxis] ?? 0;
+    const y = this.#gamepad?.axes[yAxis] ?? 0;
 
-      return applyGamepadRadialDeadzone(x, y, this.#getDeadzone(options));
+    if (options?.deadzoneMode === "radial") {
+      return applyGamepadRadialDeadzone(x, y, threshold, rescale);
     }
 
     return {
-      x: this.axis(xAxis, options),
-      y: this.axis(yAxis, options),
+      x: applyGamepadAxialDeadzone(x, threshold, rescale),
+      y: applyGamepadAxialDeadzone(y, threshold, rescale),
     };
   }
 
