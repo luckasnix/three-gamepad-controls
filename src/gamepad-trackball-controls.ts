@@ -295,6 +295,7 @@ export class GamepadTrackballControls extends GamepadControls {
    */
   #getInputDampingFactor(): number {
     const controls = this.#controls;
+
     return controls.staticMoving ? 1 : controls.dynamicDampingFactor;
   }
 }

@@ -988,6 +988,7 @@ export class GamepadTransformControls extends GamepadControls {
       this.#freeRotationX += transformX * angleScale;
       this.#freeRotationY += -transformY * angleScale;
       this.#applyFreeRotation(object);
+
       return true;
     }
 
@@ -1023,6 +1024,7 @@ export class GamepadTransformControls extends GamepadControls {
     }
 
     object.updateMatrixWorld();
+
     return true;
   }
 
@@ -1175,6 +1177,7 @@ export class GamepadTransformControls extends GamepadControls {
     }
 
     this.#getTransformAxisWorld(axis, "local", this.#axisWorld);
+
     return this.#getProjectedAxisInput(
       this.#axisWorld,
       transformX,
@@ -1321,6 +1324,7 @@ export class GamepadTransformControls extends GamepadControls {
   #worldDeltaToLocalDelta(worldDelta: Vector3, target: Vector3): Vector3 {
     target.copy(worldDelta).applyQuaternion(this.#parentQuaternionInv);
     this.#divideByParentScale(target);
+
     return target;
   }
 
@@ -1435,6 +1439,7 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #snapRotation(value: number): number {
     const snap = this.#controls.rotationSnap;
+
     return snap === null || snap <= 0 ? value : this.#snapValue(value, snap);
   }
 

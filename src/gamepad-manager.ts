@@ -106,6 +106,7 @@ export class GamepadManager {
     }
 
     this.activeGamepad = selectedGamepad;
+
     return selectedGamepad;
   }
 
@@ -132,6 +133,7 @@ export class GamepadManager {
     const disconnectedGamepad = this.activeGamepad;
     this.activeGamepad = null;
     this.#connectionDeferredUntilUpdate = true;
+
     return disconnectedGamepad;
   }
 
@@ -153,6 +155,7 @@ export class GamepadManager {
       }
 
       this.activeGamepad = connectedGamepad;
+
       return {
         gamepad: connectedGamepad,
         connected: connectedGamepad,
@@ -166,6 +169,7 @@ export class GamepadManager {
     if (nextGamepad === null) {
       this.activeGamepad = null;
       this.#connectionDeferredUntilUpdate = true;
+
       return {
         gamepad: null,
         connected: null,
@@ -174,6 +178,7 @@ export class GamepadManager {
     }
 
     this.activeGamepad = nextGamepad;
+
     return {
       gamepad: nextGamepad,
       connected: null,
@@ -202,6 +207,7 @@ export class GamepadManager {
    */
   #getGamepadByIndex(index: number): Gamepad | null {
     const gamepad = navigator.getGamepads()[index] ?? null;
+
     return gamepad?.connected === true ? gamepad : null;
   }
 

@@ -283,6 +283,7 @@ export class GamepadDragControls extends GamepadControls {
     );
 
     this.#applySelectedWorldPosition();
+
     return true;
   }
 

@@ -477,6 +477,7 @@ export class GamepadArcballControls extends GamepadControls {
     }
 
     controls.updateMatrixState();
+
     return this.#applyTransform(
       controls.scale(size, controls._gizmos.position),
     );
@@ -553,6 +554,7 @@ export class GamepadArcballControls extends GamepadControls {
 
     this.#controls.applyTransformMatrix(transformation);
     this.#controls.updateMatrixState();
+
     return true;
   }
 

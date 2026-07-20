@@ -49,6 +49,7 @@ const isIgnorableHapticsError = (error: unknown): boolean => {
   }
 
   const { name } = error;
+
   return name === "NotSupportedError" || name === "InvalidStateError";
 };
 
@@ -65,6 +66,7 @@ export const isGamepadVibrationSupported = (
   gamepad: Gamepad | null,
 ): boolean => {
   const actuator = getGamepadVibrationActuator(gamepad);
+
   return typeof actuator?.playEffect === "function";
 };
 
@@ -96,7 +98,6 @@ export const playGamepadVibrationEffect = async (
     if (isIgnorableHapticsError(error)) {
       return null;
     }
-
     throw error;
   }
 };
@@ -125,7 +126,6 @@ export const resetGamepadVibration = async (
     if (isIgnorableHapticsError(error)) {
       return null;
     }
-
     throw error;
   }
 };
