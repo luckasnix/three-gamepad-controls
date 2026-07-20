@@ -60,7 +60,18 @@ Returns an axis value after dead zone processing. Pass `options.deadzone` to ove
 
 ### `stick(xAxis, yAxis, options)`
 
-Returns `{ x, y }` using the same dead zone behavior as `axis()`.
+Returns `{ x, y }` after dead zone processing. The default `options.deadzoneMode` is `"axial"`, which processes each axis independently and preserves the existing `axis()` behavior. Pass `"radial"` to compare the stick's distance from the center with the dead zone.
+
+![Comparison showing a square axial dead zone and a circular radial dead zone within the analog stick range.](../assets/deadzone-modes.webp "Axial and radial analog-stick dead zones")
+
+```ts
+const look = gamepadInput.stick(GAMEPAD_AXIS.RightX, GAMEPAD_AXIS.RightY, {
+  deadzone: 0.15,
+  deadzoneMode: "radial",
+});
+```
+
+Both modes return the original values outside the dead zone; they do not rescale the output.
 
 ### `playVibrationEffect(type, parameters?)`
 

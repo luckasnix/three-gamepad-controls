@@ -55,13 +55,27 @@ export type GamepadInputOptions = {
 };
 
 /**
- * Options for axis and stick reads.
+ * Options for axis reads.
  */
 export type GamepadAxisOptions = {
   /**
    * Axis dead zone threshold for this read.
    */
   deadzone?: number;
+};
+
+/**
+ * Options for two-dimensional stick reads.
+ */
+export type GamepadStickOptions = GamepadAxisOptions & {
+  /**
+   * Dead zone shape for this read.
+   *
+   * `"axial"` processes each axis independently, while `"radial"` processes
+   * the stick magnitude.
+   * @default "axial"
+   */
+  deadzoneMode?: "axial" | "radial";
 };
 
 /**
@@ -100,6 +114,33 @@ const DEFAULT_GAMEPAD_INPUT_OPTIONS: GamepadInputOptions = {
  */
 const applyGamepadDeadzone = (value: number, threshold: number): number => {
   return Math.abs(value) < threshold ? 0 : value;
+};
+
+/**
+ * Returns the stick unchanged, or centered if its magnitude is below the dead
+ * zone `threshold`.
+ *
+ * @param x - Raw horizontal stick value.
+ * @param y - Raw vertical stick value.
+ * @param threshold - Radial dead zone size.
+ * @returns The original stick when outside the dead zone, otherwise `{ x: 0, y: 0 }`.
+ */
+const applyGamepadRadialDeadzone = (
+  x: number,
+  y: number,
+  threshold: number,
+): GamepadStick => {
+  if (Math.hypot(x, y) < threshold) {
+    return {
+      x: 0,
+      y: 0,
+    };
+  }
+
+  return {
+    x,
+    y,
+  };
 };
 
 /**
@@ -365,6 +406,7 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
    */
   public axis(axis: number, options?: GamepadAxisOptions): number {
     const value = this.#gamepad?.axes[axis] ?? 0;
+
     return applyGamepadDeadzone(value, this.#getDeadzone(options));
   }
 
@@ -373,14 +415,21 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
    *
    * @param xAxis - Horizontal axis index.
    * @param yAxis - Vertical axis index.
-   * @param options - Optional per-read axis options.
+   * @param options - Optional per-read stick options.
    * @returns Object containing processed `x` and `y` values.
    */
   public stick(
     xAxis: number,
     yAxis: number,
-    options?: GamepadAxisOptions,
+    options?: GamepadStickOptions,
   ): GamepadStick {
+    if (options?.deadzoneMode === "radial") {
+      const x = this.#gamepad?.axes[xAxis] ?? 0;
+      const y = this.#gamepad?.axes[yAxis] ?? 0;
+
+      return applyGamepadRadialDeadzone(x, y, this.#getDeadzone(options));
+    }
+
     return {
       x: this.axis(xAxis, options),
       y: this.axis(yAxis, options),
