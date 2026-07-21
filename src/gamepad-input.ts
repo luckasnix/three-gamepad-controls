@@ -33,6 +33,11 @@ export type GamepadInputEventMap = {
 };
 
 /**
+ * Dead zone processing mode for two-dimensional stick reads.
+ */
+export type GamepadDeadzoneMode = "axial" | "radial";
+
+/**
  * Configuration for {@link GamepadInput}.
  */
 export type GamepadInputOptions = {
@@ -41,6 +46,18 @@ export type GamepadInputOptions = {
    * @default 0.1
    */
   deadzone: number;
+
+  /**
+   * Default dead zone mode for stick reads.
+   * @default "axial"
+   */
+  deadzoneMode: GamepadDeadzoneMode;
+
+  /**
+   * Whether stick reads rescale values outside the dead zone by default.
+   * @default false
+   */
+  rescale: boolean;
 
   /**
    * Browser-assigned gamepad slot to use.
@@ -75,7 +92,7 @@ export type GamepadStickOptions = GamepadAxisOptions & {
    * the stick magnitude.
    * @default "axial"
    */
-  deadzoneMode?: "axial" | "radial";
+  deadzoneMode?: GamepadDeadzoneMode;
 
   /**
    * Whether to remap values outside the dead zone to the full output range.
@@ -106,6 +123,8 @@ type SyncButtonStateOptions = {
 
 const DEFAULT_GAMEPAD_INPUT_OPTIONS: GamepadInputOptions = {
   deadzone: 0.1,
+  deadzoneMode: "axial",
+  rescale: false,
 };
 
 /**
@@ -486,12 +505,13 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
     yAxis: number,
     options?: GamepadStickOptions,
   ): GamepadStick {
-    const rescale = options?.rescale ?? false;
+    const deadzoneMode = options?.deadzoneMode ?? this.#options.deadzoneMode;
+    const rescale = options?.rescale ?? this.#options.rescale;
     const threshold = this.#getDeadzone(options);
     const x = this.#gamepad?.axes[xAxis] ?? 0;
     const y = this.#gamepad?.axes[yAxis] ?? 0;
 
-    if (options?.deadzoneMode === "radial") {
+    if (deadzoneMode === "radial") {
       return applyGamepadRadialDeadzone(x, y, threshold, rescale);
     }
 

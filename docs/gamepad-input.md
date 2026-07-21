@@ -12,10 +12,24 @@ Gamepad input state reader for gameplay, menus, and custom interactions.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `deadzone` | `number` | `0.1` | Default axis dead zone threshold. |
+| `deadzone` | `number` | `0.1` | Default axis and stick dead zone threshold. |
+| `deadzoneMode` | `"axial" \| "radial"` | `"axial"` | Default dead zone mode for stick reads. |
+| `rescale` | `boolean` | `false` | Whether stick reads rescale values outside the dead zone by default. |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
 
+Configure stick processing defaults once when creating the input:
+
+```ts
+const gamepadInput = new GamepadInput({
+  deadzone: 0.15,
+  deadzoneMode: "radial",
+  rescale: true,
+});
+```
+
 `gamepadIndex` must be an integer from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); any other value throws a `RangeError`. An explicit index never falls back to another gamepad. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and multi-player examples.
+
+`deadzoneMode` and `rescale` affect only `stick()` reads. Options passed directly to `stick()` override these instance defaults for that read. `axis()` continues to use only the configured `deadzone`.
 
 ## Properties
 
@@ -60,19 +74,27 @@ Returns an axis value after dead zone processing. Pass `options.deadzone` to ove
 
 ### `stick(xAxis, yAxis, options)`
 
-Returns `{ x, y }` after dead zone processing. The default `options.deadzoneMode` is `"axial"`, which processes each axis independently and preserves the existing `axis()` behavior. Pass `"radial"` to compare the stick's distance from the center with the dead zone.
+Returns `{ x, y }` after dead zone processing. It uses the instance's `deadzone`, `deadzoneMode`, and `rescale` defaults, which can be overridden in `options` for one read. The library default mode is `"axial"`, which processes each axis independently and preserves the existing `axis()` behavior. Use `"radial"` to compare the stick's distance from the center with the dead zone.
 
 ![Comparison showing a square axial dead zone and a circular radial dead zone within the analog stick range.](../assets/deadzone-modes.webp "Axial and radial analog-stick dead zones")
 
+| Per-read option | Type | Fallback |
+| --- | --- | --- |
+| `deadzone` | `number` | Instance `deadzone` |
+| `deadzoneMode` | `"axial" \| "radial"` | Instance `deadzoneMode` |
+| `rescale` | `boolean` | Instance `rescale` |
+
+For example, this read keeps the instance's dead zone and mode but disables rescaling:
+
 ```ts
-const look = gamepadInput.stick(GAMEPAD_AXIS.RightX, GAMEPAD_AXIS.RightY, {
-  deadzone: 0.15,
-  deadzoneMode: "radial",
-  rescale: true,
-});
+const look = gamepadInput.stick(
+  GAMEPAD_AXIS.RightX,
+  GAMEPAD_AXIS.RightY,
+  { rescale: false },
+);
 ```
 
-By default, both modes return the original values outside the dead zone. Pass `rescale: true` to remap the remaining range so the dead zone boundary produces `0` and full stick travel produces `1`. Axial mode rescales each axis independently; radial mode rescales the stick magnitude while preserving its direction.
+With the library default `rescale: false`, both modes return the original values outside the dead zone. Enable rescaling on the instance or for one read to remap the remaining range so the dead zone boundary produces `0` and full stick travel produces `1`. Axial mode rescales each axis independently; radial mode rescales the stick magnitude while preserving its direction.
 
 ### `playVibrationEffect(type, parameters?)`
 
