@@ -60,6 +60,18 @@ export type GamepadInputOptions = {
   rescale: boolean;
 
   /**
+   * Whether the horizontal component of stick reads is inverted by default.
+   * @default false
+   */
+  invertX: boolean;
+
+  /**
+   * Whether the vertical component of stick reads is inverted by default.
+   * @default false
+   */
+  invertY: boolean;
+
+  /**
    * Browser-assigned gamepad slot to use.
    *
    * When omitted, the connected gamepad with the lowest index is selected.
@@ -99,19 +111,31 @@ export type GamepadStickOptions = GamepadAxisOptions & {
    * @default false
    */
   rescale?: boolean;
+
+  /**
+   * Whether to invert the processed component from `xAxis`.
+   * @default false
+   */
+  invertX?: boolean;
+
+  /**
+   * Whether to invert the processed component from `yAxis`.
+   * @default false
+   */
+  invertY?: boolean;
 };
 
 /**
- * Two-dimensional stick input after dead zone processing.
+ * Two-dimensional stick input after configured stick processing.
  */
 export type GamepadStick = {
   /**
-   * Horizontal stick value.
+   * Processed horizontal stick value.
    */
   x: number;
 
   /**
-   * Vertical stick value.
+   * Processed vertical stick value.
    */
   y: number;
 };
@@ -125,6 +149,8 @@ const DEFAULT_GAMEPAD_INPUT_OPTIONS: GamepadInputOptions = {
   deadzone: 0.1,
   deadzoneMode: "axial",
   rescale: false,
+  invertX: false,
+  invertY: false,
 };
 
 /**
@@ -493,7 +519,7 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   }
 
   /**
-   * Returns a two-axis stick after dead zone processing.
+   * Returns a two-axis stick after dead zone, rescale, and inversion processing.
    *
    * @param xAxis - Horizontal axis index.
    * @param yAxis - Vertical axis index.
@@ -507,17 +533,27 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   ): GamepadStick {
     const deadzoneMode = options?.deadzoneMode ?? this.#options.deadzoneMode;
     const rescale = options?.rescale ?? this.#options.rescale;
+    const invertX = options?.invertX ?? this.#options.invertX;
+    const invertY = options?.invertY ?? this.#options.invertY;
     const threshold = this.#getDeadzone(options);
     const x = this.#gamepad?.axes[xAxis] ?? 0;
     const y = this.#gamepad?.axes[yAxis] ?? 0;
 
-    if (deadzoneMode === "radial") {
-      return applyGamepadRadialDeadzone(x, y, threshold, rescale);
+    const processed =
+      deadzoneMode === "radial"
+        ? applyGamepadRadialDeadzone(x, y, threshold, rescale)
+        : {
+            x: applyGamepadAxialDeadzone(x, threshold, rescale),
+            y: applyGamepadAxialDeadzone(y, threshold, rescale),
+          };
+
+    if (!invertX && !invertY) {
+      return processed;
     }
 
     return {
-      x: applyGamepadAxialDeadzone(x, threshold, rescale),
-      y: applyGamepadAxialDeadzone(y, threshold, rescale),
+      x: processed.x === 0 ? 0 : invertX ? -processed.x : processed.x,
+      y: processed.y === 0 ? 0 : invertY ? -processed.y : processed.y,
     };
   }
 
