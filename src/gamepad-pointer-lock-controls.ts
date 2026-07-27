@@ -6,6 +6,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadPointerLockControls}.
@@ -26,46 +32,42 @@ export type GamepadPointerLockControlsOptions = GamepadControlsOptions & {
   lookSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
-   * @default 0.1
+   * Stick binding used for horizontal and forward movement.
+   * @default Left stick with the default stick pipeline
    */
-  deadzone: number;
+  moveStick: GamepadStickBindingOptions;
 
   /**
-   * Axis index for **forward / backward** movement.
-   * @default 1 — Left stick Y
+   * Stick binding used for yaw and pitch.
+   * @default Right stick with the default stick pipeline
    */
-  axisMoveForward: number;
+  lookStick: GamepadStickBindingOptions;
+};
 
-  /**
-   * Axis index for **right / left** strafe movement.
-   * @default 0 — Left stick X
-   */
-  axisMoveRight: number;
-
-  /**
-   * Axis index for **horizontal** camera look (yaw).
-   * @default 2 — Right stick X
-   */
-  axisLookX: number;
-
-  /**
-   * Axis index for **vertical** camera look (pitch).
-   * @default 3 — Right stick Y
-   */
-  axisLookY: number;
+type ResolvedGamepadPointerLockControlsOptions = Omit<
+  GamepadPointerLockControlsOptions,
+  "moveStick" | "lookStick"
+> & {
+  moveStick: GamepadStickBinding;
+  lookStick: GamepadStickBinding;
 };
 
 // Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_POINTER_LOCK_OPTIONS: GamepadPointerLockControlsOptions = {
-  moveSpeed: 5.0,
-  lookSpeed: 1.0,
-  deadzone: 0.1,
-  axisMoveForward: GAMEPAD_AXIS.LeftY,
-  axisMoveRight: GAMEPAD_AXIS.LeftX,
-  axisLookX: GAMEPAD_AXIS.RightX,
-  axisLookY: GAMEPAD_AXIS.RightY,
-};
+const DEFAULT_POINTER_LOCK_OPTIONS: ResolvedGamepadPointerLockControlsOptions =
+  {
+    moveSpeed: 5.0,
+    lookSpeed: 1.0,
+    moveStick: {
+      xAxis: GAMEPAD_AXIS.LeftX,
+      yAxis: GAMEPAD_AXIS.LeftY,
+      pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+    },
+    lookStick: {
+      xAxis: GAMEPAD_AXIS.RightX,
+      yAxis: GAMEPAD_AXIS.RightY,
+      pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+    },
+  };
 
 /**
  * Adds gamepad support to Three.js `PointerLockControls`.
@@ -76,7 +78,7 @@ const DEFAULT_POINTER_LOCK_OPTIONS: GamepadPointerLockControlsOptions = {
  */
 export class GamepadPointerLockControls extends GamepadControls {
   readonly #controls: PointerLockControls;
-  readonly #options: GamepadPointerLockControlsOptions;
+  readonly #options: ResolvedGamepadPointerLockControlsOptions;
 
   // Pre-allocated Euler (YXZ order) to avoid per-frame GC pressure.
   readonly #euler: Euler;
@@ -95,6 +97,14 @@ export class GamepadPointerLockControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_POINTER_LOCK_OPTIONS,
       ...options,
+      moveStick: resolveGamepadStickBinding(
+        DEFAULT_POINTER_LOCK_OPTIONS.moveStick,
+        options?.moveStick,
+      ),
+      lookStick: resolveGamepadStickBinding(
+        DEFAULT_POINTER_LOCK_OPTIONS.lookStick,
+        options?.lookStick,
+      ),
     };
     this.#euler = new Euler(0, 0, 0, "YXZ");
   }
@@ -105,27 +115,22 @@ export class GamepadPointerLockControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
-    const {
-      moveSpeed,
-      lookSpeed,
-      deadzone,
-      axisMoveForward,
-      axisMoveRight,
-      axisLookX,
-      axisLookY,
-    } = this.#options;
+    const { moveSpeed, lookSpeed, moveStick, lookStick } = this.#options;
     const input = this.gamepadInput;
 
     // Movement (left stick by default).
     // Negate the forward axis: stick-up = negative Y value = move forward.
-    const fwd = input.axis(axisMoveForward, { deadzone });
-    const strafe = input.axis(axisMoveRight, { deadzone });
+    const move = input.stick(
+      moveStick.xAxis,
+      moveStick.yAxis,
+      moveStick.pipeline,
+    );
 
-    if (fwd !== 0) {
-      this.#controls.moveForward(-fwd * moveSpeed * deltaTime);
+    if (move.y !== 0) {
+      this.#controls.moveForward(-move.y * moveSpeed * deltaTime);
     }
-    if (strafe !== 0) {
-      this.#controls.moveRight(strafe * moveSpeed * deltaTime);
+    if (move.x !== 0) {
+      this.#controls.moveRight(move.x * moveSpeed * deltaTime);
     }
 
     // Look (right stick by default).
@@ -134,17 +139,20 @@ export class GamepadPointerLockControls extends GamepadControls {
     // yaw (Y) and pitch (X) deltas, clamp pitch to polar angle constraints,
     // then write the quaternion back. The #euler instance is reused to avoid
     // allocations every frame.
-    const lookX = input.axis(axisLookX, { deadzone });
-    const lookY = input.axis(axisLookY, { deadzone });
+    const look = input.stick(
+      lookStick.xAxis,
+      lookStick.yAxis,
+      lookStick.pipeline,
+    );
 
-    if (lookX !== 0 || lookY !== 0) {
+    if (look.x !== 0 || look.y !== 0) {
       const camera = this.#controls.object;
       const scale =
         lookSpeed * this.#controls.pointerSpeed * deltaTime * Math.PI;
 
       this.#euler.setFromQuaternion(camera.quaternion);
-      this.#euler.y -= lookX * scale;
-      this.#euler.x -= lookY * scale;
+      this.#euler.y -= look.x * scale;
+      this.#euler.x -= look.y * scale;
       this.#euler.x = Math.max(
         Math.PI / 2 - this.#controls.maxPolarAngle,
         Math.min(Math.PI / 2 - this.#controls.minPolarAngle, this.#euler.x),

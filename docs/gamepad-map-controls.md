@@ -36,13 +36,13 @@ Every binding is remappable via the `options` parameter.
 | `rotateSpeed` | `number` | `1.0` | Multiplier on orbit rotation speed. |
 | `panSpeed` | `number` | `1.0` | Multiplier on pan speed. |
 | `zoomSpeed` | `number` | `1.0` | Multiplier on zoom (dolly) speed. |
-| `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
-| `axisPanX` | `number` | `0` | Axis index for horizontal pan (left stick X). |
-| `axisPanY` | `number` | `1` | Axis index for vertical pan (left stick Y). |
-| `axisRotateX` | `number` | `2` | Axis index for horizontal orbit (right stick X). |
-| `axisRotateY` | `number` | `3` | Axis index for vertical orbit (right stick Y). |
+| `panStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for panning. |
+| `rotateStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for orbit rotation. |
+| `buttonDeadzone` | `number` | `0.1` | Dead zone threshold for analog dolly triggers. |
 | `buttonDollyIn` | `number` | `7` | Button index for zoom in — analog trigger value (right trigger). |
 | `buttonDollyOut` | `number` | `6` | Button index for zoom out — analog trigger value (left trigger). |
+
+Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the Map-specific action default. Overriding only the pipeline therefore keeps left-stick pan and right-stick rotation. Pipelines do not process dolly triggers. See [Stick Processing](./gamepad-stick-processing.md).
 
 ## Properties
 

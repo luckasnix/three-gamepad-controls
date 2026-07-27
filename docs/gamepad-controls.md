@@ -16,6 +16,42 @@ Subclasses pass selection options to `super(options?)`.
 
 `gamepadIndex` must be an integer from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); any other value throws a `RangeError`. Selecting an explicit slot disables automatic fallback. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and examples using multiple controls.
 
+`GamepadControlsOptions` intentionally exposes only gamepad selection. Ready-made subclasses associate [stateless stick pipelines](./gamepad-stick-processing.md) with named actions such as `moveStick`, `lookStick`, or `panStick` in their own option types.
+
+## Stick action bindings
+
+Ready-made wrappers group the axes and pipeline for each two-dimensional action. Every stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields; omitted fields inherit that action's defaults.
+
+```ts
+const gamepadControls = new GamepadOrbitControls(orbitControls, {
+  rotateStick: {
+    pipeline: lookPipeline,
+  },
+  panStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+  },
+});
+```
+
+Each field is resolved independently. Overriding only `pipeline` keeps both default axes, while overriding only `xAxis` keeps the default Y axis and pipeline. A supplied pipeline replaces the complete action default rather than merging processor lists.
+
+| Wrapper | Stick actions |
+| --- | --- |
+| `GamepadFirstPersonControls` | `moveStick`, `lookStick` |
+| `GamepadFlyControls` | `moveStick`, `lookStick` |
+| `GamepadPointerLockControls` | `moveStick`, `lookStick` |
+| `GamepadOrbitControls` | `rotateStick`, `panStick` |
+| `GamepadMapControls` | `rotateStick`, `panStick` |
+| `GamepadTrackballControls` | `rotateStick`, `panStick` |
+| `GamepadArcballControls` | `rotateStick`, `panStick` |
+| `GamepadDragControls` | `dragStick`, `rotateStick` |
+| `GamepadTransformControls` | `transformStick` |
+
+Map controls preserve their special defaults: the left stick pans and the right stick rotates.
+
+Pipelines are not applied to triggers, digital buttons, scalar zoom, vertical movement, or Z rotation. Wrappers that consume analog buttons or triggers expose `buttonDeadzone` separately.
+
 ## Properties
 
 | Property | Type | Default | Description |
@@ -72,6 +108,8 @@ Protected getter that exposes the shared `GamepadInput` used by the control wrap
 
 Prefer reading input through `this.gamepadInput` inside this hook. Use `this.gamepad` only when you need raw snapshot access.
 
+Custom subclasses that expose partial stick bindings can use [`resolveGamepadStickBinding()`](./gamepad-stick-processing.md#action-bindings) to apply the same merge semantics as the ready-made wrappers.
+
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `deltaTime` | `number` | Seconds since the last frame. |
@@ -100,11 +138,17 @@ Extend `GamepadControls` and implement `onUpdate(deltaTime)`:
 import { Timer } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
+  createGamepadDeadzoneProcessor,
+  createGamepadStickPipeline,
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
   GamepadControls,
   type GamepadControlsOptions,
 } from "three-gamepad-controls";
+
+const rotatePipeline = createGamepadStickPipeline(
+  createGamepadDeadzoneProcessor({ mode: "radial" }),
+);
 
 class CustomGamepadOrbitControls extends GamepadControls {
   readonly #controls: OrbitControls;
@@ -116,11 +160,15 @@ class CustomGamepadOrbitControls extends GamepadControls {
 
   protected override onUpdate(deltaTime: number): void {
     // `GamepadControls.update()` has already refreshed this input for the frame.
-    const rotateX = this.gamepadInput.axis(GAMEPAD_AXIS.LeftX);
+    const rotate = this.gamepadInput.stick(
+      GAMEPAD_AXIS.LeftX,
+      GAMEPAD_AXIS.LeftY,
+      rotatePipeline,
+    );
     const dollyIn = this.gamepadInput.buttonValue(GAMEPAD_BUTTON.RightTrigger);
 
-    if (rotateX !== 0) {
-      this.#controls.rotateLeft(rotateX * deltaTime * Math.PI);
+    if (rotate.x !== 0) {
+      this.#controls.rotateLeft(rotate.x * deltaTime * Math.PI);
     }
 
     if (dollyIn > 0.1) {

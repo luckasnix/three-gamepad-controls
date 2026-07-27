@@ -43,9 +43,7 @@ Every binding is remappable via the `options` parameter.
 | `translateSpeed` | `number` | `1.0` | Screen-relative translation speed multiplier. |
 | `rotateSpeed` | `number` | `1.0` | Rotation speed multiplier. |
 | `scaleSpeed` | `number` | `1.0` | Scale speed multiplier. |
-| `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
-| `axisTransformX` | `number` | `0` | Axis index for horizontal transform input (left stick X). |
-| `axisTransformY` | `number` | `1` | Axis index for vertical transform input (left stick Y). |
+| `transformStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for transform input. |
 | `buttonTranslate` | `number` | `0` | Button index for translate mode (south face button). |
 | `buttonRotate` | `number` | `1` | Button index for rotate mode (east face button). |
 | `buttonScale` | `number` | `2` | Button index for scale mode (west face button). |
@@ -70,7 +68,9 @@ The wrapper keeps one active axis per mode:
 
 Axis selection respects `showX`, `showY`, `showZ`, `showXY`, `showYZ`, and `showXZ`. If the current axis becomes hidden or invalid for the selected mode, the wrapper selects the next valid axis or clears `controls.axis` when none is available.
 
-Moving the transform stick outside the dead zone starts a native-style transform interaction: `controls.dragging` becomes `true` and the wrapped instance emits `mouseDown`. Returning the stick to neutral emits `mouseUp` once and sets `controls.dragging` back to `false`, while preserving the selected axis highlight.
+When the processed transform stick becomes nonzero, a native-style transform interaction starts: `controls.dragging` becomes `true` and the wrapped instance emits `mouseDown`. Returning a zero vector from the pipeline emits `mouseUp` once and sets `controls.dragging` back to `false`, while preserving the selected axis highlight.
+
+`transformStick` accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Mode, axis, space, and reset buttons are not processed by the stick pipeline. See [Stick Processing](./gamepad-stick-processing.md).
 
 Gamepad transforms respect `TransformControls.enabled`, `mode`, `axis`, `space`, `translationSnap`, `rotationSnap`, `scaleSnap`, and translation min/max bounds. The wrapper maintains unsnapped internal accumulators, so small stick movements are not lost while snap settings are active.
 
@@ -115,7 +115,9 @@ const transformControlsHelper = transformControls.getHelper();
 scene.add(transformControlsHelper);
 transformControls.attach(mesh);
 
-const gamepadTransformControls = new GamepadTransformControls(transformControls);
+const gamepadTransformControls = new GamepadTransformControls(
+  transformControls,
+);
 const timer = new Timer();
 
 transformControls.addEventListener("mouseDown", () => {

@@ -18,6 +18,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadTransformControls}.
@@ -44,22 +50,10 @@ export type GamepadTransformControlsOptions = GamepadControlsOptions & {
   scaleSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
-   * @default 0.1
+   * Stick binding used for translation, rotation, and scaling.
+   * @default Left stick with the default stick pipeline
    */
-  deadzone: number;
-
-  /**
-   * Axis index for **horizontal** transform input.
-   * @default 0 - Left stick X
-   */
-  axisTransformX: number;
-
-  /**
-   * Axis index for **vertical** transform input.
-   * @default 1 - Left stick Y
-   */
-  axisTransformY: number;
+  transformStick: GamepadStickBindingOptions;
 
   /**
    * Button index for selecting translate mode.
@@ -128,14 +122,23 @@ export type GamepadTransformControlsOptions = GamepadControlsOptions & {
   buttonReset: number;
 };
 
+type ResolvedGamepadTransformControlsOptions = Omit<
+  GamepadTransformControlsOptions,
+  "transformStick"
+> & {
+  transformStick: GamepadStickBinding;
+};
+
 // Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_TRANSFORM_OPTIONS: GamepadTransformControlsOptions = {
+const DEFAULT_TRANSFORM_OPTIONS: ResolvedGamepadTransformControlsOptions = {
   translateSpeed: 1.0,
   rotateSpeed: 1.0,
   scaleSpeed: 1.0,
-  deadzone: 0.1,
-  axisTransformX: GAMEPAD_AXIS.LeftX,
-  axisTransformY: GAMEPAD_AXIS.LeftY,
+  transformStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
   buttonTranslate: GAMEPAD_BUTTON.South,
   buttonRotate: GAMEPAD_BUTTON.East,
   buttonScale: GAMEPAD_BUTTON.West,
@@ -228,7 +231,7 @@ const PROJECTED_AXIS_EPSILON = 0.001;
  */
 export class GamepadTransformControls extends GamepadControls {
   readonly #controls: RuntimeTransformControls;
-  readonly #options: GamepadTransformControlsOptions;
+  readonly #options: ResolvedGamepadTransformControlsOptions;
 
   readonly #activeAxisByMode: Record<
     TransformControlsMode,
@@ -284,6 +287,10 @@ export class GamepadTransformControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_TRANSFORM_OPTIONS,
       ...options,
+      transformStick: resolveGamepadStickBinding(
+        DEFAULT_TRANSFORM_OPTIONS.transformStick,
+        options?.transformStick,
+      ),
     };
 
     this.#activeAxisByMode = {
@@ -352,14 +359,14 @@ export class GamepadTransformControls extends GamepadControls {
       return;
     }
 
-    const transformX = this.gamepadInput.axis(this.#options.axisTransformX, {
-      deadzone: this.#options.deadzone,
-    });
-    const transformY = this.gamepadInput.axis(this.#options.axisTransformY, {
-      deadzone: this.#options.deadzone,
-    });
+    const { transformStick } = this.#options;
+    const transform = this.gamepadInput.stick(
+      transformStick.xAxis,
+      transformStick.yAxis,
+      transformStick.pipeline,
+    );
 
-    if (transformX === 0 && transformY === 0) {
+    if (transform.x === 0 && transform.y === 0) {
       this.#endTransform(false);
       return;
     }
@@ -368,7 +375,7 @@ export class GamepadTransformControls extends GamepadControls {
       return;
     }
 
-    if (this.#applyCurrentTransform(deltaTime, transformX, transformY)) {
+    if (this.#applyCurrentTransform(deltaTime, transform.x, transform.y)) {
       controls.dispatchEvent({ type: "change" });
       controls.dispatchEvent({ type: "objectChange" });
     }

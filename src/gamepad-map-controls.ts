@@ -6,12 +6,16 @@ import {
   type GamepadOrbitControlsOptions,
 } from "./gamepad-orbit-controls.ts";
 
-// Axis overrides: left stick pans and right stick orbits.
+// Binding overrides: left stick pans and right stick orbits.
 const DEFAULT_MAP_OPTIONS: Partial<GamepadOrbitControlsOptions> = {
-  axisPanX: GAMEPAD_AXIS.LeftX,
-  axisPanY: GAMEPAD_AXIS.LeftY,
-  axisRotateX: GAMEPAD_AXIS.RightX,
-  axisRotateY: GAMEPAD_AXIS.RightY,
+  panStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+  },
+  rotateStick: {
+    xAxis: GAMEPAD_AXIS.RightX,
+    yAxis: GAMEPAD_AXIS.RightY,
+  },
 };
 
 /**
@@ -35,6 +39,14 @@ export class GamepadMapControls extends GamepadOrbitControls {
     super(controls, {
       ...DEFAULT_MAP_OPTIONS,
       ...options,
+      panStick: {
+        ...DEFAULT_MAP_OPTIONS.panStick,
+        ...options?.panStick,
+      },
+      rotateStick: {
+        ...DEFAULT_MAP_OPTIONS.rotateStick,
+        ...options?.rotateStick,
+      },
     });
   }
 }

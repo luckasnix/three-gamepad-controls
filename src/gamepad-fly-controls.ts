@@ -6,6 +6,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadFlyControls}.
@@ -26,34 +32,20 @@ export type GamepadFlyControlsOptions = GamepadControlsOptions & {
   rotateSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
+   * Dead zone threshold for analog button values.
    * @default 0.1
    */
-  deadzone: number;
+  buttonDeadzone: number;
 
   /**
-   * Axis index for **forward / backward** movement.
-   * @default 1 — Left stick Y
+   * Movement stick axes and processing pipeline.
    */
-  axisMoveForward: number;
+  moveStick: GamepadStickBindingOptions;
 
   /**
-   * Axis index for **right / left** strafe movement.
-   * @default 0 — Left stick X
+   * Camera-look stick axes and processing pipeline.
    */
-  axisMoveRight: number;
-
-  /**
-   * Axis index for **horizontal** camera look (yaw).
-   * @default 2 — Right stick X
-   */
-  axisLookX: number;
-
-  /**
-   * Axis index for **vertical** camera look (pitch).
-   * @default 3 — Right stick Y
-   */
-  axisLookY: number;
+  lookStick: GamepadStickBindingOptions;
 
   /**
    * Button index for **rolling left**.
@@ -80,15 +72,29 @@ export type GamepadFlyControlsOptions = GamepadControlsOptions & {
   buttonMoveDown: number;
 };
 
+type ResolvedGamepadFlyControlsOptions = Omit<
+  GamepadFlyControlsOptions,
+  "moveStick" | "lookStick"
+> & {
+  moveStick: GamepadStickBinding;
+  lookStick: GamepadStickBinding;
+};
+
 // Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_FLY_OPTIONS: GamepadFlyControlsOptions = {
+const DEFAULT_FLY_OPTIONS: ResolvedGamepadFlyControlsOptions = {
   moveSpeed: 1.0,
   rotateSpeed: 1.0,
-  deadzone: 0.1,
-  axisMoveForward: GAMEPAD_AXIS.LeftY,
-  axisMoveRight: GAMEPAD_AXIS.LeftX,
-  axisLookX: GAMEPAD_AXIS.RightX,
-  axisLookY: GAMEPAD_AXIS.RightY,
+  buttonDeadzone: 0.1,
+  moveStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  lookStick: {
+    xAxis: GAMEPAD_AXIS.RightX,
+    yAxis: GAMEPAD_AXIS.RightY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
   buttonRollLeft: GAMEPAD_BUTTON.LeftShoulder,
   buttonRollRight: GAMEPAD_BUTTON.RightShoulder,
   buttonMoveUp: GAMEPAD_BUTTON.LeftTrigger,
@@ -104,7 +110,7 @@ const DEFAULT_FLY_OPTIONS: GamepadFlyControlsOptions = {
  */
 export class GamepadFlyControls extends GamepadControls {
   readonly #controls: FlyControls;
-  readonly #options: GamepadFlyControlsOptions;
+  readonly #options: ResolvedGamepadFlyControlsOptions;
 
   // Pre-allocated to avoid per-frame GC pressure.
   readonly #tmpQuaternion: Quaternion;
@@ -123,6 +129,14 @@ export class GamepadFlyControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_FLY_OPTIONS,
       ...options,
+      moveStick: resolveGamepadStickBinding(
+        DEFAULT_FLY_OPTIONS.moveStick,
+        options?.moveStick,
+      ),
+      lookStick: resolveGamepadStickBinding(
+        DEFAULT_FLY_OPTIONS.lookStick,
+        options?.lookStick,
+      ),
     };
     this.#tmpQuaternion = new Quaternion();
   }
@@ -136,17 +150,25 @@ export class GamepadFlyControls extends GamepadControls {
     const {
       moveSpeed,
       rotateSpeed,
-      deadzone,
-      axisMoveForward,
-      axisMoveRight,
-      axisLookX,
-      axisLookY,
+      buttonDeadzone,
+      moveStick,
+      lookStick,
       buttonRollLeft,
       buttonRollRight,
       buttonMoveUp,
       buttonMoveDown,
     } = this.#options;
     const input = this.gamepadInput;
+    const move = input.stick(
+      moveStick.xAxis,
+      moveStick.yAxis,
+      moveStick.pipeline,
+    );
+    const look = input.stick(
+      lookStick.xAxis,
+      lookStick.yAxis,
+      lookStick.pipeline,
+    );
 
     // Translation.
     // Scale matches FlyControls' internal: delta * movementSpeed.
@@ -155,14 +177,14 @@ export class GamepadFlyControls extends GamepadControls {
     // Forward / backward — left stick Y.
     // Stick up produces a negative axis value; translateZ(-n) moves the camera
     // forward along its local -Z axis, so the raw axis value maps directly.
-    const fwd = input.axis(axisMoveForward, { deadzone });
+    const fwd = move.y;
     if (fwd !== 0) {
       this.#controls.object.translateZ(fwd * moveMult);
     }
 
     // Strafe left / right — left stick X.
     // Positive axis value (stick right) → translateX positive → move right.
-    const strafe = input.axis(axisMoveRight, { deadzone });
+    const strafe = move.x;
     if (strafe !== 0) {
       this.#controls.object.translateX(strafe * moveMult);
     }
@@ -171,10 +193,10 @@ export class GamepadFlyControls extends GamepadControls {
     const up = input.buttonValue(buttonMoveUp);
     const down = input.buttonValue(buttonMoveDown);
 
-    if (up > deadzone) {
+    if (up > buttonDeadzone) {
       this.#controls.object.translateY(up * moveMult);
     }
-    if (down > deadzone) {
+    if (down > buttonDeadzone) {
       this.#controls.object.translateY(-down * moveMult);
     }
 
@@ -188,11 +210,11 @@ export class GamepadFlyControls extends GamepadControls {
 
     // Pitch — right stick Y. Stick up (negative axis) tilts the camera up.
     // Negate so that a negative axis value produces a positive rotation (up).
-    const pitch = -input.axis(axisLookY, { deadzone });
+    const pitch = -look.y;
 
     // Yaw — right stick X. Stick right (positive axis) turns the camera right.
     // Negate so that a positive axis value produces a negative yaw (right turn).
-    const yaw = -input.axis(axisLookX, { deadzone });
+    const yaw = -look.x;
 
     // Roll — shoulder buttons (digital: 0 or 1).
     const rollLeft = input.isPressed(buttonRollLeft) ? 1 : 0;

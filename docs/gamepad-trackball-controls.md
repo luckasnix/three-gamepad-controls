@@ -36,15 +36,15 @@ Every binding is remappable via the `options` parameter.
 | `rotateSpeed` | `number` | `1.0` | Multiplier on `TrackballControls.rotateSpeed` for rotation. |
 | `panSpeed` | `number` | `1.0` | Multiplier on `TrackballControls.panSpeed` for panning. |
 | `zoomSpeed` | `number` | `1.0` | Multiplier on `TrackballControls.zoomSpeed` for zooming. |
-| `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
-| `axisRotateX` | `number` | `0` | Axis index for horizontal rotation (left stick X). |
-| `axisRotateY` | `number` | `1` | Axis index for vertical rotation (left stick Y). |
-| `axisPanX` | `number` | `2` | Axis index for horizontal pan (right stick X). |
-| `axisPanY` | `number` | `3` | Axis index for vertical pan (right stick Y). |
+| `rotateStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for rotation. |
+| `panStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for panning. |
+| `buttonDeadzone` | `number` | `0.1` | Dead zone threshold for analog zoom triggers. |
 | `buttonZoomIn` | `number` | `7` | Button index for zoom in - analog trigger value (right trigger). |
 | `buttonZoomOut` | `number` | `6` | Button index for zoom out - analog trigger value (left trigger). |
 
 `rotateSpeed`, `panSpeed`, and `zoomSpeed` multiply `TrackballControls`' own speed properties, so adjusting those properties affects both input sources at once. Gamepad input respects `noRotate`, `noPan`, `noZoom`, `staticMoving`, `dynamicDampingFactor`, camera distance limits, and orthographic zoom limits because the native `TrackballControls.update()` still applies the queued movement.
+
+Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Pipelines do not process zoom triggers; configure their scalar threshold with `buttonDeadzone`. See [Stick Processing](./gamepad-stick-processing.md).
 
 When `staticMoving` is `false`, queued gamepad pan and zoom input is scaled by `dynamicDampingFactor`. `TrackballControls` applies the remaining queued delta over multiple frames, so this compensation prevents damping from multiplying the total gamepad movement. The damping factor still controls how long the inertial tail lasts; setting `staticMoving` to `true` continues to consume each queued delta immediately.
 

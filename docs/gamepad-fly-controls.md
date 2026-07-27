@@ -35,17 +35,17 @@ Every binding is remappable via the `options` parameter.
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `moveSpeed` | `number` | `1.0` | Multiplier on `FlyControls.movementSpeed` for translation. |
 | `rotateSpeed` | `number` | `1.0` | Multiplier on `FlyControls.rollSpeed` for rotation. |
-| `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
-| `axisMoveForward` | `number` | `1` | Axis index for forward / backward movement (left stick Y). |
-| `axisMoveRight` | `number` | `0` | Axis index for left / right strafe movement (left stick X). |
-| `axisLookX` | `number` | `2` | Axis index for horizontal look — yaw (right stick X). |
-| `axisLookY` | `number` | `3` | Axis index for vertical look — pitch (right stick Y). |
+| `moveStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for movement. |
+| `lookStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for pitch and yaw. |
+| `buttonDeadzone` | `number` | `0.1` | Dead zone threshold for the analog movement buttons. |
 | `buttonRollLeft` | `number` | `4` | Button index for roll left (left shoulder). |
 | `buttonRollRight` | `number` | `5` | Button index for roll right (right shoulder). |
 | `buttonMoveUp` | `number` | `6` | Button index for move up — analog trigger value (left trigger). |
 | `buttonMoveDown` | `number` | `7` | Button index for move down — analog trigger value (right trigger). |
 
 `moveSpeed` and `rotateSpeed` multiply `FlyControls`' own `movementSpeed` and `rollSpeed`, so adjusting those properties affects both input sources at once. Use the options to fine-tune the gamepad feel independently.
+
+Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields. They merge independently with the action default, so `{ moveStick: { xAxis } }` keeps the default Y axis and pipeline. Pipelines do not affect triggers, roll buttons, or vertical movement. See [Stick Processing](./gamepad-stick-processing.md).
 
 ## Properties
 

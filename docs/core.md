@@ -2,7 +2,7 @@
 
 This module provides the fundamental building blocks used throughout the library to standardize gamepad inputs.
 
-By directly implementing the [W3C Standard Gamepad mapping](https://www.w3.org/TR/gamepad/#dfn-standard-gamepad), these essential utilities serve as the foundation for both internal library mechanics and everyday developer use, allowing you to seamlessly handle common controller interactions in your [Three.js](https://threejs.org) projects.
+By directly implementing the [W3C Standard Gamepad mapping](https://www.w3.org/TR/gamepad/#dfn-standard-gamepad), these essential utilities serve as the foundation for both internal library mechanics and application input code.
 
 Most modern controllers (PlayStation, Xbox, Switch Pro) follow this layout when connected to a browser.
 
@@ -16,7 +16,7 @@ The smallest valid browser-assigned gamepad index. Its value is `0`, because gam
 
 ### `MAX_GAMEPAD_INDEX`
 
-The largest valid browser-assigned gamepad index. Its value is `2147483647`, the largest non-negative value representable by the Web IDL `long` used by `Gamepad.index`.
+The largest valid browser-assigned gamepad index. Its value is `2147483647`, the largest non-negative value representable by the Web IDL [`long`](https://webidl.spec.whatwg.org/#idl-long) used by `Gamepad.index`.
 
 ### `GAMEPAD_BUTTON`
 
@@ -70,25 +70,22 @@ Similar to the button mappings, this constant allows you to reference axes by cl
 
 ## Usage
 
-Use these constants when customizing bindings via the `options` parameter of any gamepad controls class:
+Use these constants instead of numeric button and axis indices when reading a gamepad with the standard mapping:
 
 ```ts
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import {
-  GAMEPAD_AXIS,
-  GAMEPAD_BUTTON,
-  GamepadOrbitControls,
-} from "three-gamepad-controls";
+import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "three-gamepad-controls";
 
-const orbitControls = new OrbitControls(camera, renderer.domElement);
-const gamepadOrbitControls = new GamepadOrbitControls(orbitControls, {
-  // Swap sticks: the right stick rotates and the left stick pans.
-  axisRotateX: GAMEPAD_AXIS.RightX,
-  axisRotateY: GAMEPAD_AXIS.RightY,
-  axisPanX: GAMEPAD_AXIS.LeftX,
-  axisPanY: GAMEPAD_AXIS.LeftY,
-  // Use bumpers instead of triggers for zoom.
-  buttonDollyIn: GAMEPAD_BUTTON.RightShoulder,
-  buttonDollyOut: GAMEPAD_BUTTON.LeftShoulder,
-});
+const gamepad = navigator.getGamepads()[0];
+
+if (gamepad?.connected && gamepad.mapping === "standard") {
+  const moveX = gamepad.axes[GAMEPAD_AXIS.LeftX] ?? 0;
+  const moveY = gamepad.axes[GAMEPAD_AXIS.LeftY] ?? 0;
+  const jumpPressed = gamepad.buttons[GAMEPAD_BUTTON.South]?.pressed ?? false;
+
+  updateMovement(moveX, moveY);
+
+  if (jumpPressed) {
+    jump();
+  }
+}
 ```

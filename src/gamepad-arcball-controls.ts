@@ -12,6 +12,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadArcballControls}.
@@ -44,34 +50,22 @@ export type GamepadArcballControlsOptions = GamepadControlsOptions & {
   zRotateSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
+   * Stick binding used for arcball rotation.
+   * @default Left stick with the default stick pipeline
+   */
+  rotateStick: GamepadStickBindingOptions;
+
+  /**
+   * Stick binding used for panning.
+   * @default Right stick with the default stick pipeline
+   */
+  panStick: GamepadStickBindingOptions;
+
+  /**
+   * Dead zone threshold for analog button and trigger values.
    * @default 0.1
    */
-  deadzone: number;
-
-  /**
-   * Axis index for **horizontal** arcball rotation.
-   * @default 0 - Left stick X
-   */
-  axisRotateX: number;
-
-  /**
-   * Axis index for **vertical** arcball rotation.
-   * @default 1 - Left stick Y
-   */
-  axisRotateY: number;
-
-  /**
-   * Axis index for **horizontal** panning.
-   * @default 2 - Right stick X
-   */
-  axisPanX: number;
-
-  /**
-   * Axis index for **vertical** panning.
-   * @default 3 - Right stick Y
-   */
-  axisPanY: number;
+  buttonDeadzone: number;
 
   /**
    * Button index for zooming **in** (analog trigger value used for proportional zoom).
@@ -104,17 +98,31 @@ export type GamepadArcballControlsOptions = GamepadControlsOptions & {
   buttonFocus: number;
 };
 
+type ResolvedGamepadArcballControlsOptions = Omit<
+  GamepadArcballControlsOptions,
+  "rotateStick" | "panStick"
+> & {
+  rotateStick: GamepadStickBinding;
+  panStick: GamepadStickBinding;
+};
+
 // Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_ARCBALL_OPTIONS: GamepadArcballControlsOptions = {
+const DEFAULT_ARCBALL_OPTIONS: ResolvedGamepadArcballControlsOptions = {
   rotateSpeed: 1.0,
   panSpeed: 1.0,
   zoomSpeed: 1.0,
   zRotateSpeed: 1.0,
-  deadzone: 0.1,
-  axisRotateX: GAMEPAD_AXIS.LeftX,
-  axisRotateY: GAMEPAD_AXIS.LeftY,
-  axisPanX: GAMEPAD_AXIS.RightX,
-  axisPanY: GAMEPAD_AXIS.RightY,
+  rotateStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  panStick: {
+    xAxis: GAMEPAD_AXIS.RightX,
+    yAxis: GAMEPAD_AXIS.RightY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  buttonDeadzone: 0.1,
   buttonZoomIn: GAMEPAD_BUTTON.RightTrigger,
   buttonZoomOut: GAMEPAD_BUTTON.LeftTrigger,
   buttonZRotateLeft: GAMEPAD_BUTTON.LeftShoulder,
@@ -225,7 +233,7 @@ type ArcballControlsWithRuntimeHelpers = ArcballControls & {
  */
 export class GamepadArcballControls extends GamepadControls {
   readonly #controls: ArcballControlsWithRuntimeHelpers;
-  readonly #options: GamepadArcballControlsOptions;
+  readonly #options: ResolvedGamepadArcballControlsOptions;
 
   readonly #centerNdc: Vector2;
   readonly #panStart: Vector3;
@@ -251,6 +259,14 @@ export class GamepadArcballControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_ARCBALL_OPTIONS,
       ...options,
+      rotateStick: resolveGamepadStickBinding(
+        DEFAULT_ARCBALL_OPTIONS.rotateStick,
+        options?.rotateStick,
+      ),
+      panStick: resolveGamepadStickBinding(
+        DEFAULT_ARCBALL_OPTIONS.panStick,
+        options?.panStick,
+      ),
     };
 
     this.#centerNdc = new Vector2(0, 0);
@@ -275,11 +291,9 @@ export class GamepadArcballControls extends GamepadControls {
       panSpeed,
       zoomSpeed,
       zRotateSpeed,
-      deadzone,
-      axisRotateX,
-      axisRotateY,
-      axisPanX,
-      axisPanY,
+      rotateStick,
+      panStick,
+      buttonDeadzone,
       buttonZoomIn,
       buttonZoomOut,
       buttonZRotateLeft,
@@ -295,14 +309,29 @@ export class GamepadArcballControls extends GamepadControls {
       return;
     }
 
-    const rotateX = controls.enableRotate
-      ? input.axis(axisRotateX, { deadzone })
-      : 0;
-    const rotateY = controls.enableRotate
-      ? input.axis(axisRotateY, { deadzone })
-      : 0;
-    const panX = controls.enablePan ? input.axis(axisPanX, { deadzone }) : 0;
-    const panY = controls.enablePan ? input.axis(axisPanY, { deadzone }) : 0;
+    let rotateX = 0;
+    let rotateY = 0;
+    if (controls.enableRotate) {
+      const rotate = input.stick(
+        rotateStick.xAxis,
+        rotateStick.yAxis,
+        rotateStick.pipeline,
+      );
+      rotateX = rotate.x;
+      rotateY = rotate.y;
+    }
+
+    let panX = 0;
+    let panY = 0;
+    if (controls.enablePan) {
+      const pan = input.stick(
+        panStick.xAxis,
+        panStick.yAxis,
+        panStick.pipeline,
+      );
+      panX = pan.x;
+      panY = pan.y;
+    }
     const zoom = controls.enableZoom
       ? input.buttonValue(buttonZoomIn) - input.buttonValue(buttonZoomOut)
       : 0;
@@ -316,8 +345,8 @@ export class GamepadArcballControls extends GamepadControls {
       rotateY !== 0 ||
       panX !== 0 ||
       panY !== 0 ||
-      Math.abs(zoom) > deadzone ||
-      Math.abs(zRotation) > deadzone;
+      Math.abs(zoom) > buttonDeadzone ||
+      Math.abs(zRotation) > buttonDeadzone;
 
     if (!activeInput && focusPoint === null) {
       this.#endInteraction();
@@ -333,10 +362,15 @@ export class GamepadArcballControls extends GamepadControls {
     changed =
       this.#applyRotation(deltaTime, rotateX, rotateY, rotateSpeed) || changed;
     changed = this.#applyPan(deltaTime, panX, panY, panSpeed) || changed;
-    changed = this.#applyZoom(deltaTime, zoom, zoomSpeed, deadzone) || changed;
     changed =
-      this.#applyZRotation(deltaTime, zRotation, zRotateSpeed, deadzone) ||
-      changed;
+      this.#applyZoom(deltaTime, zoom, zoomSpeed, buttonDeadzone) || changed;
+    changed =
+      this.#applyZRotation(
+        deltaTime,
+        zRotation,
+        zRotateSpeed,
+        buttonDeadzone,
+      ) || changed;
     changed = this.#applyFocus(focusPoint) || changed;
 
     if (changed) {
@@ -454,16 +488,16 @@ export class GamepadArcballControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    * @param zoom - Signed zoom input from the configured trigger pair.
    * @param zoomSpeed - User-configured zoom speed multiplier.
-   * @param deadzone - Trigger dead zone threshold.
+   * @param buttonDeadzone - Trigger dead zone threshold.
    * @returns `true` when a zoom transform was applied.
    */
   #applyZoom(
     deltaTime: number,
     zoom: number,
     zoomSpeed: number,
-    deadzone: number,
+    buttonDeadzone: number,
   ): boolean {
-    if (Math.abs(zoom) <= deadzone || this.#controls.scaleFactor <= 0) {
+    if (Math.abs(zoom) <= buttonDeadzone || this.#controls.scaleFactor <= 0) {
       return false;
     }
 
@@ -489,16 +523,16 @@ export class GamepadArcballControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    * @param zRotation - Signed z-rotation input from the configured buttons.
    * @param zRotateSpeed - User-configured z-rotation speed multiplier.
-   * @param deadzone - Button value dead zone threshold.
+   * @param buttonDeadzone - Button value dead zone threshold.
    * @returns `true` when a z-rotation transform was applied.
    */
   #applyZRotation(
     deltaTime: number,
     zRotation: number,
     zRotateSpeed: number,
-    deadzone: number,
+    buttonDeadzone: number,
   ): boolean {
-    if (Math.abs(zRotation) <= deadzone) {
+    if (Math.abs(zRotation) <= buttonDeadzone) {
       return false;
     }
 

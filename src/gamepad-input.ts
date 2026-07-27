@@ -6,6 +6,11 @@ import {
   resetGamepadVibration,
 } from "./gamepad-haptics.ts";
 import { GamepadManager } from "./gamepad-manager.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStick,
+  type GamepadStickPipeline,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Event map for {@link GamepadInput}.
@@ -33,43 +38,20 @@ export type GamepadInputEventMap = {
 };
 
 /**
- * Dead zone processing mode for two-dimensional stick reads.
- */
-export type GamepadDeadzoneMode = "axial" | "radial";
-
-/**
  * Configuration for {@link GamepadInput}.
  */
 export type GamepadInputOptions = {
   /**
-   * Default axis dead zone threshold in the range `[0, 1]`.
+   * Default dead zone threshold for {@link GamepadInput.axis} reads.
    * @default 0.1
    */
-  deadzone: number;
+  axisDeadzone: number;
 
   /**
-   * Default dead zone mode for stick reads.
-   * @default "axial"
+   * Default stateless processing pipeline for stick reads.
+   * @default DEFAULT_GAMEPAD_STICK_PIPELINE
    */
-  deadzoneMode: GamepadDeadzoneMode;
-
-  /**
-   * Whether stick reads rescale values outside the dead zone by default.
-   * @default false
-   */
-  rescale: boolean;
-
-  /**
-   * Whether the horizontal component of stick reads is inverted by default.
-   * @default false
-   */
-  invertX: boolean;
-
-  /**
-   * Whether the vertical component of stick reads is inverted by default.
-   * @default false
-   */
-  invertY: boolean;
+  stickPipeline: GamepadStickPipeline;
 
   /**
    * Browser-assigned gamepad slot to use.
@@ -93,162 +75,25 @@ export type GamepadAxisOptions = {
   deadzone?: number;
 };
 
-/**
- * Options for two-dimensional stick reads.
- */
-export type GamepadStickOptions = GamepadAxisOptions & {
-  /**
-   * Dead zone shape for this read.
-   *
-   * `"axial"` processes each axis independently, while `"radial"` processes
-   * the stick magnitude.
-   * @default "axial"
-   */
-  deadzoneMode?: GamepadDeadzoneMode;
-
-  /**
-   * Whether to remap values outside the dead zone to the full output range.
-   * @default false
-   */
-  rescale?: boolean;
-
-  /**
-   * Whether to invert the processed component from `xAxis`.
-   * @default false
-   */
-  invertX?: boolean;
-
-  /**
-   * Whether to invert the processed component from `yAxis`.
-   * @default false
-   */
-  invertY?: boolean;
-};
-
-/**
- * Two-dimensional stick input after configured stick processing.
- */
-export type GamepadStick = {
-  /**
-   * Processed horizontal stick value.
-   */
-  x: number;
-
-  /**
-   * Processed vertical stick value.
-   */
-  y: number;
-};
-
 type SyncButtonStateOptions = {
   // Whether to copy current button state into previous state after syncing.
   seedPrevious: boolean;
 };
 
 const DEFAULT_GAMEPAD_INPUT_OPTIONS: GamepadInputOptions = {
-  deadzone: 0.1,
-  deadzoneMode: "axial",
-  rescale: false,
-  invertX: false,
-  invertY: false,
+  axisDeadzone: 0.1,
+  stickPipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
 };
 
 /**
- * Applies a dead zone and remaps the remaining magnitude to `[0, 1]`.
- *
- * @param magnitude - Non-negative input magnitude.
- * @param threshold - Dead zone size.
- * @returns Rescaled magnitude, or `0` when inside a fully closed dead zone.
- */
-const rescaleGamepadDeadzoneMagnitude = (
-  magnitude: number,
-  threshold: number,
-): number => {
-  if (magnitude <= threshold || threshold >= 1) {
-    return 0;
-  }
-
-  return Math.min((magnitude - threshold) / (1 - threshold), 1);
-};
-
-/**
- * Applies an axial dead zone, optionally rescaling the remaining range.
+ * Applies a scalar dead zone without rescaling.
  *
  * @param value - Raw axis value.
  * @param threshold - Dead zone size.
- * @param rescale - Whether to remap the remaining magnitude to `[0, 1]`.
- * @returns Processed signed axis value.
+ * @returns The original value outside the dead zone, otherwise `0`.
  */
-const applyGamepadAxialDeadzone = (
-  value: number,
-  threshold: number,
-  rescale: boolean,
-): number => {
-  const magnitude = Math.abs(value);
-
-  if (magnitude < threshold) {
-    return 0;
-  }
-
-  if (!rescale) {
-    return value;
-  }
-
-  return (
-    Math.sign(value) * rescaleGamepadDeadzoneMagnitude(magnitude, threshold)
-  );
-};
-
-/**
- * Returns the stick unchanged, or centered if its magnitude is below the dead
- * zone `threshold`.
- *
- * @param x - Raw horizontal stick value.
- * @param y - Raw vertical stick value.
- * @param threshold - Radial dead zone size.
- * @param rescale - Whether to remap the remaining magnitude to `[0, 1]`.
- * @returns The processed stick, or `{ x: 0, y: 0 }` inside the dead zone.
- */
-const applyGamepadRadialDeadzone = (
-  x: number,
-  y: number,
-  threshold: number,
-  rescale: boolean,
-): GamepadStick => {
-  const magnitude = Math.hypot(x, y);
-
-  if (magnitude < threshold) {
-    return {
-      x: 0,
-      y: 0,
-    };
-  }
-
-  if (rescale) {
-    const rescaledMagnitude = rescaleGamepadDeadzoneMagnitude(
-      magnitude,
-      threshold,
-    );
-
-    if (rescaledMagnitude === 0 || magnitude === 0) {
-      return {
-        x: 0,
-        y: 0,
-      };
-    }
-
-    const scale = rescaledMagnitude / magnitude;
-
-    return {
-      x: x * scale,
-      y: y * scale,
-    };
-  }
-
-  return {
-    x,
-    y,
-  };
+const applyGamepadAxisDeadzone = (value: number, threshold: number): number => {
+  return Math.abs(value) < threshold ? 0 : value;
 };
 
 /**
@@ -515,46 +360,29 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   public axis(axis: number, options?: GamepadAxisOptions): number {
     const value = this.#gamepad?.axes[axis] ?? 0;
 
-    return applyGamepadAxialDeadzone(value, this.#getDeadzone(options), false);
+    return applyGamepadAxisDeadzone(value, this.#getAxisDeadzone(options));
   }
 
   /**
-   * Returns a two-axis stick after dead zone, rescale, and inversion processing.
+   * Returns a two-axis stick after applying a stateless processing pipeline.
    *
    * @param xAxis - Horizontal axis index.
    * @param yAxis - Vertical axis index.
-   * @param options - Optional per-read stick options.
+   * @param pipeline - Optional pipeline replacing the instance default.
    * @returns Object containing processed `x` and `y` values.
    */
   public stick(
     xAxis: number,
     yAxis: number,
-    options?: GamepadStickOptions,
+    pipeline?: GamepadStickPipeline,
   ): GamepadStick {
-    const deadzoneMode = options?.deadzoneMode ?? this.#options.deadzoneMode;
-    const rescale = options?.rescale ?? this.#options.rescale;
-    const invertX = options?.invertX ?? this.#options.invertX;
-    const invertY = options?.invertY ?? this.#options.invertY;
-    const threshold = this.#getDeadzone(options);
     const x = this.#gamepad?.axes[xAxis] ?? 0;
     const y = this.#gamepad?.axes[yAxis] ?? 0;
 
-    const processed =
-      deadzoneMode === "radial"
-        ? applyGamepadRadialDeadzone(x, y, threshold, rescale)
-        : {
-            x: applyGamepadAxialDeadzone(x, threshold, rescale),
-            y: applyGamepadAxialDeadzone(y, threshold, rescale),
-          };
-
-    if (!invertX && !invertY) {
-      return processed;
-    }
-
-    return {
-      x: processed.x === 0 ? 0 : invertX ? -processed.x : processed.x,
-      y: processed.y === 0 ? 0 : invertY ? -processed.y : processed.y,
-    };
+    return (pipeline ?? this.#options.stickPipeline).process({
+      x,
+      y,
+    });
   }
 
   /**
@@ -678,12 +506,12 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   }
 
   /**
-   * Resolves the dead zone for a single axis or stick read.
+   * Resolves the dead zone for a single-axis read.
    *
    * @param options - Optional per-read axis options.
    * @returns The per-read dead zone when provided, otherwise the instance default.
    */
-  #getDeadzone(options: GamepadAxisOptions | undefined): number {
-    return options?.deadzone ?? this.#options.deadzone;
+  #getAxisDeadzone(options: GamepadAxisOptions | undefined): number {
+    return options?.deadzone ?? this.#options.axisDeadzone;
   }
 }

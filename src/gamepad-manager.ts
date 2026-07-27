@@ -141,7 +141,7 @@ export class GamepadManager {
    * Polls the Gamepad API and refreshes the active gamepad snapshot.
    *
    * Polling re-resolves the browser slot so a disconnected device, a reused
-   * index, or an updated active device is observed before controls read input.
+   * index, or an updated active device is observed before consumers read input.
    *
    * @returns The active gamepad and any connect/disconnect transition found.
    */

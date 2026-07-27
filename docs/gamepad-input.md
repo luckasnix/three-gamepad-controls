@@ -12,27 +12,38 @@ Gamepad input state reader for gameplay, menus, and custom interactions.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `deadzone` | `number` | `0.1` | Default axis and stick dead zone threshold. |
-| `deadzoneMode` | `"axial" \| "radial"` | `"axial"` | Default dead zone mode for stick reads. |
-| `rescale` | `boolean` | `false` | Whether stick reads rescale values outside the dead zone by default. |
-| `invertX` | `boolean` | `false` | Whether stick reads invert the component from `xAxis` by default. |
-| `invertY` | `boolean` | `false` | Whether stick reads invert the component from `yAxis` by default. |
+| `axisDeadzone` | `number` | `0.1` | Default dead zone threshold for scalar `axis()` reads. |
+| `stickPipeline` | `GamepadStickPipeline` | `DEFAULT_GAMEPAD_STICK_PIPELINE` | Default stateless pipeline for `stick()` reads. |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
 
 Configure stick processing defaults once when creating the input:
 
 ```ts
+import {
+  createGamepadDeadzoneProcessor,
+  createGamepadInversionProcessor,
+  createGamepadStickPipeline,
+  GamepadInput,
+} from "three-gamepad-controls";
+
+const lookPipeline = createGamepadStickPipeline(
+  createGamepadDeadzoneProcessor({
+    threshold: 0.15,
+    mode: "radial",
+    rescale: true,
+  }),
+  createGamepadInversionProcessor({ invertY: true }),
+);
+
 const gamepadInput = new GamepadInput({
-  deadzone: 0.15,
-  deadzoneMode: "radial",
-  rescale: true,
-  invertY: true,
+  axisDeadzone: 0.05,
+  stickPipeline: lookPipeline,
 });
 ```
 
 `gamepadIndex` must be an integer from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); any other value throws a `RangeError`. An explicit index never falls back to another gamepad. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and multi-player examples.
 
-`deadzoneMode`, `rescale`, `invertX`, and `invertY` affect only `stick()` reads. Options passed directly to `stick()` override these instance defaults for that read. `axis()` continues to use only the configured `deadzone`, and the ready-made Three.js control wrappers do not inherit these stick-processing options.
+`axisDeadzone` affects only `axis()` reads. `stickPipeline` affects only `stick()` and is replaced as a whole when a pipeline is passed directly to that method. See [Stick Processing](./gamepad-stick-processing.md) for the processor contract, composition order, official factories, and wrapper bindings.
 
 ## Properties
 
@@ -71,36 +82,27 @@ Returns `true` only on the update where a button changes from pressed to release
 
 Returns the current analog value for a button. Digital pressed buttons fall back to `1`, and unavailable buttons return `0`.
 
-### `axis(axis, options)`
+### `axis(axis, options?)`
 
-Returns an axis value after dead zone processing. Pass `options.deadzone` to override the instance default for one read.
+Returns an axis value after scalar dead zone processing. Pass `options.deadzone` to replace `axisDeadzone` for one read. Stick pipelines never affect `axis()`.
 
-### `stick(xAxis, yAxis, options)`
+### `stick(xAxis, yAxis, pipeline?)`
 
-Returns `{ x, y }` after stick processing. It uses the instance's `deadzone`, `deadzoneMode`, `rescale`, `invertX`, and `invertY` defaults, which can be overridden in `options` for one read. The library default mode is `"axial"`, which processes each axis independently and preserves the existing `axis()` behavior. Use `"radial"` to compare the stick's distance from the center with the dead zone.
+Reads the two raw axes as `{ x, y }` and passes that vector through a stateless pipeline. When `pipeline` is omitted, the instance's `stickPipeline` is used. When supplied, it replaces the instance pipeline for that read rather than being appended or merged.
 
-![Comparison showing a square axial dead zone and a circular radial dead zone within the analog stick range.](../assets/deadzone-modes.webp "Axial and radial analog-stick dead zones")
+`DEFAULT_GAMEPAD_STICK_PIPELINE` contains one axial deadzone processor with threshold `0.1` and no rescaling, preserving the library's historical behavior. An empty pipeline is an identity operation.
 
-| Per-read option | Type | Fallback |
-| --- | --- | --- |
-| `deadzone` | `number` | Instance `deadzone` |
-| `deadzoneMode` | `"axial" \| "radial"` | Instance `deadzoneMode` |
-| `rescale` | `boolean` | Instance `rescale` |
-| `invertX` | `boolean` | Instance `invertX` |
-| `invertY` | `boolean` | Instance `invertY` |
-
-For example, this read keeps the instance's dead zone and mode but disables rescaling and the instance's Y inversion:
+For example, this read bypasses the configured default pipeline:
 
 ```ts
-const look = gamepadInput.stick(GAMEPAD_AXIS.RightX, GAMEPAD_AXIS.RightY, {
-  rescale: false,
-  invertY: false,
-});
+const rawLook = gamepadInput.stick(
+  GAMEPAD_AXIS.RightX,
+  GAMEPAD_AXIS.RightY,
+  createGamepadStickPipeline(),
+);
 ```
 
-With the library default `rescale: false`, both modes return the original values outside the dead zone. Enable rescaling on the instance or for one read to remap the remaining range so the dead zone boundary produces `0` and full stick travel produces `1`. Axial mode rescales each axis independently; radial mode rescales the stick magnitude while preserving its direction.
-
-Stick processing follows the order `deadzone -> rescale -> inversion`. `invertX` negates the processed component read from `xAxis`, and `invertY` negates the processed component read from `yAxis`. Inversion does not change whether input is inside the dead zone or the magnitude produced by radial processing.
+Pipeline order is exactly the order supplied to `createGamepadStickPipeline()`. The library does not reorder processors, catch processor exceptions, or normalize custom processor results.
 
 ### `playVibrationEffect(type, parameters?)`
 
@@ -128,12 +130,19 @@ Use `GamepadInput` directly when input drives gameplay rather than a Three.js co
 ```ts
 import { Timer, Vector3 } from "three";
 import {
+  createGamepadDeadzoneProcessor,
+  createGamepadStickPipeline,
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
   GamepadInput,
 } from "three-gamepad-controls";
 
-const gamepadInput = new GamepadInput({ deadzone: 0.15 });
+const movementPipeline = createGamepadStickPipeline(
+  createGamepadDeadzoneProcessor({ threshold: 0.15 }),
+);
+const gamepadInput = new GamepadInput({
+  stickPipeline: movementPipeline,
+});
 const timer = new Timer();
 const movement = new Vector3();
 
@@ -144,10 +153,7 @@ renderer.setAnimationLoop((timestamp) => {
   // Poll before reading buttons or axes.
   gamepadInput.update();
 
-  const stick = gamepadInput.stick(
-    GAMEPAD_AXIS.LeftX,
-    GAMEPAD_AXIS.LeftY,
-  );
+  const stick = gamepadInput.stick(GAMEPAD_AXIS.LeftX, GAMEPAD_AXIS.LeftY);
 
   // Stick up is negative Y, which maps naturally to forward (-Z).
   movement.set(stick.x, 0, stick.y);
@@ -157,9 +163,7 @@ renderer.setAnimationLoop((timestamp) => {
     movement.normalize();
   }
 
-  const speed = gamepadInput.isPressed(GAMEPAD_BUTTON.RightShoulder)
-    ? 8
-    : 4;
+  const speed = gamepadInput.isPressed(GAMEPAD_BUTTON.RightShoulder) ? 8 : 4;
 
   player.position.addScaledVector(movement, speed * delta);
 

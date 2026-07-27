@@ -31,11 +31,10 @@ Every binding is remappable via the `options` parameter.
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `moveSpeed` | `number` | `5.0` | Camera movement speed in world units per second at full stick deflection. |
 | `lookSpeed` | `number` | `1.0` | Multiplier on look rotation speed (combined with `PointerLockControls.pointerSpeed`). |
-| `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
-| `axisMoveForward` | `number` | `1` | Axis index for forward / backward movement (left stick Y). |
-| `axisMoveRight` | `number` | `0` | Axis index for left / right strafe movement (left stick X). |
-| `axisLookX` | `number` | `2` | Axis index for horizontal look — yaw (right stick X). |
-| `axisLookY` | `number` | `3` | Axis index for vertical look — pitch (right stick Y). |
+| `moveStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for movement. |
+| `lookStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for pitch and yaw. |
+
+Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields. They merge independently with the action default, so a pipeline can be replaced without repeating the default axes. See [Stick Processing](./gamepad-stick-processing.md).
 
 ## Properties
 

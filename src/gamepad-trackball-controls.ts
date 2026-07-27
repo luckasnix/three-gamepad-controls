@@ -6,6 +6,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadTrackballControls}.
@@ -32,34 +38,22 @@ export type GamepadTrackballControlsOptions = GamepadControlsOptions & {
   zoomSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
+   * Stick binding used for trackball rotation.
+   * @default Left stick with the default stick pipeline
+   */
+  rotateStick: GamepadStickBindingOptions;
+
+  /**
+   * Stick binding used for panning.
+   * @default Right stick with the default stick pipeline
+   */
+  panStick: GamepadStickBindingOptions;
+
+  /**
+   * Dead zone threshold for analog trigger values.
    * @default 0.1
    */
-  deadzone: number;
-
-  /**
-   * Axis index for **horizontal** trackball rotation.
-   * @default 0 - Left stick X
-   */
-  axisRotateX: number;
-
-  /**
-   * Axis index for **vertical** trackball rotation.
-   * @default 1 - Left stick Y
-   */
-  axisRotateY: number;
-
-  /**
-   * Axis index for **horizontal** panning.
-   * @default 2 - Right stick X
-   */
-  axisPanX: number;
-
-  /**
-   * Axis index for **vertical** panning.
-   * @default 3 - Right stick Y
-   */
-  axisPanY: number;
+  buttonDeadzone: number;
 
   /**
    * Button index for zooming **in** (analog trigger value used for proportional zoom).
@@ -74,16 +68,30 @@ export type GamepadTrackballControlsOptions = GamepadControlsOptions & {
   buttonZoomOut: number;
 };
 
+type ResolvedGamepadTrackballControlsOptions = Omit<
+  GamepadTrackballControlsOptions,
+  "rotateStick" | "panStick"
+> & {
+  rotateStick: GamepadStickBinding;
+  panStick: GamepadStickBinding;
+};
+
 // Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_TRACKBALL_OPTIONS: GamepadTrackballControlsOptions = {
+const DEFAULT_TRACKBALL_OPTIONS: ResolvedGamepadTrackballControlsOptions = {
   rotateSpeed: 1.0,
   panSpeed: 1.0,
   zoomSpeed: 1.0,
-  deadzone: 0.1,
-  axisRotateX: GAMEPAD_AXIS.LeftX,
-  axisRotateY: GAMEPAD_AXIS.LeftY,
-  axisPanX: GAMEPAD_AXIS.RightX,
-  axisPanY: GAMEPAD_AXIS.RightY,
+  rotateStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  panStick: {
+    xAxis: GAMEPAD_AXIS.RightX,
+    yAxis: GAMEPAD_AXIS.RightY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  buttonDeadzone: 0.1,
   buttonZoomIn: GAMEPAD_BUTTON.RightTrigger,
   buttonZoomOut: GAMEPAD_BUTTON.LeftTrigger,
 };
@@ -119,7 +127,7 @@ type TrackballControlsWithInput = TrackballControls & {
  */
 export class GamepadTrackballControls extends GamepadControls {
   readonly #controls: TrackballControlsWithInput;
-  readonly #options: GamepadTrackballControlsOptions;
+  readonly #options: ResolvedGamepadTrackballControlsOptions;
 
   /**
    * @param controls - A Three.js `TrackballControls` instance.
@@ -135,6 +143,14 @@ export class GamepadTrackballControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_TRACKBALL_OPTIONS,
       ...options,
+      rotateStick: resolveGamepadStickBinding(
+        DEFAULT_TRACKBALL_OPTIONS.rotateStick,
+        options?.rotateStick,
+      ),
+      panStick: resolveGamepadStickBinding(
+        DEFAULT_TRACKBALL_OPTIONS.panStick,
+        options?.panStick,
+      ),
     };
   }
 
@@ -148,27 +164,19 @@ export class GamepadTrackballControls extends GamepadControls {
       rotateSpeed,
       panSpeed,
       zoomSpeed,
-      deadzone,
-      axisRotateX,
-      axisRotateY,
-      axisPanX,
-      axisPanY,
+      rotateStick,
+      panStick,
+      buttonDeadzone,
       buttonZoomIn,
       buttonZoomOut,
     } = this.#options;
 
-    this.#queueRotation(
-      deltaTime,
-      rotateSpeed,
-      deadzone,
-      axisRotateX,
-      axisRotateY,
-    );
-    this.#queuePan(deltaTime, panSpeed, deadzone, axisPanX, axisPanY);
+    this.#queueRotation(deltaTime, rotateSpeed, rotateStick);
+    this.#queuePan(deltaTime, panSpeed, panStick);
     this.#queueZoom(
       deltaTime,
       zoomSpeed,
-      deadzone,
+      buttonDeadzone,
       buttonZoomIn,
       buttonZoomOut,
     );
@@ -179,16 +187,12 @@ export class GamepadTrackballControls extends GamepadControls {
    *
    * @param deltaTime - Seconds since the last frame.
    * @param rotateSpeed - User-configured rotation speed multiplier.
-   * @param deadzone - Axis dead zone threshold.
-   * @param axisRotateX - Axis index for horizontal rotation.
-   * @param axisRotateY - Axis index for vertical rotation.
+   * @param rotateStick - Resolved stick binding for rotation.
    */
   #queueRotation(
     deltaTime: number,
     rotateSpeed: number,
-    deadzone: number,
-    axisRotateX: number,
-    axisRotateY: number,
+    rotateStick: GamepadStickBinding,
   ): void {
     const controls = this.#controls;
 
@@ -199,18 +203,21 @@ export class GamepadTrackballControls extends GamepadControls {
     }
 
     const input = this.gamepadInput;
-    const rotX = input.axis(axisRotateX, { deadzone });
-    const rotY = input.axis(axisRotateY, { deadzone });
+    const rotate = input.stick(
+      rotateStick.xAxis,
+      rotateStick.yAxis,
+      rotateStick.pipeline,
+    );
 
-    if (rotX === 0 && rotY === 0) {
+    if (rotate.x === 0 && rotate.y === 0) {
       return;
     }
 
     // TrackballControls consumes normalized pointer deltas. Scale a full stick
     // push to half a virtual trackball turn per second at rotateSpeed 1.
     const scale = rotateSpeed * deltaTime * Math.PI;
-    controls._moveCurr.x += rotX * scale;
-    controls._moveCurr.y += -rotY * scale;
+    controls._moveCurr.x += rotate.x * scale;
+    controls._moveCurr.y += -rotate.y * scale;
   }
 
   /**
@@ -218,16 +225,12 @@ export class GamepadTrackballControls extends GamepadControls {
    *
    * @param deltaTime - Seconds since the last frame.
    * @param panSpeed - User-configured pan speed multiplier.
-   * @param deadzone - Axis dead zone threshold.
-   * @param axisPanX - Axis index for horizontal panning.
-   * @param axisPanY - Axis index for vertical panning.
+   * @param panStick - Resolved stick binding for panning.
    */
   #queuePan(
     deltaTime: number,
     panSpeed: number,
-    deadzone: number,
-    axisPanX: number,
-    axisPanY: number,
+    panStick: GamepadStickBinding,
   ): void {
     const controls = this.#controls;
 
@@ -237,16 +240,15 @@ export class GamepadTrackballControls extends GamepadControls {
     }
 
     const input = this.gamepadInput;
-    const panX = input.axis(axisPanX, { deadzone });
-    const panY = input.axis(axisPanY, { deadzone });
+    const pan = input.stick(panStick.xAxis, panStick.yAxis, panStick.pipeline);
 
-    if (panX === 0 && panY === 0) {
+    if (pan.x === 0 && pan.y === 0) {
       return;
     }
 
     const scale = panSpeed * deltaTime * this.#getInputDampingFactor();
-    controls._panEnd.x += panX * scale;
-    controls._panEnd.y += panY * scale;
+    controls._panEnd.x += pan.x * scale;
+    controls._panEnd.y += pan.y * scale;
   }
 
   /**
@@ -254,14 +256,14 @@ export class GamepadTrackballControls extends GamepadControls {
    *
    * @param deltaTime - Seconds since the last frame.
    * @param zoomSpeed - User-configured zoom speed multiplier.
-   * @param deadzone - Trigger dead zone threshold.
+   * @param buttonDeadzone - Trigger dead zone threshold.
    * @param buttonZoomIn - Button index for zooming in.
    * @param buttonZoomOut - Button index for zooming out.
    */
   #queueZoom(
     deltaTime: number,
     zoomSpeed: number,
-    deadzone: number,
+    buttonDeadzone: number,
     buttonZoomIn: number,
     buttonZoomOut: number,
   ): void {
@@ -276,7 +278,7 @@ export class GamepadTrackballControls extends GamepadControls {
     const triggerIn = input.buttonValue(buttonZoomIn);
     const triggerOut = input.buttonValue(buttonZoomOut);
 
-    if (triggerIn <= deadzone && triggerOut <= deadzone) {
+    if (triggerIn <= buttonDeadzone && triggerOut <= buttonDeadzone) {
       return;
     }
 

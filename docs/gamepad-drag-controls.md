@@ -36,14 +36,13 @@ No visual reticle is rendered by the library. Draw your own center marker in the
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, selects the connected gamepad with the lowest index; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `dragSpeed` | `number` | `1.0` | Screen-relative translation speed multiplier. |
 | `rotateSpeed` | `number` | `1.0` | Multiplier on `DragControls.rotateSpeed` for rotation. |
-| `deadzone` | `number` | `0.1` | Axis dead zone threshold in the range `[0, 1]`. |
-| `axisDragX` | `number` | `0` | Axis index for horizontal dragging (left stick X). |
-| `axisDragY` | `number` | `1` | Axis index for vertical dragging (left stick Y). |
-| `axisRotateX` | `number` | `2` | Axis index for horizontal rotation (right stick X). |
-| `axisRotateY` | `number` | `3` | Axis index for vertical rotation (right stick Y). |
+| `dragStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for dragging. |
+| `rotateStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for object rotation. |
 | `buttonSelect` | `number` | `0` | Button index for grab / drop (south face button). |
 
 Gamepad input respects `DragControls.enabled`, `objects`, `recursive`, `transformGroup`, `raycaster`, and `rotateSpeed`. When `transformGroup` is `true`, this wrapper selects the outermost `Group` in the intersected object's parent chain. This differs from the native pointer implementation, whose group behavior is limited to the configured draggable-object list.
+
+Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. The select button is not processed by either stick pipeline. See [Stick Processing](./gamepad-stick-processing.md).
 
 ## Properties
 

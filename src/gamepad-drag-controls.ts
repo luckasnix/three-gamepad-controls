@@ -15,6 +15,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadDragControls}.
@@ -35,34 +41,16 @@ export type GamepadDragControlsOptions = GamepadControlsOptions & {
   rotateSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
-   * @default 0.1
+   * Stick binding used for screen-relative dragging.
+   * @default Left stick with the default stick pipeline
    */
-  deadzone: number;
+  dragStick: GamepadStickBindingOptions;
 
   /**
-   * Axis index for **horizontal** dragging.
-   * @default 0 - Left stick X
+   * Stick binding used for object rotation.
+   * @default Right stick with the default stick pipeline
    */
-  axisDragX: number;
-
-  /**
-   * Axis index for **vertical** dragging.
-   * @default 1 - Left stick Y
-   */
-  axisDragY: number;
-
-  /**
-   * Axis index for **horizontal** object rotation.
-   * @default 2 - Right stick X
-   */
-  axisRotateX: number;
-
-  /**
-   * Axis index for **vertical** object rotation.
-   * @default 3 - Right stick Y
-   */
-  axisRotateY: number;
+  rotateStick: GamepadStickBindingOptions;
 
   /**
    * Button index for grabbing and dropping the object under the center reticle.
@@ -71,15 +59,28 @@ export type GamepadDragControlsOptions = GamepadControlsOptions & {
   buttonSelect: number;
 };
 
+type ResolvedGamepadDragControlsOptions = Omit<
+  GamepadDragControlsOptions,
+  "dragStick" | "rotateStick"
+> & {
+  dragStick: GamepadStickBinding;
+  rotateStick: GamepadStickBinding;
+};
+
 // Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_DRAG_OPTIONS: GamepadDragControlsOptions = {
+const DEFAULT_DRAG_OPTIONS: ResolvedGamepadDragControlsOptions = {
   dragSpeed: 1.0,
   rotateSpeed: 1.0,
-  deadzone: 0.1,
-  axisDragX: GAMEPAD_AXIS.LeftX,
-  axisDragY: GAMEPAD_AXIS.LeftY,
-  axisRotateX: GAMEPAD_AXIS.RightX,
-  axisRotateY: GAMEPAD_AXIS.RightY,
+  dragStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  rotateStick: {
+    xAxis: GAMEPAD_AXIS.RightX,
+    yAxis: GAMEPAD_AXIS.RightY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
   buttonSelect: GAMEPAD_BUTTON.South,
 };
 
@@ -101,7 +102,7 @@ type GroupLikeObject = Object3D & {
  */
 export class GamepadDragControls extends GamepadControls {
   readonly #controls: DragControlsWithCamera;
-  readonly #options: GamepadDragControlsOptions;
+  readonly #options: ResolvedGamepadDragControlsOptions;
 
   readonly #centerNdc: Vector2;
   readonly #intersections: Intersection[];
@@ -132,6 +133,14 @@ export class GamepadDragControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_DRAG_OPTIONS,
       ...options,
+      dragStick: resolveGamepadStickBinding(
+        DEFAULT_DRAG_OPTIONS.dragStick,
+        options?.dragStick,
+      ),
+      rotateStick: resolveGamepadStickBinding(
+        DEFAULT_DRAG_OPTIONS.rotateStick,
+        options?.rotateStick,
+      ),
     };
 
     this.#centerNdc = new Vector2(0, 0);
@@ -216,27 +225,25 @@ export class GamepadDragControls extends GamepadControls {
       return;
     }
 
-    const {
-      dragSpeed,
-      rotateSpeed,
-      deadzone,
-      axisDragX,
-      axisDragY,
-      axisRotateX,
-      axisRotateY,
-    } = this.#options;
+    const { dragSpeed, rotateSpeed, dragStick, rotateStick } = this.#options;
     const input = this.gamepadInput;
 
-    const dragX = input.axis(axisDragX, { deadzone });
-    const dragY = input.axis(axisDragY, { deadzone });
-    const rotateX = input.axis(axisRotateX, { deadzone });
-    const rotateY = input.axis(axisRotateY, { deadzone });
+    const drag = input.stick(
+      dragStick.xAxis,
+      dragStick.yAxis,
+      dragStick.pipeline,
+    );
+    const rotate = input.stick(
+      rotateStick.xAxis,
+      rotateStick.yAxis,
+      rotateStick.pipeline,
+    );
 
-    const dragged = this.#applyDrag(deltaTime, dragX, dragY, dragSpeed);
+    const dragged = this.#applyDrag(deltaTime, drag.x, drag.y, dragSpeed);
     const rotated = this.#applyRotation(
       deltaTime,
-      rotateX,
-      rotateY,
+      rotate.x,
+      rotate.y,
       rotateSpeed,
     );
 

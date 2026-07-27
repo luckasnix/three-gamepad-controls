@@ -27,10 +27,7 @@ import {
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
 
-const transformControls = new TransformControls(
-  camera,
-  renderer.domElement,
-);
+const transformControls = new TransformControls(camera, renderer.domElement);
 transformControls.attach(cube);
 // TransformControls renders its gizmo through this separate helper object.
 const transformControlsHelper = transformControls.getHelper();

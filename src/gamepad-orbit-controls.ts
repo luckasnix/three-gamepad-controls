@@ -5,6 +5,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadOrbitControls}.
@@ -31,34 +37,22 @@ export type GamepadOrbitControlsOptions = GamepadControlsOptions & {
   zoomSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
+   * Stick binding used for orbit rotation.
+   * @default Left stick with the default stick pipeline
+   */
+  rotateStick: GamepadStickBindingOptions;
+
+  /**
+   * Stick binding used for panning.
+   * @default Right stick with the default stick pipeline
+   */
+  panStick: GamepadStickBindingOptions;
+
+  /**
+   * Dead zone threshold for analog trigger values.
    * @default 0.1
    */
-  deadzone: number;
-
-  /**
-   * Axis index for **horizontal** orbit rotation.
-   * @default 0 — Left stick X
-   */
-  axisRotateX: number;
-
-  /**
-   * Axis index for **vertical** orbit rotation.
-   * @default 1 — Left stick Y
-   */
-  axisRotateY: number;
-
-  /**
-   * Axis index for **horizontal** panning.
-   * @default 2 — Right stick X
-   */
-  axisPanX: number;
-
-  /**
-   * Axis index for **vertical** panning.
-   * @default 3 — Right stick Y
-   */
-  axisPanY: number;
+  buttonDeadzone: number;
 
   /**
    * Button index for zooming **in** (analog trigger value used for proportional zoom).
@@ -73,16 +67,30 @@ export type GamepadOrbitControlsOptions = GamepadControlsOptions & {
   buttonDollyOut: number;
 };
 
+type ResolvedGamepadOrbitControlsOptions = Omit<
+  GamepadOrbitControlsOptions,
+  "rotateStick" | "panStick"
+> & {
+  rotateStick: GamepadStickBinding;
+  panStick: GamepadStickBinding;
+};
+
 // Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_ORBIT_OPTIONS: GamepadOrbitControlsOptions = {
+const DEFAULT_ORBIT_OPTIONS: ResolvedGamepadOrbitControlsOptions = {
   rotateSpeed: 1.0,
   panSpeed: 1.0,
   zoomSpeed: 1.0,
-  deadzone: 0.1,
-  axisRotateX: GAMEPAD_AXIS.LeftX,
-  axisRotateY: GAMEPAD_AXIS.LeftY,
-  axisPanX: GAMEPAD_AXIS.RightX,
-  axisPanY: GAMEPAD_AXIS.RightY,
+  rotateStick: {
+    xAxis: GAMEPAD_AXIS.LeftX,
+    yAxis: GAMEPAD_AXIS.LeftY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  panStick: {
+    xAxis: GAMEPAD_AXIS.RightX,
+    yAxis: GAMEPAD_AXIS.RightY,
+    pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+  },
+  buttonDeadzone: 0.1,
   buttonDollyIn: GAMEPAD_BUTTON.RightTrigger,
   buttonDollyOut: GAMEPAD_BUTTON.LeftTrigger,
 };
@@ -95,7 +103,7 @@ const DEFAULT_ORBIT_OPTIONS: GamepadOrbitControlsOptions = {
  */
 export class GamepadOrbitControls extends GamepadControls {
   readonly #controls: OrbitControls;
-  readonly #options: GamepadOrbitControlsOptions;
+  readonly #options: ResolvedGamepadOrbitControlsOptions;
 
   /**
    * @param controls - A Three.js `OrbitControls` instance.
@@ -111,6 +119,14 @@ export class GamepadOrbitControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_ORBIT_OPTIONS,
       ...options,
+      rotateStick: resolveGamepadStickBinding(
+        DEFAULT_ORBIT_OPTIONS.rotateStick,
+        options?.rotateStick,
+      ),
+      panStick: resolveGamepadStickBinding(
+        DEFAULT_ORBIT_OPTIONS.panStick,
+        options?.panStick,
+      ),
     };
   }
 
@@ -124,11 +140,9 @@ export class GamepadOrbitControls extends GamepadControls {
       rotateSpeed,
       panSpeed,
       zoomSpeed,
-      deadzone,
-      axisRotateX,
-      axisRotateY,
-      axisPanX,
-      axisPanY,
+      rotateStick,
+      panStick,
+      buttonDeadzone,
       buttonDollyIn,
       buttonDollyOut,
     } = this.#options;
@@ -137,26 +151,28 @@ export class GamepadOrbitControls extends GamepadControls {
     // Rotation (left stick by default).
     // Axes are normalized to [-1, 1]. Multiply by π so a full stick push
     // covers half a rotation per second at rotateSpeed 1.
-    const rotX = input.axis(axisRotateX, { deadzone });
-    const rotY = input.axis(axisRotateY, { deadzone });
+    const rotate = input.stick(
+      rotateStick.xAxis,
+      rotateStick.yAxis,
+      rotateStick.pipeline,
+    );
 
-    if (rotX !== 0) {
-      this.#controls.rotateLeft(rotX * rotateSpeed * deltaTime * Math.PI);
+    if (rotate.x !== 0) {
+      this.#controls.rotateLeft(rotate.x * rotateSpeed * deltaTime * Math.PI);
     }
-    if (rotY !== 0) {
-      this.#controls.rotateUp(rotY * rotateSpeed * deltaTime * Math.PI);
+    if (rotate.y !== 0) {
+      this.#controls.rotateUp(rotate.y * rotateSpeed * deltaTime * Math.PI);
     }
 
     // Pan (right stick by default).
     // `pan()` expects screen-space pixel deltas. 500 px/s at full deflection
     // feels comfortable at typical viewport sizes; tune via `panSpeed`.
-    const panX = input.axis(axisPanX, { deadzone });
-    const panY = input.axis(axisPanY, { deadzone });
+    const pan = input.stick(panStick.xAxis, panStick.yAxis, panStick.pipeline);
 
-    if (panX !== 0 || panY !== 0) {
+    if (pan.x !== 0 || pan.y !== 0) {
       this.#controls.pan(
-        panX * panSpeed * deltaTime * 500,
-        panY * panSpeed * deltaTime * 500,
+        pan.x * panSpeed * deltaTime * 500,
+        pan.y * panSpeed * deltaTime * 500,
       );
     }
 
@@ -168,10 +184,10 @@ export class GamepadOrbitControls extends GamepadControls {
     const triggerIn = input.buttonValue(buttonDollyIn);
     const triggerOut = input.buttonValue(buttonDollyOut);
 
-    if (triggerIn > deadzone) {
+    if (triggerIn > buttonDeadzone) {
       this.#controls.dollyIn(1 / (1 + zoomSpeed * triggerIn * deltaTime));
     }
-    if (triggerOut > deadzone) {
+    if (triggerOut > buttonDeadzone) {
       this.#controls.dollyOut(1 / (1 + zoomSpeed * triggerOut * deltaTime));
     }
   }

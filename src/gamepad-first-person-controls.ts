@@ -6,6 +6,12 @@ import {
   GamepadControls,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
+import {
+  DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStickBinding,
+  type GamepadStickBindingOptions,
+  resolveGamepadStickBinding,
+} from "./gamepad-stick-processing.ts";
 
 /**
  * Configuration for {@link GamepadFirstPersonControls}.
@@ -26,34 +32,20 @@ export type GamepadFirstPersonControlsOptions = GamepadControlsOptions & {
   lookSpeed: number;
 
   /**
-   * Axis dead zone threshold in the range `[0, 1]`.
+   * Movement stick axes and processing pipeline.
+   */
+  moveStick: GamepadStickBindingOptions;
+
+  /**
+   * Camera-look stick axes and processing pipeline.
+   */
+  lookStick: GamepadStickBindingOptions;
+
+  /**
+   * Dead zone threshold for analog button values.
    * @default 0.1
    */
-  deadzone: number;
-
-  /**
-   * Axis index for **forward / backward** movement.
-   * @default 1 - Left stick Y
-   */
-  axisMoveForward: number;
-
-  /**
-   * Axis index for **right / left** strafe movement.
-   * @default 0 - Left stick X
-   */
-  axisMoveRight: number;
-
-  /**
-   * Axis index for **horizontal** camera look (yaw).
-   * @default 2 - Right stick X
-   */
-  axisLookX: number;
-
-  /**
-   * Axis index for **vertical** camera look (pitch).
-   * @default 3 - Right stick Y
-   */
-  axisLookY: number;
+  buttonDeadzone: number;
 
   /**
    * Button index for **moving up** (analog trigger value used for proportional speed).
@@ -68,18 +60,33 @@ export type GamepadFirstPersonControlsOptions = GamepadControlsOptions & {
   buttonMoveDown: number;
 };
 
-// Default options merged in the constructor when no explicit configuration is provided.
-const DEFAULT_FIRST_PERSON_OPTIONS: GamepadFirstPersonControlsOptions = {
-  moveSpeed: 1.0,
-  lookSpeed: 1.0,
-  deadzone: 0.1,
-  axisMoveForward: GAMEPAD_AXIS.LeftY,
-  axisMoveRight: GAMEPAD_AXIS.LeftX,
-  axisLookX: GAMEPAD_AXIS.RightX,
-  axisLookY: GAMEPAD_AXIS.RightY,
-  buttonMoveUp: GAMEPAD_BUTTON.LeftTrigger,
-  buttonMoveDown: GAMEPAD_BUTTON.RightTrigger,
+type ResolvedGamepadFirstPersonControlsOptions = Omit<
+  GamepadFirstPersonControlsOptions,
+  "moveStick" | "lookStick"
+> & {
+  moveStick: GamepadStickBinding;
+  lookStick: GamepadStickBinding;
 };
+
+// Default options merged in the constructor when no explicit configuration is provided.
+const DEFAULT_FIRST_PERSON_OPTIONS: ResolvedGamepadFirstPersonControlsOptions =
+  {
+    moveSpeed: 1.0,
+    lookSpeed: 1.0,
+    moveStick: {
+      xAxis: GAMEPAD_AXIS.LeftX,
+      yAxis: GAMEPAD_AXIS.LeftY,
+      pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+    },
+    lookStick: {
+      xAxis: GAMEPAD_AXIS.RightX,
+      yAxis: GAMEPAD_AXIS.RightY,
+      pipeline: DEFAULT_GAMEPAD_STICK_PIPELINE,
+    },
+    buttonDeadzone: 0.1,
+    buttonMoveUp: GAMEPAD_BUTTON.LeftTrigger,
+    buttonMoveDown: GAMEPAD_BUTTON.RightTrigger,
+  };
 
 // Converts normalized stick input to degree deltas while preserving the
 // pixel-based scale used by FirstPersonControls.lookSpeed.
@@ -110,7 +117,7 @@ type FirstPersonOrientation = {
  */
 export class GamepadFirstPersonControls extends GamepadControls {
   readonly #controls: FirstPersonControlsWithOrientation;
-  readonly #options: GamepadFirstPersonControlsOptions;
+  readonly #options: ResolvedGamepadFirstPersonControlsOptions;
 
   // Pre-allocated to avoid per-frame GC pressure.
   readonly #lookDirection: Vector3;
@@ -131,6 +138,14 @@ export class GamepadFirstPersonControls extends GamepadControls {
     this.#options = {
       ...DEFAULT_FIRST_PERSON_OPTIONS,
       ...options,
+      moveStick: resolveGamepadStickBinding(
+        DEFAULT_FIRST_PERSON_OPTIONS.moveStick,
+        options?.moveStick,
+      ),
+      lookStick: resolveGamepadStickBinding(
+        DEFAULT_FIRST_PERSON_OPTIONS.lookStick,
+        options?.lookStick,
+      ),
     };
     this.#lookDirection = new Vector3();
     this.#spherical = new Spherical();
@@ -146,11 +161,9 @@ export class GamepadFirstPersonControls extends GamepadControls {
     const {
       moveSpeed,
       lookSpeed,
-      deadzone,
-      axisMoveForward,
-      axisMoveRight,
-      axisLookX,
-      axisLookY,
+      moveStick,
+      lookStick,
+      buttonDeadzone,
       buttonMoveUp,
       buttonMoveDown,
     } = this.#options;
@@ -158,14 +171,13 @@ export class GamepadFirstPersonControls extends GamepadControls {
     this.#applyMovement(
       deltaTime,
       moveSpeed,
-      deadzone,
-      axisMoveForward,
-      axisMoveRight,
+      moveStick,
+      buttonDeadzone,
       buttonMoveUp,
       buttonMoveDown,
     );
 
-    this.#applyLook(deltaTime, lookSpeed, deadzone, axisLookX, axisLookY);
+    this.#applyLook(deltaTime, lookSpeed, lookStick);
   }
 
   /**
@@ -173,28 +185,31 @@ export class GamepadFirstPersonControls extends GamepadControls {
    *
    * @param deltaTime - Seconds since the last frame.
    * @param moveSpeed - User-configured movement speed multiplier.
-   * @param deadzone - Axis and trigger dead zone threshold.
-   * @param axisMoveForward - Axis index for forward and backward movement.
-   * @param axisMoveRight - Axis index for right and left strafe movement.
+   * @param moveStick - Resolved movement stick binding.
+   * @param buttonDeadzone - Analog button dead zone threshold.
    * @param buttonMoveUp - Button index for upward movement.
    * @param buttonMoveDown - Button index for downward movement.
    */
   #applyMovement(
     deltaTime: number,
     moveSpeed: number,
-    deadzone: number,
-    axisMoveForward: number,
-    axisMoveRight: number,
+    moveStick: GamepadStickBinding,
+    buttonDeadzone: number,
     buttonMoveUp: number,
     buttonMoveDown: number,
   ): void {
     const controls = this.#controls;
     const input = this.gamepadInput;
     const moveMult = deltaTime * controls.movementSpeed * moveSpeed;
+    const move = input.stick(
+      moveStick.xAxis,
+      moveStick.yAxis,
+      moveStick.pipeline,
+    );
 
     // Forward / backward - left stick Y.
     // Stick up produces a negative axis value, which maps directly to local -Z.
-    const forward = input.axis(axisMoveForward, { deadzone });
+    const forward = move.y;
     if (forward !== 0) {
       let distance = forward * moveMult;
 
@@ -214,7 +229,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
 
     // Strafe left / right - left stick X.
     // Positive axis value (stick right) -> translateX positive -> move right.
-    const strafe = input.axis(axisMoveRight, { deadzone });
+    const strafe = move.x;
     if (strafe !== 0) {
       controls.object.translateX(strafe * moveMult);
     }
@@ -223,10 +238,10 @@ export class GamepadFirstPersonControls extends GamepadControls {
     const up = input.buttonValue(buttonMoveUp);
     const down = input.buttonValue(buttonMoveDown);
 
-    if (up > deadzone) {
+    if (up > buttonDeadzone) {
       controls.object.translateY(up * moveMult);
     }
-    if (down > deadzone) {
+    if (down > buttonDeadzone) {
       controls.object.translateY(-down * moveMult);
     }
   }
@@ -236,20 +251,20 @@ export class GamepadFirstPersonControls extends GamepadControls {
    *
    * @param deltaTime - Seconds since the last frame.
    * @param lookSpeed - User-configured look speed multiplier.
-   * @param deadzone - Axis dead zone threshold.
-   * @param axisLookX - Axis index for yaw input.
-   * @param axisLookY - Axis index for pitch input.
+   * @param lookStick - Resolved camera-look stick binding.
    */
   #applyLook(
     deltaTime: number,
     lookSpeed: number,
-    deadzone: number,
-    axisLookX: number,
-    axisLookY: number,
+    lookStick: GamepadStickBinding,
   ): void {
     const input = this.gamepadInput;
-    const lookX = input.axis(axisLookX, { deadzone });
-    const lookY = input.axis(axisLookY, { deadzone });
+    const look = input.stick(
+      lookStick.xAxis,
+      lookStick.yAxis,
+      lookStick.pipeline,
+    );
+    const { x: lookX, y: lookY } = look;
 
     if (lookX === 0 && lookY === 0) {
       return;
