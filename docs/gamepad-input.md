@@ -22,6 +22,7 @@ Configure stick processing defaults once when creating the input:
 import {
   createGamepadDeadzoneProcessor,
   createGamepadInversionProcessor,
+  createGamepadResponseCurveProcessor,
   createGamepadStickPipeline,
   GamepadInput,
 } from "three-gamepad-controls";
@@ -31,6 +32,10 @@ const lookPipeline = createGamepadStickPipeline(
     threshold: 0.15,
     mode: "radial",
     rescale: true,
+  }),
+  createGamepadResponseCurveProcessor({
+    curve: "cubic",
+    mode: "radial",
   }),
   createGamepadInversionProcessor({ invertY: true }),
 );

@@ -1,7 +1,15 @@
 /**
- * Dead zone processing mode for two-dimensional stick reads.
+ * Geometry used when processing two-dimensional stick values.
+ *
+ * Axial processing transforms each component independently. Radial processing
+ * transforms vector magnitude while preserving direction.
  */
-export type GamepadDeadzoneMode = "axial" | "radial";
+export type GamepadStickProcessingMode = "axial" | "radial";
+
+/**
+ * Built-in response curve applied to stick components or magnitude.
+ */
+export type GamepadResponseCurve = "linear" | "quadratic" | "cubic";
 
 /**
  * Two-dimensional gamepad stick value.
@@ -58,13 +66,28 @@ export type GamepadDeadzoneProcessorOptions = {
    * Whether to process each component or the vector magnitude.
    * @default "axial"
    */
-  mode?: GamepadDeadzoneMode;
+  mode?: GamepadStickProcessingMode;
 
   /**
    * Whether to remap values outside the dead zone to the full output range.
    * @default false
    */
   rescale?: boolean;
+};
+
+/**
+ * Options for {@link createGamepadResponseCurveProcessor}.
+ */
+export type GamepadResponseCurveProcessorOptions = {
+  /**
+   * Curve used to transform values in the normalized input range.
+   */
+  curve: GamepadResponseCurve;
+
+  /**
+   * Whether to process each component or the vector magnitude.
+   */
+  mode: GamepadStickProcessingMode;
 };
 
 /**
@@ -125,6 +148,88 @@ const DEFAULT_INVERSION_PROCESSOR_OPTIONS: Required<GamepadInversionProcessorOpt
   };
 
 /**
+ * Returns a canonical stick result and preserves the original value when
+ * processing produced no change.
+ *
+ * @param source - Original stick value.
+ * @param x - Processed horizontal component.
+ * @param y - Processed vertical component.
+ * @returns Canonical processed stick value.
+ */
+const createGamepadStickResult = (
+  source: Readonly<GamepadStick>,
+  x: number,
+  y: number,
+): GamepadStick => {
+  const canonicalX = x === 0 ? 0 : x;
+  const canonicalY = y === 0 ? 0 : y;
+
+  if (
+    canonicalX === source.x &&
+    canonicalY === source.y &&
+    !Object.is(source.x, -0) &&
+    !Object.is(source.y, -0)
+  ) {
+    return source as GamepadStick;
+  }
+
+  return {
+    x: canonicalX,
+    y: canonicalY,
+  };
+};
+
+/**
+ * Transforms the magnitude of a signed scalar while preserving its sign.
+ *
+ * @param value - Signed scalar value.
+ * @param mapMagnitude - Magnitude transformation.
+ * @returns Transformed signed value.
+ */
+const mapGamepadSignedMagnitude = (
+  value: number,
+  mapMagnitude: (magnitude: number) => number,
+): number => {
+  if (value === 0) {
+    return 0;
+  }
+
+  return Math.sign(value) * mapMagnitude(Math.abs(value));
+};
+
+/**
+ * Transforms stick magnitude while preserving vector direction.
+ *
+ * @param value - Stick value to transform.
+ * @param mapMagnitude - Magnitude transformation.
+ * @returns Stick with transformed magnitude.
+ */
+const mapGamepadStickMagnitude = (
+  value: Readonly<GamepadStick>,
+  mapMagnitude: (magnitude: number) => number,
+): GamepadStick => {
+  const magnitude = Math.hypot(value.x, value.y);
+
+  if (magnitude === 0) {
+    return createGamepadStickResult(value, 0, 0);
+  }
+
+  const mappedMagnitude = mapMagnitude(magnitude);
+
+  if (mappedMagnitude === magnitude) {
+    return createGamepadStickResult(value, value.x, value.y);
+  }
+
+  if (mappedMagnitude === 0) {
+    return createGamepadStickResult(value, 0, 0);
+  }
+
+  const scale = mappedMagnitude / magnitude;
+
+  return createGamepadStickResult(value, value.x * scale, value.y * scale);
+};
+
+/**
  * Applies a dead zone and remaps the remaining magnitude to `[0, 1]`.
  *
  * @param magnitude - Non-negative input magnitude.
@@ -143,42 +248,31 @@ const rescaleGamepadDeadzoneMagnitude = (
 };
 
 /**
- * Applies an axial dead zone to one component.
+ * Applies a built-in curve to a normalized magnitude.
  *
- * @param value - Signed component value.
- * @param threshold - Dead zone size.
- * @param rescale - Whether to remap the remaining magnitude.
- * @returns Processed signed component.
+ * Magnitudes above `1` remain unchanged so response curves do not implicitly
+ * clamp or normalize custom processor output.
+ *
+ * @param magnitude - Non-negative component or vector magnitude.
+ * @param curve - Curve to apply.
+ * @returns Curved magnitude.
  */
-const applyGamepadAxialDeadzone = (
-  value: number,
-  threshold: number,
-  rescale: boolean,
+const applyGamepadResponseCurve = (
+  magnitude: number,
+  curve: GamepadResponseCurve,
 ): number => {
-  if (value === 0) {
-    return 0;
+  if (magnitude > 1) {
+    return magnitude;
   }
 
-  const magnitude = Math.abs(value);
-
-  if (magnitude < threshold) {
-    return 0;
+  switch (curve) {
+    case "linear":
+      return magnitude;
+    case "quadratic":
+      return magnitude ** 2;
+    case "cubic":
+      return magnitude ** 3;
   }
-
-  if (!rescale) {
-    return value;
-  }
-
-  const rescaledMagnitude = rescaleGamepadDeadzoneMagnitude(
-    magnitude,
-    threshold,
-  );
-
-  if (rescaledMagnitude === 0) {
-    return 0;
-  }
-
-  return Math.sign(value) * rescaledMagnitude;
 };
 
 /**
@@ -222,95 +316,55 @@ export const createGamepadDeadzoneProcessor = (
     ...DEFAULT_DEADZONE_PROCESSOR_OPTIONS,
     ...options,
   };
+  const mapMagnitude = (magnitude: number): number => {
+    if (magnitude < threshold) {
+      return 0;
+    }
+
+    return rescale
+      ? rescaleGamepadDeadzoneMagnitude(magnitude, threshold)
+      : magnitude;
+  };
 
   return Object.freeze({
     process(value: Readonly<GamepadStick>): GamepadStick {
       if (mode === "axial") {
-        const x = applyGamepadAxialDeadzone(value.x, threshold, rescale);
-        const y = applyGamepadAxialDeadzone(value.y, threshold, rescale);
-
-        if (
-          x === value.x &&
-          y === value.y &&
-          !Object.is(value.x, -0) &&
-          !Object.is(value.y, -0)
-        ) {
-          return value as GamepadStick;
-        }
-
-        return {
-          x,
-          y,
-        };
+        return createGamepadStickResult(
+          value,
+          mapGamepadSignedMagnitude(value.x, mapMagnitude),
+          mapGamepadSignedMagnitude(value.y, mapMagnitude),
+        );
       }
 
-      const magnitude = Math.hypot(value.x, value.y);
+      return mapGamepadStickMagnitude(value, mapMagnitude);
+    },
+  });
+};
 
-      if (magnitude < threshold) {
-        if (
-          value.x === 0 &&
-          value.y === 0 &&
-          !Object.is(value.x, -0) &&
-          !Object.is(value.y, -0)
-        ) {
-          return value as GamepadStick;
-        }
+/**
+ * Creates an axial or radial response curve processor.
+ *
+ * @param options - Response curve configuration.
+ * @returns Stateless response curve processor.
+ */
+export const createGamepadResponseCurveProcessor = (
+  options: GamepadResponseCurveProcessorOptions,
+): GamepadStickProcessor => {
+  const { curve, mode } = options;
+  const mapMagnitude = (magnitude: number): number =>
+    applyGamepadResponseCurve(magnitude, curve);
 
-        return {
-          x: 0,
-          y: 0,
-        };
+  return Object.freeze({
+    process(value: Readonly<GamepadStick>): GamepadStick {
+      if (mode === "axial") {
+        return createGamepadStickResult(
+          value,
+          mapGamepadSignedMagnitude(value.x, mapMagnitude),
+          mapGamepadSignedMagnitude(value.y, mapMagnitude),
+        );
       }
 
-      if (!rescale) {
-        if (!Object.is(value.x, -0) && !Object.is(value.y, -0)) {
-          return value as GamepadStick;
-        }
-
-        return {
-          x: value.x === 0 ? 0 : value.x,
-          y: value.y === 0 ? 0 : value.y,
-        };
-      }
-
-      const rescaledMagnitude = rescaleGamepadDeadzoneMagnitude(
-        magnitude,
-        threshold,
-      );
-
-      if (rescaledMagnitude === 0 || magnitude === 0) {
-        if (
-          value.x === 0 &&
-          value.y === 0 &&
-          !Object.is(value.x, -0) &&
-          !Object.is(value.y, -0)
-        ) {
-          return value as GamepadStick;
-        }
-
-        return {
-          x: 0,
-          y: 0,
-        };
-      }
-
-      const scale = rescaledMagnitude / magnitude;
-      const x = value.x === 0 ? 0 : value.x * scale;
-      const y = value.y === 0 ? 0 : value.y * scale;
-
-      if (
-        x === value.x &&
-        y === value.y &&
-        !Object.is(value.x, -0) &&
-        !Object.is(value.y, -0)
-      ) {
-        return value as GamepadStick;
-      }
-
-      return {
-        x,
-        y,
-      };
+      return mapGamepadStickMagnitude(value, mapMagnitude);
     },
   });
 };
@@ -332,32 +386,13 @@ export const createGamepadInversionProcessor = (
   return Object.freeze({
     process(value: Readonly<GamepadStick>): GamepadStick {
       if (!invertX && !invertY) {
-        if (!Object.is(value.x, -0) && !Object.is(value.y, -0)) {
-          return value as GamepadStick;
-        }
-
-        return {
-          x: value.x === 0 ? 0 : value.x,
-          y: value.y === 0 ? 0 : value.y,
-        };
+        return createGamepadStickResult(value, value.x, value.y);
       }
 
       const x = value.x === 0 ? 0 : invertX ? -value.x : value.x;
       const y = value.y === 0 ? 0 : invertY ? -value.y : value.y;
 
-      if (
-        x === value.x &&
-        y === value.y &&
-        !Object.is(value.x, -0) &&
-        !Object.is(value.y, -0)
-      ) {
-        return value as GamepadStick;
-      }
-
-      return {
-        x,
-        y,
-      };
+      return createGamepadStickResult(value, x, y);
     },
   });
 };

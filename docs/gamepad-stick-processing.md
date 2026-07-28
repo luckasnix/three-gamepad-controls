@@ -1,6 +1,6 @@
 # Gamepad Stick Processing
 
-The library processes two-dimensional stick input with an ordered, stateless pipeline. A pipeline keeps transformations such as deadzones and inversion independent from `GamepadInput` and lets each input action use its own processing policy.
+The library processes two-dimensional stick input with an ordered, stateless pipeline. A pipeline keeps transformations such as deadzones, response curves, and inversion independent from `GamepadInput` and lets each input action use its own processing policy.
 
 ```text
 raw { x, y }
@@ -55,6 +55,10 @@ const lookPipeline = createGamepadStickPipeline(
     mode: "radial",
     rescale: true,
   }),
+  createGamepadResponseCurveProcessor({
+    curve: "cubic",
+    mode: "radial",
+  }),
   createGamepadInversionProcessor({ invertY: true }),
 );
 ```
@@ -67,7 +71,16 @@ An empty pipeline is identity:
 const rawPipeline = createGamepadStickPipeline();
 ```
 
-`DEFAULT_GAMEPAD_STICK_PIPELINE` contains only `createGamepadDeadzoneProcessor()` and therefore applies the historical axial deadzone of `0.1` without rescaling or inversion.
+`DEFAULT_GAMEPAD_STICK_PIPELINE` contains only `createGamepadDeadzoneProcessor()` and therefore applies the historical axial deadzone of `0.1` without rescaling, a response curve, or inversion.
+
+## Processing modes
+
+`GamepadStickProcessingMode` is the shared `"axial" | "radial"` mode used by processors that can transform either independent components or vector magnitude:
+
+- `"axial"` transforms X and Y independently and can change vector direction.
+- `"radial"` transforms magnitude once and preserves vector direction.
+
+Not every processor uses this mode. Inversion, for example, always selects components independently.
 
 ## Official processors
 
@@ -83,6 +96,23 @@ Axial mode applies the threshold independently to X and Y. Radial mode compares 
 
 ![Comparison showing a square axial dead zone and a circular radial dead zone within the analog stick range.](../assets/deadzone-modes.webp "Axial and radial analog-stick dead zones")
 
+### `createGamepadResponseCurveProcessor(options)`
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `curve` | `"linear" \| "quadratic" \| "cubic"` | Required | Transforms normalized component or magnitude values. |
+| `mode` | `"axial" \| "radial"` | Required | Processes components independently or processes vector magnitude. |
+
+The built-in curves map magnitudes in the normalized `[0, 1]` range:
+
+| Curve | Formula | Output at `0.5` |
+| --- | --- | --- |
+| `"linear"` | `m` | `0.5` |
+| `"quadratic"` | `m²` | `0.25` |
+| `"cubic"` | `m³` | `0.125` |
+
+Axial mode preserves each component's sign while curving its magnitude independently. Radial mode curves `Math.hypot(x, y)` and scales both components by the same amount, preserving direction. Component or vector magnitudes above `1` remain unchanged so the processor does not implicitly clamp or normalize output from an earlier custom processor.
+
 ### `createGamepadInversionProcessor(options?)`
 
 | Option | Type | Default | Description |
@@ -91,6 +121,25 @@ Axial mode applies the threshold independently to X and Y. Radial mode compares 
 | `invertY` | `boolean` | `false` | Negates the second component passed to `stick()`. |
 
 Inversion is independent per component. Official processors preserve canonical zero and do not produce `-0` for neutral components.
+
+A common order is deadzone, response curve, and then inversion. This makes the curve operate on input after the neutral region has been removed and optionally rescaled:
+
+```ts
+const preciseLookPipeline = createGamepadStickPipeline(
+  createGamepadDeadzoneProcessor({
+    threshold: 0.12,
+    mode: "radial",
+    rescale: true,
+  }),
+  createGamepadResponseCurveProcessor({
+    curve: "cubic",
+    mode: "radial",
+  }),
+  createGamepadInversionProcessor({ invertY: true }),
+);
+```
+
+The pipeline still respects the exact configured order and does not automatically arrange these processors.
 
 ## Using a pipeline with GamepadInput
 
