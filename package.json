@@ -56,6 +56,9 @@
     "check-all": "biome check",
     "write-all": "biome check --write",
     "check-ci": "biome ci",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -65,10 +68,13 @@
     "@commitlint/types": "21.2.0",
     "@types/node": "24.13.3",
     "@types/three": "0.184.0",
+    "@vitest/coverage-v8": "4.1.10",
     "husky": "9.1.7",
+    "jsdom": "29.1.1",
     "three": "0.184.0",
     "tsdown": "0.22.8",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   },
   "peerDependencies": {
     "@types/three": ">=0.184.0",

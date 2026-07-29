@@ -14,5 +14,10 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "commitlint.config.ts", "tsdown.config.ts"]
+  "include": [
+    "src",
+    "commitlint.config.ts",
+    "tsdown.config.ts",
+    "vitest.config.ts"
+  ]
 }

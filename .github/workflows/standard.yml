@@ -27,6 +27,8 @@ jobs:
         run: pnpm check-ci
       - name: Check types
         run: pnpm type:check
+      - name: Test
+        run: pnpm test:coverage
       - name: Build
         run: pnpm build
       - name: Upload dist
