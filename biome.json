@@ -9,6 +9,7 @@
     "includes": [
       ".vscode/**/*.json",
       "src/**/*.ts",
+      "test/**/*.ts",
       "biome.json",
       "commitlint.config.ts",
       "package.json",

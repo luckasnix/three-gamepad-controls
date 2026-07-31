@@ -1,38 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import { createGamepad } from "../test/fixtures/gamepad.ts";
 import { MAX_GAMEPAD_INDEX, MIN_GAMEPAD_INDEX } from "./core.ts";
 import { GamepadManager } from "./gamepad-manager.ts";
-
-type GamepadFixtureOptions = {
-  connected?: boolean;
-  id?: string;
-  timestamp?: number;
-};
-
-const vibrationActuator: GamepadHapticActuator = {
-  playEffect: () => Promise.resolve("complete"),
-  pulse: () => Promise.resolve(true),
-  reset: () => Promise.resolve("complete"),
-};
-
-const createGamepad = (
-  index: number,
-  options?: GamepadFixtureOptions,
-): Gamepad => {
-  const gamepad: Gamepad = {
-    axes: [],
-    buttons: [],
-    connected: options?.connected ?? true,
-    hapticActuators: [],
-    id: options?.id ?? `gamepad-${index}`,
-    index,
-    mapping: "standard",
-    timestamp: options?.timestamp ?? 0,
-    vibrationActuator,
-  };
-
-  return Object.freeze(gamepad);
-};
 
 let polledGamepads: (Gamepad | null)[];
 

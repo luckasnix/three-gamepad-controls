@@ -16,6 +16,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "test/**/*.ts",
     "commitlint.config.ts",
     "tsdown.config.ts",
     "vitest.config.ts"
