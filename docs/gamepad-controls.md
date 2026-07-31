@@ -138,17 +138,14 @@ Extend `GamepadControls` and implement `onUpdate(deltaTime)`:
 import { Timer } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
-  createGamepadDeadzoneProcessor,
-  createGamepadStickPipeline,
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
+  gamepadStickPipeline,
   GamepadControls,
   type GamepadControlsOptions,
 } from "three-gamepad-controls";
 
-const rotatePipeline = createGamepadStickPipeline(
-  createGamepadDeadzoneProcessor({ mode: "radial" }),
-);
+const rotatePipeline = gamepadStickPipeline({ mode: "radial" }).deadzone();
 
 class CustomGamepadOrbitControls extends GamepadControls {
   readonly #controls: OrbitControls;

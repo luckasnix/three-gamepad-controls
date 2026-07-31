@@ -43,28 +43,22 @@ export type GamepadStickProcessor = {
 };
 
 /**
- * Ordered, reusable sequence of stateless stick processors.
+ * Options for {@link gamepadStickPipeline}.
  */
-export type GamepadStickPipeline = GamepadStickProcessor & {
+export type GamepadStickPipelineOptions = {
   /**
-   * Processors in execution order.
+   * Default geometry for processing methods that support axial and radial modes.
+   * @default "axial"
    */
-  readonly processors: readonly GamepadStickProcessor[];
+  mode?: GamepadStickProcessingMode;
 };
 
 /**
- * Options for {@link createGamepadDeadzoneProcessor}.
+ * Options for {@link GamepadStickPipeline.deadzone}.
  */
-export type GamepadDeadzoneProcessorOptions = {
+export type GamepadDeadzoneOptions = {
   /**
-   * Dead zone threshold.
-   * @default 0.1
-   */
-  threshold?: number;
-
-  /**
-   * Whether to process each component or the vector magnitude.
-   * @default "axial"
+   * Geometry for this dead zone, overriding the pipeline default.
    */
   mode?: GamepadStickProcessingMode;
 
@@ -76,35 +70,71 @@ export type GamepadDeadzoneProcessorOptions = {
 };
 
 /**
- * Options for {@link createGamepadResponseCurveProcessor}.
+ * Options for {@link GamepadStickPipeline.curve}.
  */
-export type GamepadResponseCurveProcessorOptions = {
+export type GamepadResponseCurveOptions = {
   /**
-   * Curve used to transform values in the normalized input range.
+   * Geometry for this response curve, overriding the pipeline default.
    */
-  curve: GamepadResponseCurve;
-
-  /**
-   * Whether to process each component or the vector magnitude.
-   */
-  mode: GamepadStickProcessingMode;
+  mode?: GamepadStickProcessingMode;
 };
 
 /**
- * Options for {@link createGamepadInversionProcessor}.
+ * Ordered, reusable sequence of stateless stick processors.
+ *
+ * Every configuration method returns a new frozen pipeline and leaves the
+ * current pipeline unchanged.
  */
-export type GamepadInversionProcessorOptions = {
+export type GamepadStickPipeline = GamepadStickProcessor & {
   /**
-   * Whether to invert the horizontal component.
-   * @default false
+   * Appends an axial or radial dead zone.
+   *
+   * @param threshold - Dead zone threshold.
+   * @param options - Optional dead zone configuration.
+   * @returns New pipeline containing the dead zone.
    */
-  invertX?: boolean;
+  deadzone(
+    threshold?: number,
+    options?: GamepadDeadzoneOptions,
+  ): GamepadStickPipeline;
 
   /**
-   * Whether to invert the vertical component.
-   * @default false
+   * Appends an axial or radial response curve.
+   *
+   * @param curve - Curve used to transform normalized magnitudes.
+   * @param options - Optional response curve configuration.
+   * @returns New pipeline containing the response curve.
    */
-  invertY?: boolean;
+  curve(
+    curve: GamepadResponseCurve,
+    options?: GamepadResponseCurveOptions,
+  ): GamepadStickPipeline;
+
+  /**
+   * Appends component inversion.
+   *
+   * @param axis - Component or components to invert.
+   * @returns New pipeline containing the inversion.
+   */
+  invert(axis: "x" | "y" | "both"): GamepadStickPipeline;
+
+  /**
+   * Appends a custom stick transformation.
+   *
+   * @param operation - Pure transformation applied to the current value.
+   * @returns New pipeline containing the transformation.
+   */
+  transform(
+    operation: (value: Readonly<GamepadStick>) => GamepadStick,
+  ): GamepadStickPipeline;
+
+  /**
+   * Appends a reusable stick processor, including another pipeline.
+   *
+   * @param processor - Processor to execute next.
+   * @returns New pipeline containing the processor.
+   */
+  pipe(processor: GamepadStickProcessor): GamepadStickPipeline;
 };
 
 /**
@@ -134,18 +164,10 @@ export type GamepadStickBindingOptions = {
  */
 export type GamepadStickBinding = Required<GamepadStickBindingOptions>;
 
-const DEFAULT_DEADZONE_PROCESSOR_OPTIONS: Required<GamepadDeadzoneProcessorOptions> =
-  {
-    threshold: 0.1,
-    mode: "axial",
-    rescale: false,
-  };
+const DEFAULT_GAMEPAD_STICK_PROCESSING_MODE: GamepadStickProcessingMode =
+  "axial";
 
-const DEFAULT_INVERSION_PROCESSOR_OPTIONS: Required<GamepadInversionProcessorOptions> =
-  {
-    invertX: false,
-    invertY: false,
-  };
+const DEFAULT_GAMEPAD_DEADZONE_THRESHOLD = 0.1;
 
 /**
  * Returns a canonical stick result and preserves the original value when
@@ -276,46 +298,18 @@ const applyGamepadResponseCurve = (
 };
 
 /**
- * Creates an ordered pipeline from stateless stick processors.
- *
- * The processor list is copied once. Processor errors are not caught, and a
- * processor's result is passed directly to the next processor.
- *
- * @param processors - Processors in execution order.
- * @returns Reusable stick pipeline.
- */
-export const createGamepadStickPipeline = (
-  ...processors: readonly GamepadStickProcessor[]
-): GamepadStickPipeline => {
-  const pipelineProcessors = Object.freeze([...processors]);
-
-  return Object.freeze({
-    processors: pipelineProcessors,
-    process(value: Readonly<GamepadStick>): GamepadStick {
-      let processed: Readonly<GamepadStick> = value;
-
-      for (const processor of pipelineProcessors) {
-        processed = processor.process(processed);
-      }
-
-      return processed as GamepadStick;
-    },
-  });
-};
-
-/**
  * Creates an axial or radial dead zone processor.
  *
- * @param options - Optional dead zone configuration.
- * @returns Stateless dead zone processor.
+ * @param threshold - Dead zone threshold.
+ * @param mode - Whether to process components or vector magnitude.
+ * @param rescale - Whether to remap values outside the dead zone.
+ * @returns Frozen dead zone processor.
  */
-export const createGamepadDeadzoneProcessor = (
-  options?: GamepadDeadzoneProcessorOptions,
+const createDeadzoneProcessor = (
+  threshold: number,
+  mode: GamepadStickProcessingMode,
+  rescale: boolean,
 ): GamepadStickProcessor => {
-  const { threshold, mode, rescale } = {
-    ...DEFAULT_DEADZONE_PROCESSOR_OPTIONS,
-    ...options,
-  };
   const mapMagnitude = (magnitude: number): number => {
     if (magnitude < threshold) {
       return 0;
@@ -344,13 +338,14 @@ export const createGamepadDeadzoneProcessor = (
 /**
  * Creates an axial or radial response curve processor.
  *
- * @param options - Response curve configuration.
- * @returns Stateless response curve processor.
+ * @param curve - Curve applied to normalized magnitudes.
+ * @param mode - Whether to process components or vector magnitude.
+ * @returns Frozen response curve processor.
  */
-export const createGamepadResponseCurveProcessor = (
-  options: GamepadResponseCurveProcessorOptions,
+const createResponseCurveProcessor = (
+  curve: GamepadResponseCurve,
+  mode: GamepadStickProcessingMode,
 ): GamepadStickProcessor => {
-  const { curve, mode } = options;
   const mapMagnitude = (magnitude: number): number =>
     applyGamepadResponseCurve(magnitude, curve);
 
@@ -370,25 +365,19 @@ export const createGamepadResponseCurveProcessor = (
 };
 
 /**
- * Creates a processor that independently inverts stick components.
+ * Creates a processor that inverts selected stick components.
  *
- * @param options - Optional inversion configuration.
- * @returns Stateless inversion processor.
+ * @param axis - Component or components to invert.
+ * @returns Frozen inversion processor.
  */
-export const createGamepadInversionProcessor = (
-  options?: GamepadInversionProcessorOptions,
+const createInversionProcessor = (
+  axis: "x" | "y" | "both",
 ): GamepadStickProcessor => {
-  const { invertX, invertY } = {
-    ...DEFAULT_INVERSION_PROCESSOR_OPTIONS,
-    ...options,
-  };
+  const invertX = axis === "x" || axis === "both";
+  const invertY = axis === "y" || axis === "both";
 
   return Object.freeze({
     process(value: Readonly<GamepadStick>): GamepadStick {
-      if (!invertX && !invertY) {
-        return createGamepadStickResult(value, value.x, value.y);
-      }
-
       const x = value.x === 0 ? 0 : invertX ? -value.x : value.x;
       const y = value.y === 0 ? 0 : invertY ? -value.y : value.y;
 
@@ -398,11 +387,97 @@ export const createGamepadInversionProcessor = (
 };
 
 /**
+ * Creates a frozen custom transformation processor.
+ *
+ * @param operation - Transformation applied to the current pipeline value.
+ * @returns Frozen custom processor.
+ */
+const createTransformProcessor = (
+  operation: (value: Readonly<GamepadStick>) => GamepadStick,
+): GamepadStickProcessor => {
+  return Object.freeze({ process: operation });
+};
+
+/**
+ * Creates an immutable pipeline over a private processor sequence.
+ *
+ * @param mode - Default processing mode for new built-in stages.
+ * @param processors - Processors in execution order.
+ * @returns Frozen stick pipeline.
+ */
+const createPipeline = (
+  mode: GamepadStickProcessingMode,
+  processors: readonly GamepadStickProcessor[],
+): GamepadStickPipeline => {
+  const pipelineProcessors = Object.freeze([...processors]);
+  const append = (processor: GamepadStickProcessor): GamepadStickPipeline =>
+    createPipeline(mode, [...pipelineProcessors, processor]);
+
+  return Object.freeze({
+    process(value: Readonly<GamepadStick>): GamepadStick {
+      let processed: Readonly<GamepadStick> = value;
+
+      for (const processor of pipelineProcessors) {
+        processed = processor.process(processed);
+      }
+
+      return processed as GamepadStick;
+    },
+    deadzone(
+      threshold = DEFAULT_GAMEPAD_DEADZONE_THRESHOLD,
+      options?: GamepadDeadzoneOptions,
+    ): GamepadStickPipeline {
+      return append(
+        createDeadzoneProcessor(
+          threshold,
+          options?.mode ?? mode,
+          options?.rescale ?? false,
+        ),
+      );
+    },
+    curve(
+      curve: GamepadResponseCurve,
+      options?: GamepadResponseCurveOptions,
+    ): GamepadStickPipeline {
+      return append(createResponseCurveProcessor(curve, options?.mode ?? mode));
+    },
+    invert(axis: "x" | "y" | "both"): GamepadStickPipeline {
+      return append(createInversionProcessor(axis));
+    },
+    transform(
+      operation: (value: Readonly<GamepadStick>) => GamepadStick,
+    ): GamepadStickPipeline {
+      return append(createTransformProcessor(operation));
+    },
+    pipe(processor: GamepadStickProcessor): GamepadStickPipeline {
+      return append(processor);
+    },
+  });
+};
+
+/**
+ * Creates an immutable, fluent stick processing pipeline.
+ *
+ * The configured mode becomes the default for dead zones and response curves.
+ * Each fluent method returns a new pipeline, so intermediate pipelines remain
+ * reusable. Processor errors are not caught.
+ *
+ * @param options - Optional pipeline defaults.
+ * @returns Frozen stick pipeline.
+ */
+export const gamepadStickPipeline = (
+  options?: GamepadStickPipelineOptions,
+): GamepadStickPipeline => {
+  return createPipeline(
+    options?.mode ?? DEFAULT_GAMEPAD_STICK_PROCESSING_MODE,
+    [],
+  );
+};
+
+/**
  * Historical stick processing used when no custom pipeline is supplied.
  */
-export const DEFAULT_GAMEPAD_STICK_PIPELINE = createGamepadStickPipeline(
-  createGamepadDeadzoneProcessor(),
-);
+export const DEFAULT_GAMEPAD_STICK_PIPELINE = gamepadStickPipeline().deadzone();
 
 /**
  * Resolves a partial stick binding over an action-specific default.

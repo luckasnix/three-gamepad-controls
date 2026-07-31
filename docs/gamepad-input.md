@@ -19,26 +19,12 @@ Gamepad input state reader for gameplay, menus, and custom interactions.
 Configure stick processing defaults once when creating the input:
 
 ```ts
-import {
-  createGamepadDeadzoneProcessor,
-  createGamepadInversionProcessor,
-  createGamepadResponseCurveProcessor,
-  createGamepadStickPipeline,
-  GamepadInput,
-} from "three-gamepad-controls";
+import { gamepadStickPipeline, GamepadInput } from "three-gamepad-controls";
 
-const lookPipeline = createGamepadStickPipeline(
-  createGamepadDeadzoneProcessor({
-    threshold: 0.15,
-    mode: "radial",
-    rescale: true,
-  }),
-  createGamepadResponseCurveProcessor({
-    curve: "cubic",
-    mode: "radial",
-  }),
-  createGamepadInversionProcessor({ invertY: true }),
-);
+const lookPipeline = gamepadStickPipeline({ mode: "radial" })
+  .deadzone(0.15, { rescale: true })
+  .curve("cubic")
+  .invert("y");
 
 const gamepadInput = new GamepadInput({
   axisDeadzone: 0.05,
@@ -48,7 +34,7 @@ const gamepadInput = new GamepadInput({
 
 `gamepadIndex` must be an integer from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); any other value throws a `RangeError`. An explicit index never falls back to another gamepad. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and multi-player examples.
 
-`axisDeadzone` affects only `axis()` reads. `stickPipeline` affects only `stick()` and is replaced as a whole when a pipeline is passed directly to that method. See [Stick Processing](./gamepad-stick-processing.md) for the processor contract, composition order, official factories, and wrapper bindings.
+`axisDeadzone` affects only `axis()` reads. `stickPipeline` affects only `stick()` and is replaced as a whole when a pipeline is passed directly to that method. See [Stick Processing](./gamepad-stick-processing.md) for the fluent API, processor contract, composition order, and wrapper bindings.
 
 ## Properties
 
@@ -95,7 +81,7 @@ Returns an axis value after scalar dead zone processing. Pass `options.deadzone`
 
 Reads the two raw axes as `{ x, y }` and passes that vector through a stateless pipeline. When `pipeline` is omitted, the instance's `stickPipeline` is used. When supplied, it replaces the instance pipeline for that read rather than being appended or merged.
 
-`DEFAULT_GAMEPAD_STICK_PIPELINE` contains one axial deadzone processor with threshold `0.1` and no rescaling, preserving the library's historical behavior. An empty pipeline is an identity operation.
+`DEFAULT_GAMEPAD_STICK_PIPELINE` applies one axial deadzone with threshold `0.1` and no rescaling, preserving the library's historical behavior. An empty pipeline is an identity operation.
 
 For example, this read bypasses the configured default pipeline:
 
@@ -103,11 +89,11 @@ For example, this read bypasses the configured default pipeline:
 const rawLook = gamepadInput.stick(
   GAMEPAD_AXIS.RightX,
   GAMEPAD_AXIS.RightY,
-  createGamepadStickPipeline(),
+  gamepadStickPipeline(),
 );
 ```
 
-Pipeline order is exactly the order supplied to `createGamepadStickPipeline()`. The library does not reorder processors, catch processor exceptions, or normalize custom processor results.
+Pipeline order is exactly the fluent call order. The library does not reorder stages, catch processor exceptions, or normalize custom processor results.
 
 ### `playVibrationEffect(type, parameters?)`
 
@@ -135,16 +121,13 @@ Use `GamepadInput` directly when input drives gameplay rather than a Three.js co
 ```ts
 import { Timer, Vector3 } from "three";
 import {
-  createGamepadDeadzoneProcessor,
-  createGamepadStickPipeline,
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
+  gamepadStickPipeline,
   GamepadInput,
 } from "three-gamepad-controls";
 
-const movementPipeline = createGamepadStickPipeline(
-  createGamepadDeadzoneProcessor({ threshold: 0.15 }),
-);
+const movementPipeline = gamepadStickPipeline().deadzone(0.15);
 const gamepadInput = new GamepadInput({
   stickPipeline: movementPipeline,
 });
