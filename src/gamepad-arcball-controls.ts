@@ -445,12 +445,10 @@ export class GamepadArcballControls extends GamepadControls {
     controls.updateMatrixState();
     this.#previousUp.copy(controls.object.up);
 
-    const changed = this.#applyTransform(controls.rotate(axis, angle));
-    if (changed) {
-      controls.object.up.copy(this.#previousUp).applyAxisAngle(axis, -angle);
-    }
+    this.#applyTransform(controls.rotate(axis, angle));
+    controls.object.up.copy(this.#previousUp).applyAxisAngle(axis, -angle);
 
-    return changed;
+    return true;
   }
 
   /**
@@ -479,7 +477,9 @@ export class GamepadArcballControls extends GamepadControls {
     this.#panStart.set(0, 0, 0);
     this.#panEnd.set(panX * distance, panY * distance, 0);
 
-    return this.#applyTransform(controls.pan(this.#panStart, this.#panEnd));
+    this.#applyTransform(controls.pan(this.#panStart, this.#panEnd));
+
+    return true;
   }
 
   /**
@@ -512,9 +512,15 @@ export class GamepadArcballControls extends GamepadControls {
 
     controls.updateMatrixState();
 
-    return this.#applyTransform(
-      controls.scale(size, controls._gizmos.position),
-    );
+    const transformation = controls.scale(size, controls._gizmos.position);
+
+    if (transformation === undefined) {
+      return false;
+    }
+
+    this.#applyTransform(transformation);
+
+    return true;
   }
 
   /**
@@ -543,17 +549,12 @@ export class GamepadArcballControls extends GamepadControls {
     controls.object.getWorldDirection(controls._rotationAxis);
     this.#previousUp.copy(controls.object.up);
 
-    const changed = this.#applyTransform(
-      controls.zRotate(controls._gizmos.position, angle),
-    );
+    this.#applyTransform(controls.zRotate(controls._gizmos.position, angle));
+    controls.object.up
+      .copy(this.#previousUp)
+      .applyAxisAngle(controls._rotationAxis, angle);
 
-    if (changed) {
-      controls.object.up
-        .copy(this.#previousUp)
-        .applyAxisAngle(controls._rotationAxis, angle);
-    }
-
-    return changed;
+    return true;
   }
 
   /**
@@ -578,18 +579,11 @@ export class GamepadArcballControls extends GamepadControls {
   /**
    * Applies a transformation returned by an Arcball runtime helper.
    *
-   * @param transformation - Arcball transformation matrices, if any.
-   * @returns `true` when a transformation was applied.
+   * @param transformation - Arcball transformation matrices to apply.
    */
-  #applyTransform(transformation: ArcballTransformation | undefined): boolean {
-    if (transformation === undefined) {
-      return false;
-    }
-
+  #applyTransform(transformation: ArcballTransformation): void {
     this.#controls.applyTransformMatrix(transformation);
     this.#controls.updateMatrixState();
-
-    return true;
   }
 
   /**
