@@ -15,6 +15,19 @@ export type GamepadFixtureOptions = {
 };
 
 /**
+ * Creates a GamepadButton fixture with consistent pressed, touched, and value
+ * state.
+ */
+export const createGamepadButton = (
+  pressed = false,
+  value = pressed ? 1 : 0,
+): GamepadButton => ({
+  pressed,
+  touched: pressed || value !== 0,
+  value,
+});
+
+/**
  * Creates a haptic actuator whose operations succeed by default.
  *
  * Individual methods can be overridden with spies or alternative behavior.
