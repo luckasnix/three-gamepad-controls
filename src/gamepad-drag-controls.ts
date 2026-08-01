@@ -174,13 +174,15 @@ export class GamepadDragControls extends GamepadControls {
       return;
     }
 
-    if (this.#selected !== null) {
+    const selected = this.#selected;
+
+    if (selected !== null) {
       if (selectStarted) {
         this.#releaseSelected();
         return;
       }
 
-      this.#updateSelected(deltaTime);
+      this.#updateSelected(selected, deltaTime);
       return;
     }
 
@@ -216,15 +218,10 @@ export class GamepadDragControls extends GamepadControls {
   /**
    * Updates the selected object from gamepad drag and rotation input.
    *
+   * @param selected - Object selected for the current update.
    * @param deltaTime - Seconds since the last frame.
    */
-  #updateSelected(deltaTime: number): void {
-    const selected = this.#selected;
-
-    if (selected === null) {
-      return;
-    }
-
+  #updateSelected(selected: Object3D, deltaTime: number): void {
     const { dragSpeed, rotateSpeed, dragStick, rotateStick } = this.#options;
     const input = this.gamepadInput;
 
@@ -239,8 +236,15 @@ export class GamepadDragControls extends GamepadControls {
       rotateStick.pipeline,
     );
 
-    const dragged = this.#applyDrag(deltaTime, drag.x, drag.y, dragSpeed);
+    const dragged = this.#applyDrag(
+      selected,
+      deltaTime,
+      drag.x,
+      drag.y,
+      dragSpeed,
+    );
     const rotated = this.#applyRotation(
+      selected,
       deltaTime,
       rotate.x,
       rotate.y,
@@ -258,6 +262,7 @@ export class GamepadDragControls extends GamepadControls {
   /**
    * Moves the selected object in the camera-facing plane.
    *
+   * @param selected - Object selected for the current update.
    * @param deltaTime - Seconds since the last frame.
    * @param dragX - Horizontal drag input after dead zone processing.
    * @param dragY - Vertical drag input after dead zone processing.
@@ -265,14 +270,13 @@ export class GamepadDragControls extends GamepadControls {
    * @returns `true` when the selected object moved.
    */
   #applyDrag(
+    selected: Object3D,
     deltaTime: number,
     dragX: number,
     dragY: number,
     dragSpeed: number,
   ): boolean {
-    const selected = this.#selected;
-
-    if (selected === null || (dragX === 0 && dragY === 0)) {
+    if (dragX === 0 && dragY === 0) {
       return false;
     }
 
@@ -289,7 +293,7 @@ export class GamepadDragControls extends GamepadControls {
       -dragY * this.#viewSize.y * scale,
     );
 
-    this.#applySelectedWorldPosition();
+    this.#applySelectedWorldPosition(selected);
 
     return true;
   }
@@ -297,6 +301,7 @@ export class GamepadDragControls extends GamepadControls {
   /**
    * Rotates the selected object around camera-relative world axes.
    *
+   * @param selected - Object selected for the current update.
    * @param deltaTime - Seconds since the last frame.
    * @param rotateX - Horizontal rotation input after dead zone processing.
    * @param rotateY - Vertical rotation input after dead zone processing.
@@ -304,14 +309,13 @@ export class GamepadDragControls extends GamepadControls {
    * @returns `true` when the selected object rotated.
    */
   #applyRotation(
+    selected: Object3D,
     deltaTime: number,
     rotateX: number,
     rotateY: number,
     rotateSpeed: number,
   ): boolean {
-    const selected = this.#selected;
-
-    if (selected === null || (rotateX === 0 && rotateY === 0)) {
+    if (rotateX === 0 && rotateY === 0) {
       return false;
     }
 
@@ -455,13 +459,7 @@ export class GamepadDragControls extends GamepadControls {
   }
 
   // Writes the accumulated world-space selected position back to the object.
-  #applySelectedWorldPosition(): void {
-    const selected = this.#selected;
-
-    if (selected === null) {
-      return;
-    }
-
+  #applySelectedWorldPosition(selected: Object3D): void {
     if (selected.parent === null) {
       selected.position.copy(this.#selectedWorldPosition);
       selected.updateMatrixWorld();
