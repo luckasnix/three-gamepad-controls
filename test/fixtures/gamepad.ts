@@ -28,6 +28,30 @@ export const createGamepadButton = (
 });
 
 /**
+ * Indexed button state used to build a sparse Gamepad button list.
+ */
+export type GamepadButtonFixtureEntry = readonly [
+  index: number,
+  pressed: boolean,
+  value?: number,
+];
+
+/**
+ * Creates a sparse Gamepad button list from indexed button states.
+ */
+export const createGamepadButtons = (
+  ...entries: GamepadButtonFixtureEntry[]
+): GamepadButton[] => {
+  const buttons: GamepadButton[] = [];
+
+  for (const [index, pressed, value] of entries) {
+    buttons[index] = createGamepadButton(pressed, value);
+  }
+
+  return buttons;
+};
+
+/**
  * Creates a haptic actuator whose operations succeed by default.
  *
  * Individual methods can be overridden with spies or alternative behavior.
