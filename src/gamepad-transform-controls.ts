@@ -152,16 +152,10 @@ const DEFAULT_TRANSFORM_OPTIONS: ResolvedGamepadTransformControlsOptions = {
   buttonReset: GAMEPAD_BUTTON.Start,
 };
 
-type TransformAxis =
-  | "X"
-  | "Y"
-  | "Z"
-  | "E"
-  | "XY"
-  | "YZ"
-  | "XZ"
-  | "XYZ"
-  | "XYZE";
+type TranslateAxis = "X" | "Y" | "Z" | "XY" | "YZ" | "XZ" | "XYZ";
+type RotateAxis = "X" | "Y" | "Z" | "E" | "XYZE";
+type ScaleAxis = "X" | "Y" | "Z" | "XYZ";
+type TransformAxis = TranslateAxis | RotateAxis | ScaleAxis;
 
 type AxisLetter = "X" | "Y" | "Z";
 type TransformSpace = "world" | "local";
@@ -169,9 +163,6 @@ type TransformSpace = "world" | "local";
 type RuntimeTransformControls = TransformControls & {
   // Object currently attached to TransformControls.
   object: Object3D | undefined;
-
-  // Active TransformControls axis or plane.
-  axis: TransformAxis | null;
 
   // Minimum allowed local X position.
   minX: number;
@@ -347,7 +338,9 @@ export class GamepadTransformControls extends GamepadControls {
 
     const controls = this.#controls;
 
-    if (!controls.enabled || controls.object === undefined) {
+    const object = controls.object;
+
+    if (!controls.enabled || object === undefined) {
       this.#endTransform(true);
       return;
     }
@@ -371,11 +364,19 @@ export class GamepadTransformControls extends GamepadControls {
       return;
     }
 
-    if (!this.#isTransforming && !this.#startTransform()) {
-      return;
+    if (!this.#isTransforming) {
+      this.#startTransform(object);
     }
 
-    if (this.#applyCurrentTransform(deltaTime, transform.x, transform.y)) {
+    if (
+      this.#applyCurrentTransform(
+        object,
+        axis,
+        deltaTime,
+        transform.x,
+        transform.y,
+      )
+    ) {
       controls.dispatchEvent({ type: "change" });
       controls.dispatchEvent({ type: "objectChange" });
     }
@@ -533,7 +534,7 @@ export class GamepadTransformControls extends GamepadControls {
         ? 0
         : (currentIndex + direction + axes.length) % axes.length;
 
-    this.#activeAxisByMode[this.#controls.mode] = axes[nextIndex] ?? null;
+    this.#activeAxisByMode[this.#controls.mode] = axes[nextIndex];
     this.#ensureValidAxis();
   }
 
@@ -645,15 +646,10 @@ export class GamepadTransformControls extends GamepadControls {
   /**
    * Starts a TransformControls drag interaction for the active object and axis.
    *
-   * @returns `true` when a transform interaction was started.
+   * @param object - Object attached to TransformControls for this update.
    */
-  #startTransform(): boolean {
+  #startTransform(object: Object3D): void {
     const controls = this.#controls;
-    const object = controls.object;
-
-    if (object === undefined || controls.axis === null) {
-      return false;
-    }
 
     this.#captureTransformStart(object);
     controls.dragging = true;
@@ -662,8 +658,6 @@ export class GamepadTransformControls extends GamepadControls {
       type: "mouseDown",
       mode: controls.mode,
     });
-
-    return true;
   }
 
   /**
@@ -764,53 +758,73 @@ export class GamepadTransformControls extends GamepadControls {
   /**
    * Dispatches the current stick input to the active TransformControls mode.
    *
+   * @param object - Object attached to TransformControls for this update.
+   * @param axis - Valid axis selected for the active mode.
    * @param deltaTime - Seconds since the last frame.
    * @param transformX - Horizontal transform input after dead zone processing.
    * @param transformY - Vertical transform input after dead zone processing.
    * @returns `true` when the attached object changed.
    */
   #applyCurrentTransform(
+    object: Object3D,
+    axis: TransformAxis,
     deltaTime: number,
     transformX: number,
     transformY: number,
   ): boolean {
     switch (this.#controls.mode) {
       case "translate":
-        return this.#applyTranslate(deltaTime, transformX, transformY);
+        return this.#applyTranslate(
+          object,
+          axis as TranslateAxis,
+          deltaTime,
+          transformX,
+          transformY,
+        );
       case "rotate":
-        return this.#applyRotate(deltaTime, transformX, transformY);
+        return this.#applyRotate(
+          object,
+          axis as RotateAxis,
+          deltaTime,
+          transformX,
+          transformY,
+        );
       case "scale":
-        return this.#applyScale(deltaTime, transformX, transformY);
+        return this.#applyScale(
+          object,
+          axis as ScaleAxis,
+          deltaTime,
+          transformX,
+          transformY,
+        );
     }
   }
 
   /**
    * Applies translation in the selected axis, plane, or screen-facing plane.
    *
+   * @param object - Object attached to TransformControls for this update.
+   * @param axis - Valid translation axis selected for this update.
    * @param deltaTime - Seconds since the last frame.
    * @param transformX - Horizontal transform input after dead zone processing.
    * @param transformY - Vertical transform input after dead zone processing.
    * @returns `true` when the attached object moved.
    */
   #applyTranslate(
+    object: Object3D,
+    axis: TranslateAxis,
     deltaTime: number,
     transformX: number,
     transformY: number,
   ): boolean {
     const controls = this.#controls;
-    const object = controls.object;
-    const axis = controls.axis;
-
-    if (object === undefined || axis === null) {
-      return false;
-    }
 
     this.#updateCameraState(object);
     this.#worldDelta.set(0, 0, 0);
 
-    const scale = controls.axis === "XYZ" ? "world" : controls.space;
+    const scale = axis === "XYZ" ? "world" : controls.space;
     const speed =
-      controls.axis === "XYZ"
+      axis === "XYZ"
         ? this.#options.translateSpeed * deltaTime
         : ((this.#viewSize.x + this.#viewSize.y) / 2) *
           this.#options.translateSpeed *
@@ -969,23 +983,21 @@ export class GamepadTransformControls extends GamepadControls {
   /**
    * Applies rotation for the selected axis or free-rotation mode.
    *
+   * @param object - Object attached to TransformControls for this update.
+   * @param axis - Valid rotation axis selected for this update.
    * @param deltaTime - Seconds since the last frame.
    * @param transformX - Horizontal transform input after dead zone processing.
    * @param transformY - Vertical transform input after dead zone processing.
    * @returns `true` when the attached object rotated.
    */
   #applyRotate(
+    object: Object3D,
+    axis: RotateAxis,
     deltaTime: number,
     transformX: number,
     transformY: number,
   ): boolean {
     const controls = this.#controls;
-    const object = controls.object;
-    const axis = controls.axis;
-
-    if (object === undefined || axis === null) {
-      return false;
-    }
 
     this.#updateCameraState(object);
 
@@ -1004,7 +1016,7 @@ export class GamepadTransformControls extends GamepadControls {
     if (axis === "E") {
       this.#axisWorld.copy(this.#cameraForward).normalize();
       input = this.#getDominantInput(transformX, -transformY);
-    } else if (axis === "X" || axis === "Y" || axis === "Z") {
+    } else {
       const space = controls.space;
       this.#getTransformAxisWorld(axis, space, this.#axisWorld);
       input = this.#getRotationAxisInput(
@@ -1012,8 +1024,6 @@ export class GamepadTransformControls extends GamepadControls {
         transformX,
         transformY,
       );
-    } else {
-      return false;
     }
 
     this.#rotationAmount += input * angleScale;
@@ -1093,23 +1103,21 @@ export class GamepadTransformControls extends GamepadControls {
   /**
    * Applies scale along the selected axis or uniformly across all axes.
    *
+   * @param object - Object attached to TransformControls for this update.
+   * @param axis - Valid scale axis selected for this update.
    * @param deltaTime - Seconds since the last frame.
    * @param transformX - Horizontal transform input after dead zone processing.
    * @param transformY - Vertical transform input after dead zone processing.
    * @returns `true` when the attached object scaled.
    */
   #applyScale(
+    object: Object3D,
+    axis: ScaleAxis,
     deltaTime: number,
     transformX: number,
     transformY: number,
   ): boolean {
     const controls = this.#controls;
-    const object = controls.object;
-    const axis = controls.axis;
-
-    if (object === undefined || axis === null) {
-      return false;
-    }
 
     this.#updateCameraState(object);
 
@@ -1175,14 +1183,10 @@ export class GamepadTransformControls extends GamepadControls {
    * @returns Signed scale input for the current frame.
    */
   #getProjectedScaleInput(
-    axis: TransformAxis,
+    axis: AxisLetter,
     transformX: number,
     transformY: number,
   ): number {
-    if (axis !== "X" && axis !== "Y" && axis !== "Z") {
-      return this.#getDominantInput(transformX, -transformY);
-    }
-
     this.#getTransformAxisWorld(axis, "local", this.#axisWorld);
 
     return this.#getProjectedAxisInput(
@@ -1376,9 +1380,7 @@ export class GamepadTransformControls extends GamepadControls {
    * @param target - Vector to adjust in place.
    */
   #divideByParentScale(target: Vector3): void {
-    target.x = this.#parentScale.x === 0 ? 0 : target.x / this.#parentScale.x;
-    target.y = this.#parentScale.y === 0 ? 0 : target.y / this.#parentScale.y;
-    target.z = this.#parentScale.z === 0 ? 0 : target.z / this.#parentScale.z;
+    target.divide(this.#parentScale);
   }
 
   /**
