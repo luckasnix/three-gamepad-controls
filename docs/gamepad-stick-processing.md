@@ -109,7 +109,7 @@ const invertedLook = gamepadStickPipeline().invert("y");
 
 ### `transform(operation)`
 
-Use `transform()` for a one-off pure transformation. The callback receives the current readonly stick value and must return a complete `{ x, y }` result:
+`GamepadStickTransform` is the callback type accepted by `transform()`. Use it for a one-off pure transformation. The callback receives the current readonly stick value and must return a complete `{ x, y }` result:
 
 ```ts
 const swappedAxes = gamepadStickPipeline().transform(({ x, y }) => ({

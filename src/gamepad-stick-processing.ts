@@ -32,6 +32,13 @@ export type GamepadStick = {
 };
 
 /**
+ * Pure custom transformation applied to a gamepad stick.
+ */
+export type GamepadStickTransform = (
+  value: Readonly<GamepadStick>,
+) => GamepadStick;
+
+/**
  * Pure, stateless transformation applied to a gamepad stick.
  *
  * Implementations must not mutate `value`. Stateful processing such as
@@ -129,9 +136,7 @@ export type GamepadStickPipeline = GamepadStickProcessor & {
    * @param operation - Pure transformation applied to the current value.
    * @returns New pipeline containing the transformation.
    */
-  transform(
-    operation: (value: Readonly<GamepadStick>) => GamepadStick,
-  ): GamepadStickPipeline;
+  transform(operation: GamepadStickTransform): GamepadStickPipeline;
 
   /**
    * Appends a reusable stick processor, including another pipeline.
@@ -398,7 +403,7 @@ const createInversionProcessor = (
  * @returns Frozen custom processor.
  */
 const createTransformProcessor = (
-  operation: (value: Readonly<GamepadStick>) => GamepadStick,
+  operation: GamepadStickTransform,
 ): GamepadStickProcessor => {
   return Object.freeze({ process: operation });
 };
@@ -449,9 +454,7 @@ const createPipeline = (
     invert(axis: GamepadStickInversionAxis): GamepadStickPipeline {
       return append(createInversionProcessor(axis));
     },
-    transform(
-      operation: (value: Readonly<GamepadStick>) => GamepadStick,
-    ): GamepadStickPipeline {
+    transform(operation: GamepadStickTransform): GamepadStickPipeline {
       return append(createTransformProcessor(operation));
     },
     pipe(processor: GamepadStickProcessor): GamepadStickPipeline {
