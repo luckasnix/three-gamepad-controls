@@ -12,6 +12,11 @@ export type GamepadStickProcessingMode = "axial" | "radial";
 export type GamepadResponseCurve = "linear" | "quadratic" | "cubic";
 
 /**
+ * Stick component selection used by inversion processing.
+ */
+export type GamepadStickInversionAxis = "x" | "y" | "both";
+
+/**
  * Two-dimensional gamepad stick value.
  */
 export type GamepadStick = {
@@ -116,7 +121,7 @@ export type GamepadStickPipeline = GamepadStickProcessor & {
    * @param axis - Component or components to invert.
    * @returns New pipeline containing the inversion.
    */
-  invert(axis: "x" | "y" | "both"): GamepadStickPipeline;
+  invert(axis: GamepadStickInversionAxis): GamepadStickPipeline;
 
   /**
    * Appends a custom stick transformation.
@@ -371,7 +376,7 @@ const createResponseCurveProcessor = (
  * @returns Frozen inversion processor.
  */
 const createInversionProcessor = (
-  axis: "x" | "y" | "both",
+  axis: GamepadStickInversionAxis,
 ): GamepadStickProcessor => {
   const invertX = axis === "x" || axis === "both";
   const invertY = axis === "y" || axis === "both";
@@ -441,7 +446,7 @@ const createPipeline = (
     ): GamepadStickPipeline {
       return append(createResponseCurveProcessor(curve, options?.mode ?? mode));
     },
-    invert(axis: "x" | "y" | "both"): GamepadStickPipeline {
+    invert(axis: GamepadStickInversionAxis): GamepadStickPipeline {
       return append(createInversionProcessor(axis));
     },
     transform(

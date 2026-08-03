@@ -101,7 +101,7 @@ Axial mode preserves each component's sign while curving its magnitude independe
 
 ### `invert(axis)`
 
-Pass `"x"`, `"y"`, or `"both"` to negate the selected components. Inversion preserves canonical zero and does not produce `-0` for neutral components.
+`GamepadStickInversionAxis` is the `"x" | "y" | "both"` selection accepted by `invert()`. The selected components are negated. Inversion preserves canonical zero and does not produce `-0` for neutral components.
 
 ```ts
 const invertedLook = gamepadStickPipeline().invert("y");
