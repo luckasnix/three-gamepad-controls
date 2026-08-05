@@ -53,7 +53,7 @@ const rawPipeline = gamepadStickPipeline();
 
 ## Processing modes
 
-`GamepadStickProcessingMode` is the shared `"axial" | "radial"` mode used by deadzones and response curves:
+`GamepadStickProcessingMode` is the shared `"axial" | "radial"` geometry used by processing stages that operate on either stick components or vector magnitude:
 
 - `"axial"` transforms X and Y independently and can change vector direction.
 - `"radial"` transforms magnitude once and preserves vector direction.
@@ -68,7 +68,9 @@ const mixedPipeline = gamepadStickPipeline({ mode: "radial" })
 
 The deadzone above is radial, while the curve is axial. Inversion and custom processors do not use the pipeline mode.
 
-![Comparison showing a square axial dead zone and a circular radial dead zone within the analog stick range.](../assets/deadzone-modes.webp "Axial and radial analog-stick dead zones")
+The mode only determines how a compatible stage interprets the stick value. It does not create a dead zone or discard input by itself.
+
+![Comparison of axial mode, which processes X and Y independently, and radial mode, which processes magnitude while preserving direction.](../assets/stick-processing-modes.webp "Axial and radial gamepad-stick processing modes")
 
 ## Fluent methods
 
