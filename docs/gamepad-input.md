@@ -23,7 +23,7 @@ import { gamepadStickPipeline, GamepadInput } from "three-gamepad-controls";
 
 const lookPipeline = gamepadStickPipeline({ mode: "radial" })
   .deadzone(0.15, { rescale: true })
-  .curve("cubic")
+  .responseCurve("cubic")
   .invert("y");
 
 const gamepadInput = new GamepadInput({

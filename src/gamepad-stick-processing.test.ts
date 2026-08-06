@@ -145,15 +145,15 @@ describe("GamepadStickPipeline.deadzone", () => {
   });
 });
 
-describe("GamepadStickPipeline.curve", () => {
+describe("GamepadStickPipeline.responseCurve", () => {
   test.each([
     { curve: "linear", expected: 0.5 },
     { curve: "quadratic", expected: 0.25 },
     { curve: "cubic", expected: 0.125 },
   ] as const)(
-    "applies the $curve curve independently in axial mode",
+    "applies the $curve response curve independently in axial mode",
     ({ curve, expected }) => {
-      const pipeline = gamepadStickPipeline().curve(curve);
+      const pipeline = gamepadStickPipeline().responseCurve(curve);
 
       expect(pipeline.process({ x: 0.5, y: -0.5 })).toEqual({
         x: expected,
@@ -164,7 +164,7 @@ describe("GamepadStickPipeline.curve", () => {
 
   test("does not clamp axial magnitudes above one", () => {
     const input = Object.freeze({ x: 1.5, y: -2 });
-    const pipeline = gamepadStickPipeline({ mode: "radial" }).curve(
+    const pipeline = gamepadStickPipeline({ mode: "radial" }).responseCurve(
       "quadratic",
       {
         mode: "axial",
@@ -174,8 +174,8 @@ describe("GamepadStickPipeline.curve", () => {
     expect(pipeline.process(input)).toBe(input);
   });
 
-  test("curves radial magnitude while preserving direction", () => {
-    const pipeline = gamepadStickPipeline({ mode: "radial" }).curve(
+  test("applies a response curve to radial magnitude while preserving direction", () => {
+    const pipeline = gamepadStickPipeline({ mode: "radial" }).responseCurve(
       "quadratic",
     );
     const result = pipeline.process({ x: 0.3, y: 0.4 });
@@ -186,14 +186,18 @@ describe("GamepadStickPipeline.curve", () => {
 
   test("keeps a neutral radial value unchanged", () => {
     const input = Object.freeze({ x: 0, y: 0 });
-    const pipeline = gamepadStickPipeline({ mode: "radial" }).curve("cubic");
+    const pipeline = gamepadStickPipeline({ mode: "radial" }).responseCurve(
+      "cubic",
+    );
 
     expect(pipeline.process(input)).toBe(input);
   });
 
   test("does not clamp radial magnitudes above one", () => {
     const input = Object.freeze({ x: 1.2, y: 1.6 });
-    const pipeline = gamepadStickPipeline({ mode: "radial" }).curve("cubic");
+    const pipeline = gamepadStickPipeline({ mode: "radial" }).responseCurve(
+      "cubic",
+    );
 
     expect(pipeline.process(input)).toBe(input);
   });
@@ -201,7 +205,7 @@ describe("GamepadStickPipeline.curve", () => {
   test("returns a frozen pipeline and leaves its source unchanged", () => {
     const input = Object.freeze({ x: 0.5, y: -0.5 });
     const source = gamepadStickPipeline();
-    const pipeline = source.curve("quadratic");
+    const pipeline = source.responseCurve("quadratic");
 
     expect(Object.isFrozen(pipeline)).toBe(true);
     expect(source.process(input)).toBe(input);

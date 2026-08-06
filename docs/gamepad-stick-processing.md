@@ -21,7 +21,7 @@ import { gamepadStickPipeline } from "three-gamepad-controls";
 
 const lookPipeline = gamepadStickPipeline({ mode: "radial" })
   .deadzone(0.12, { rescale: true })
-  .curve("cubic")
+  .responseCurve("cubic")
   .invert("y");
 ```
 
@@ -39,8 +39,8 @@ const normalizedStick = gamepadStickPipeline({ mode: "radial" }).deadzone(
   { rescale: true },
 );
 
-const movementPipeline = normalizedStick.curve("quadratic");
-const lookPipeline = normalizedStick.curve("cubic").invert("y");
+const movementPipeline = normalizedStick.responseCurve("quadratic");
+const lookPipeline = normalizedStick.responseCurve("cubic").invert("y");
 ```
 
 An empty pipeline is an identity operation:
@@ -63,10 +63,10 @@ The `mode` passed to `gamepadStickPipeline()` becomes the default for every comp
 ```ts
 const mixedPipeline = gamepadStickPipeline({ mode: "radial" })
   .deadzone(0.12)
-  .curve("quadratic", { mode: "axial" });
+  .responseCurve("quadratic", { mode: "axial" });
 ```
 
-The deadzone above is radial, while the curve is axial. Inversion and custom processors do not use the pipeline mode.
+The deadzone above is radial, while the response curve is axial. Inversion and custom processors do not use the pipeline mode.
 
 The mode only determines how a compatible stage interprets the stick value. It does not create a dead zone or discard input by itself.
 
@@ -88,24 +88,24 @@ The diagram uses non-negative magnitude, so the same response applies to an axia
 
 ![Deadzone response graphs comparing unchanged and rescaled output outside the threshold.](../assets/stick-deadzone.webp "Gamepad stick deadzone response with and without rescaling")
 
-### `curve(curve, options?)`
+### `responseCurve(curve, options?)`
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `curve` | `"linear" \| "quadratic" \| "cubic"` | Required | Transforms normalized component or magnitude values. |
 | `options.mode` | `"axial" \| "radial"` | Pipeline mode | Processes components independently or processes vector magnitude. |
 
-The built-in curves map magnitudes in the normalized `[0, 1]` range:
+The built-in response curves map magnitudes in the normalized `[0, 1]` range:
 
-| Curve | Formula | Output at `0.5` |
+| Response curve | Formula | Output at `0.5` |
 | --- | --- | --- |
 | `"linear"` | `m` | `0.5` |
 | `"quadratic"` | `m²` | `0.25` |
 | `"cubic"` | `m³` | `0.125` |
 
-Axial mode preserves each component's sign while curving its magnitude independently. Radial mode curves `Math.hypot(x, y)` and scales both components by the same amount, preserving direction. Component or vector magnitudes above `1` remain unchanged.
+Axial mode preserves each component's sign while applying the response curve to its magnitude independently. Radial mode applies the response curve to `Math.hypot(x, y)` and scales both components by the same amount, preserving direction. Component or vector magnitudes above `1` remain unchanged.
 
-![Response graphs for linear, quadratic, and cubic curves showing their output at an input magnitude of 0.5.](../assets/stick-response-curves.webp "Built-in gamepad stick response curves")
+![Response graphs for linear, quadratic, and cubic response curves showing their output at an input magnitude of 0.5.](../assets/stick-response-curves.webp "Built-in gamepad stick response curves")
 
 ### `invert(axis)`
 
@@ -137,7 +137,7 @@ Use `pipe()` to append a reusable `GamepadStickProcessor`. Another pipeline is a
 ```ts
 const normalizedStick = gamepadStickPipeline({ mode: "radial" })
   .deadzone(0.12, { rescale: true })
-  .curve("cubic");
+  .responseCurve("cubic");
 
 const lookPipeline = gamepadStickPipeline()
   .pipe(normalizedStick)

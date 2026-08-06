@@ -82,7 +82,7 @@ export type GamepadDeadzoneOptions = {
 };
 
 /**
- * Options for {@link GamepadStickPipeline.curve}.
+ * Options for {@link GamepadStickPipeline.responseCurve}.
  */
 export type GamepadResponseCurveOptions = {
   /**
@@ -113,11 +113,11 @@ export type GamepadStickPipeline = GamepadStickProcessor & {
   /**
    * Appends an axial or radial response curve.
    *
-   * @param curve - Curve used to transform normalized magnitudes.
+   * @param curve - Response curve used to transform normalized magnitudes.
    * @param options - Optional response curve configuration.
    * @returns New pipeline containing the response curve.
    */
-  curve(
+  responseCurve(
     curve: GamepadResponseCurve,
     options?: GamepadResponseCurveOptions,
   ): GamepadStickPipeline;
@@ -280,13 +280,13 @@ const rescaleGamepadDeadzoneMagnitude = (
 };
 
 /**
- * Applies a built-in curve to a normalized magnitude.
+ * Applies a built-in response curve to a normalized magnitude.
  *
  * Magnitudes above `1` remain unchanged so response curves do not implicitly
  * clamp or normalize custom processor output.
  *
  * @param magnitude - Non-negative component or vector magnitude.
- * @param curve - Curve to apply.
+ * @param curve - Response curve to apply.
  * @returns Curved magnitude.
  */
 const applyGamepadResponseCurve = (
@@ -348,7 +348,7 @@ const createDeadzoneProcessor = (
 /**
  * Creates an axial or radial response curve processor.
  *
- * @param curve - Curve applied to normalized magnitudes.
+ * @param curve - Response curve applied to normalized magnitudes.
  * @param mode - Whether to process components or vector magnitude.
  * @returns Frozen response curve processor.
  */
@@ -445,7 +445,7 @@ const createPipeline = (
         ),
       );
     },
-    curve(
+    responseCurve(
       curve: GamepadResponseCurve,
       options?: GamepadResponseCurveOptions,
     ): GamepadStickPipeline {
