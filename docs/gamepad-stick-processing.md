@@ -84,6 +84,10 @@ The mode only determines how a compatible stage interprets the stick value. It d
 
 Axial mode applies the threshold independently to X and Y. Radial mode compares `Math.hypot(x, y)` with the threshold and, when rescaling, preserves direction while remapping magnitude.
 
+The diagram uses non-negative magnitude, so the same response applies to an axial component or to radial vector magnitude, depending on the configured mode.
+
+![Deadzone response graphs comparing unchanged and rescaled output outside the threshold.](../assets/stick-deadzone.webp "Gamepad stick deadzone response with and without rescaling")
+
 ### `curve(curve, options?)`
 
 | Parameter | Type | Default | Description |
@@ -101,9 +105,13 @@ The built-in curves map magnitudes in the normalized `[0, 1]` range:
 
 Axial mode preserves each component's sign while curving its magnitude independently. Radial mode curves `Math.hypot(x, y)` and scales both components by the same amount, preserving direction. Component or vector magnitudes above `1` remain unchanged.
 
+![Response graphs for linear, quadratic, and cubic curves showing their output at an input magnitude of 0.5.](../assets/stick-response-curves.webp "Built-in gamepad stick response curves")
+
 ### `invert(axis)`
 
 `GamepadStickInversionAxis` is the `"x" | "y" | "both"` selection accepted by `invert()`. The selected components are negated. Inversion preserves canonical zero and does not produce `-0` for neutral components.
+
+![Three coordinate diagrams showing how inverting X, Y, or both components reflects a gamepad stick vector.](../assets/stick-inversion.webp "Gamepad stick axis inversion")
 
 ```ts
 const invertedLook = gamepadStickPipeline().invert("y");
