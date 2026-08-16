@@ -9,7 +9,7 @@ Gamepad support for [Three.js](https://threejs.org) controls, built on top of [W
 
 ![Layered architecture showing the shared gamepad input foundation branching into direct application input and Three.js control integrations.](./assets/architecture-diagram.webp "Three.js Gamepad Controls layered architecture")
 
-The library is organized around a shared input foundation that handles gamepad selection, polling, button states, axes, sticks, haptics, and standard mappings. Applications can consume this input directly for gameplay, menus, and custom interactions, or use `GamepadControls` and its ready-made or custom wrappers to integrate gamepads with Three.js controls.
+The library is organized around `GamepadInput`, which owns the internal gamepad manager for selection and polling, exposes buttons, axes, sticks, haptics, and standard mappings, and processes stick reads through ordered, reusable, stateless pipelines. Applications can consume it directly for gameplay, menus, and custom interactions, or use `GamepadControls` and its ready-made or custom wrappers to integrate with Three.js. Each wrapper action resolves its own axes and pipeline.
 
 ## 📦 Installation
 
