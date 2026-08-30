@@ -5,7 +5,7 @@ Gamepad support for [Three.js](https://threejs.org) controls, built on top of [W
 > [!WARNING]
 > This library has not reached version 1.0.0 and should not yet be considered stable. Until 1.0.0, minor releases may include breaking changes.
 
-## Architecture
+## 🏗️ Architecture
 
 ![Layered architecture showing the shared gamepad input foundation branching into direct application input and Three.js control integrations.](./assets/architecture-diagram.webp "Three.js Gamepad Controls layered architecture")
 
