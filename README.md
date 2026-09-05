@@ -1,5 +1,7 @@
 # Three.js Gamepad Controls
 
+![Three.js Gamepad Controls logo featuring a white gamepad with black geometric outlines above the wordmark.](assets/logo.svg "Three.js Gamepad Controls logo")
+
 Gamepad support for [Three.js](https://threejs.org) controls, built on top of [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API).
 
 > [!WARNING]
