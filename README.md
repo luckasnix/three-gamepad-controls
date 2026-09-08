@@ -75,3 +75,7 @@ bun add -d @types/three # optional: for TypeScript projects
 - [GamepadPointerLockControls](./docs/gamepad-pointer-lock-controls.md) — Gamepad support for `PointerLockControls`.
 - [GamepadTrackballControls](./docs/gamepad-trackball-controls.md) — Gamepad support for `TrackballControls`.
 - [GamepadTransformControls](./docs/gamepad-transform-controls.md) — Gamepad support for `TransformControls`.
+
+## 📄 License
+
+Licensed under the [MIT License](./LICENSE).
