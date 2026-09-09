@@ -58,6 +58,13 @@ bun add three three-gamepad-controls
 bun add -d @types/three # optional: for TypeScript projects
 ```
 
+## 🔗 Compatibility
+
+| Three.js | Three.js Gamepad Controls |
+| --- | --- |
+| `~0.184.0` | `<=0.22.0` |
+| `~0.185.0` | `0.23.0` |
+
 ## 📖 Documentation
 
 - [Core](./docs/core.md) — The fundamental building blocks.

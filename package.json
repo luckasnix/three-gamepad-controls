@@ -1,7 +1,7 @@
 {
   "name": "three-gamepad-controls",
   "description": "Gamepad support for Three.js controls.",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "homepage": "https://github.com/luckasnix/three-gamepad-controls#readme",
   "author": {
     "name": "Kasnix",
@@ -67,17 +67,17 @@
     "@commitlint/config-conventional": "21.2.2",
     "@commitlint/types": "21.2.0",
     "@types/node": "24.13.3",
-    "@types/three": "0.184.0",
+    "@types/three": "0.185.0",
     "@vitest/coverage-v8": "5.0.0",
     "husky": "9.1.7",
     "jsdom": "29.1.1",
-    "three": "0.184.0",
+    "three": "0.185.0",
     "tsdown": "0.22.14",
     "typescript": "7.0.2",
     "vitest": "5.0.0"
   },
   "peerDependencies": {
-    "@types/three": ">=0.184.0",
-    "three": ">=0.184.0"
+    "@types/three": "~0.185.0",
+    "three": "~0.185.0"
   }
 }
