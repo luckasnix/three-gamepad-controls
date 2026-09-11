@@ -85,4 +85,4 @@ bun add -d @types/three # optional: for TypeScript projects
 
 ## 📄 License
 
-Licensed under the [MIT License](./LICENSE).
+Licensed under the [MIT License](./LICENSE.md).

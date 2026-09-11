@@ -2,6 +2,7 @@
   "name": "three-gamepad-controls",
   "description": "Gamepad support for Three.js controls.",
   "version": "0.23.0",
+  "license": "MIT",
   "homepage": "https://github.com/luckasnix/three-gamepad-controls#readme",
   "author": {
     "name": "Kasnix",
@@ -34,7 +35,6 @@
     "controls",
     "gamepad"
   ],
-  "license": "MIT",
   "publishConfig": {
     "access": "public"
   },
