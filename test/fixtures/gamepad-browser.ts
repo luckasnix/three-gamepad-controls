@@ -5,12 +5,12 @@ import { test, vi } from "vitest";
  */
 export const createGamepadPollingFixture = () => {
   const gamepads: (Gamepad | null)[] = [];
-  const getGamepads = vi.fn(() => gamepads as Gamepad[]);
+  const getGamepads = vi
+    .spyOn(navigator, "getGamepads")
+    .mockImplementation(() => gamepads as Gamepad[]);
   const setGamepads = (nextGamepads: readonly (Gamepad | null)[]): void => {
     gamepads.splice(0, gamepads.length, ...nextGamepads);
   };
-
-  vi.stubGlobal("navigator", { getGamepads });
 
   return {
     gamepads,
@@ -32,7 +32,7 @@ export const gamepadTest = test.extend(
     const polling = createGamepadPollingFixture();
 
     onCleanup(() => {
-      vi.unstubAllGlobals();
+      polling.getGamepads.mockRestore();
     });
 
     return polling;

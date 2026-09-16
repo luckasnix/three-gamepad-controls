@@ -1,9 +1,8 @@
+import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 const vitestConfig = defineConfig({
   test: {
-    environment: "jsdom",
-    include: ["src/**/*.test.ts"],
     passWithNoTests: true,
     clearMocks: true,
     restoreMocks: true,
@@ -21,6 +20,29 @@ const vitestConfig = defineConfig({
         statements: 100,
       },
     },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          include: ["src/{gamepad-haptics,gamepad-stick-processing}.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "chromium",
+          include: ["src/**/*.test.ts"],
+          exclude: ["src/{gamepad-haptics,gamepad-stick-processing}.test.ts"],
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            instances: [{ browser: "chromium" }],
+          },
+        },
+      },
+    ],
   },
 });
 
