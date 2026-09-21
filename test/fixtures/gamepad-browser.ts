@@ -1,5 +1,9 @@
 import { test, vi } from "vitest";
 
+import { createGamepad, type GamepadFixtureOptions } from "./gamepad.ts";
+
+export type GamepadFrameEntry = readonly [number, GamepadFixtureOptions?];
+
 /**
  * Installs a controllable Gamepad API polling stub for a test.
  */
@@ -11,11 +15,34 @@ export const createGamepadPollingFixture = () => {
   const setGamepads = (nextGamepads: readonly (Gamepad | null)[]): void => {
     gamepads.splice(0, gamepads.length, ...nextGamepads);
   };
+  let frame = 0;
+  /** Publishes fresh snapshots at their real slots, including explicit holes. */
+  const publishFrame = (...entries: GamepadFrameEntry[]): void => {
+    frame += 1;
+    const next: (Gamepad | null)[] = [];
+    for (const [index, options] of entries) {
+      if (!Number.isInteger(index) || index < 0 || index > 2 ** 31 - 1) {
+        throw new RangeError("Invalid gamepad fixture index");
+      }
+      if (next[index]) throw new Error("Duplicate gamepad fixture index");
+      while (next.length <= index) next.push(null);
+      next[index] = createGamepad(index, {
+        ...options,
+        timestamp: options?.timestamp ?? frame,
+        axes: [...(options?.axes ?? [0, 0, 0, 0])],
+        buttons: Array.from(options?.buttons ?? [], (button) =>
+          button ? { ...button } : { pressed: false, touched: false, value: 0 },
+        ),
+      });
+    }
+    setGamepads(next);
+  };
 
   return {
     gamepads,
     getGamepads,
     setGamepads,
+    publishFrame,
   };
 };
 
