@@ -244,3 +244,89 @@ describe("GamepadManager.update", () => {
     },
   );
 });
+
+describe("GamepadManager slot continuity", () => {
+  gamepadTest("adopts the lowest sparse slot regardless of event order", () => {
+    polling.publishFrame([3], [0]);
+    const manager = new GamepadManager();
+
+    expect(manager.connect(createGamepad(3))).toBe(polling.gamepads[0]);
+    expect(manager.connect(createGamepad(0))).toBeNull();
+    expect(manager.update()).toEqual({
+      gamepad: polling.gamepads[0],
+      connected: null,
+      disconnected: null,
+    });
+  });
+
+  for (const loss of ["absent", "disconnected", "event"] as const) {
+    gamepadTest(
+      `keeps slot 3 until ${loss} loss, then adopts slot 0 on the next update`,
+      () => {
+        const manager = new GamepadManager();
+        polling.publishFrame([3]);
+        manager.update();
+        polling.publishFrame([0], [3]);
+
+        expect(manager.connect(createGamepad(0))).toBeNull();
+
+        const active = polling.gamepads[3];
+
+        expect(manager.update()).toEqual({
+          gamepad: active,
+          connected: null,
+          disconnected: null,
+        });
+
+        if (loss === "disconnected") {
+          polling.publishFrame([0], [3, { connected: false }]);
+        } else {
+          polling.publishFrame([0]);
+        }
+        if (loss === "event") {
+          expect(
+            manager.disconnect(createGamepad(3, { connected: false })),
+          ).toBe(active);
+        } else {
+          expect(manager.update()).toEqual({
+            gamepad: null,
+            connected: null,
+            disconnected: active,
+          });
+        }
+        expect(manager.activeGamepad).toBeNull();
+        expect(
+          manager.disconnect(createGamepad(3, { connected: false })),
+        ).toBeNull();
+        expect(manager.connect(createGamepad(0))).toBeNull();
+        expect(manager.update()).toEqual({
+          gamepad: polling.gamepads[0],
+          connected: polling.gamepads[0],
+          disconnected: null,
+        });
+      },
+    );
+  }
+
+  gamepadTest(
+    "waits for the explicit slot after losing it even when slot 0 remains",
+    () => {
+      const manager = new GamepadManager({ gamepadIndex: 3 });
+      polling.publishFrame([0], [3]);
+      const active = manager.update().gamepad;
+      polling.publishFrame([0]);
+
+      expect(manager.update().disconnected).toBe(active);
+      expect(manager.connect(createGamepad(0))).toBeNull();
+      expect(manager.update()).toEqual({
+        gamepad: null,
+        connected: null,
+        disconnected: null,
+      });
+
+      polling.publishFrame([0], [3]);
+
+      expect(manager.update().connected).toBe(polling.gamepads[3]);
+    },
+  );
+});

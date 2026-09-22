@@ -2,6 +2,7 @@ import { describe, expect, vi } from "vitest";
 
 import {
   createGamepad,
+  createGamepadButton,
   createGamepadHapticActuator,
 } from "../test/fixtures/gamepad.ts";
 import {
@@ -9,9 +10,14 @@ import {
   type GamepadPollingFixture,
   gamepadTest,
 } from "../test/fixtures/gamepad-browser.ts";
+import {
+  collectEvents,
+  createCleanup,
+} from "../test/fixtures/three-controls.ts";
 import { MAX_GAMEPAD_INDEX, MIN_GAMEPAD_INDEX } from "./core.ts";
 import {
   GamepadControls,
+  type GamepadControlsEventMap,
   type GamepadControlsOptions,
 } from "./gamepad-controls.ts";
 import { GamepadInput } from "./gamepad-input.ts";
@@ -42,6 +48,23 @@ class TestGamepadControls extends GamepadControls {
 
 let controlsInstances: TestGamepadControls[];
 let polling: GamepadPollingFixture;
+let cleanup: ReturnType<typeof createCleanup>;
+
+const observeControls = (controls: TestGamepadControls) =>
+  collectEvents<
+    GamepadControlsEventMap,
+    keyof GamepadControlsEventMap,
+    { index: number; targetMatches: boolean }
+  >(cleanup, controls, ["connected", "disconnected"], "wrapper", (event) => ({
+    index: event.gamepad.index,
+    targetMatches: event.target === controls,
+  }));
+
+const controlEvent = (type: keyof GamepadControlsEventMap, index: number) => ({
+  type,
+  source: "wrapper",
+  data: { index, targetMatches: true },
+});
 
 const createControls = (
   options?: GamepadControlsOptions,
@@ -55,6 +78,7 @@ const createControls = (
 
 gamepadTest.beforeEach(({ gamepadPolling }) => {
   controlsInstances = [];
+  cleanup = createCleanup();
   polling = gamepadPolling;
 });
 
@@ -62,6 +86,7 @@ gamepadTest.afterEach(() => {
   for (const controls of controlsInstances) {
     controls.dispose();
   }
+  cleanup.dispose();
 });
 
 describe("GamepadControls construction", () => {
@@ -95,7 +120,6 @@ describe("GamepadControls.update", () => {
     const controls = createControls();
     polling.gamepads[0] = createGamepad(0);
     controls.enabled = false;
-
     controls.update(0.25);
 
     expect(polling.getGamepads).not.toHaveBeenCalled();
@@ -105,7 +129,6 @@ describe("GamepadControls.update", () => {
 
   gamepadTest("polls without updating the subclass when disconnected", () => {
     const controls = createControls();
-
     controls.update(0.25);
 
     expect(polling.getGamepads).toHaveBeenCalledOnce();
@@ -120,7 +143,6 @@ describe("GamepadControls.update", () => {
       const refreshedGamepad = createGamepad(0, { timestamp: 2 });
       const controls = createControls();
       polling.gamepads[0] = initialGamepad;
-
       controls.update(0.1);
       polling.gamepads[0] = refreshedGamepad;
       controls.update(0.2);
@@ -136,7 +158,6 @@ describe("GamepadControls.update", () => {
     const selectedGamepad = createGamepad(2);
     const controls = createControls({ gamepadIndex: 2 });
     polling.gamepads[0] = otherGamepad;
-
     controls.update(0.1);
 
     expect(controls.gamepad).toBeNull();
@@ -171,7 +192,6 @@ describe("GamepadControls lifecycle events", () => {
         },
       );
       polling.gamepads[1] = gamepad;
-
       controls.update(0.1);
       polling.gamepads[1] = null;
       controls.update(0.2);
@@ -238,7 +258,6 @@ describe("GamepadControls.dispose", () => {
       polling.gamepads[0] = activeGamepad;
       controls.update(0.1);
       polling.getGamepads.mockClear();
-
       controls.dispose();
 
       expect(controls.enabled).toBe(false);
@@ -253,6 +272,189 @@ describe("GamepadControls.dispose", () => {
       expect(controls.connectedGamepads).toEqual([activeGamepad]);
       expect(controls.updateDeltas).toEqual([0.1]);
       expect(polling.getGamepads).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("GamepadControls pause contract", () => {
+  gamepadTest(
+    "retains its snapshot and forwards browser disconnection while paused",
+    () => {
+      const controls = createControls();
+      const events = observeControls(controls);
+      polling.publishFrame([3, { buttons: [createGamepadButton(true)] }]);
+      controls.update(0.1);
+      const active = controls.gamepad;
+      controls.enabled = false;
+      polling.publishFrame([0, { buttons: [createGamepadButton(true)] }]);
+      polling.getGamepads.mockClear();
+      controls.update(0.2);
+
+      expect(polling.getGamepads).not.toHaveBeenCalled();
+      expect(controls.gamepad).toBe(active);
+      expect(controls.input.isPressed(0)).toBe(true);
+      expect(controls.updateDeltas).toEqual([0.1]);
+
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        createGamepad(2, { connected: false }),
+      );
+
+      expect(controls.gamepad).toBe(active);
+
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        createGamepad(3, { connected: false }),
+      );
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        createGamepad(3, { connected: false }),
+      );
+      dispatchGamepadEvent("gamepadconnected", createGamepad(0));
+      controls.update(0.3);
+
+      expect(polling.getGamepads).not.toHaveBeenCalled();
+      expect(controls.gamepad).toBeNull();
+      expect(controls.input.isPressed(0)).toBe(false);
+      expect(controls.input.wasReleased(0)).toBe(false);
+      expect(controls.disconnectedGamepads).toEqual([active]);
+      expect(events).toEqual([
+        controlEvent("connected", 3),
+        controlEvent("disconnected", 3),
+      ]);
+
+      controls.enabled = true;
+      controls.update(0.4);
+
+      expect(controls.gamepad?.index).toBe(0);
+      expect(controls.input.isPressed(0)).toBe(true);
+      expect(controls.input.wasPressed(0)).toBe(false);
+      expect(controls.updateDeltas).toEqual([0.1, 0.4]);
+      expect(events).toEqual([
+        controlEvent("connected", 3),
+        controlEvent("disconnected", 3),
+        controlEvent("connected", 0),
+      ]);
+    },
+  );
+
+  gamepadTest(
+    "can adopt through a browser event while paused without applying input",
+    () => {
+      const controls = createControls();
+      const events = observeControls(controls);
+      controls.enabled = false;
+      polling.publishFrame([3], [0, { buttons: [createGamepadButton(true)] }]);
+      dispatchGamepadEvent("gamepadconnected", createGamepad(3));
+      controls.update(0.1);
+
+      expect(polling.getGamepads).toHaveBeenCalledOnce();
+      expect(controls.gamepad?.index).toBe(0);
+      expect(controls.input.wasPressed(0)).toBe(false);
+      expect(controls.updateDeltas).toEqual([]);
+      expect(events).toEqual([controlEvent("connected", 0)]);
+
+      controls.enabled = true;
+      controls.update(0.2);
+
+      expect(controls.updateDeltas).toEqual([0.2]);
+      expect(controls.input.wasPressed(0)).toBe(false);
+      expect(events).toHaveLength(1);
+    },
+  );
+
+  gamepadTest(
+    "detects polling-only loss on resume before applying a newly adopted slot",
+    () => {
+      const controls = createControls();
+      const events = observeControls(controls);
+      polling.publishFrame([3]);
+      controls.update(0.1);
+      controls.enabled = false;
+      polling.publishFrame([0]);
+      controls.update(0.2);
+      controls.enabled = true;
+      controls.update(0.3);
+
+      expect(controls.gamepad).toBeNull();
+      expect(controls.updateDeltas).toEqual([0.1]);
+      expect(events).toEqual([
+        controlEvent("connected", 3),
+        controlEvent("disconnected", 3),
+      ]);
+
+      controls.update(0.4);
+
+      expect(controls.updateDeltas).toEqual([0.1, 0.4]);
+      expect(events).toEqual([
+        controlEvent("connected", 3),
+        controlEvent("disconnected", 3),
+        controlEvent("connected", 0),
+      ]);
+    },
+  );
+
+  for (const heldOnResume of [false, true]) {
+    gamepadTest(
+      `resumes button observation without replay, held=${heldOnResume}`,
+      () => {
+        const controls = createControls();
+        polling.publishFrame([3]);
+        controls.update(0.1);
+        controls.enabled = false;
+        polling.publishFrame([3, { buttons: [createGamepadButton(true)] }]);
+        controls.update(0.2);
+        polling.publishFrame([
+          3,
+          { buttons: [createGamepadButton(heldOnResume)] },
+        ]);
+        controls.enabled = true;
+        controls.update(0.3);
+
+        expect(controls.input.wasPressed(0)).toBe(heldOnResume);
+        expect(controls.updateDeltas).toEqual([0.1, 0.3]);
+
+        controls.update(0.4);
+
+        expect(controls.input.wasPressed(0)).toBe(false);
+      },
+    );
+  }
+
+  gamepadTest(
+    "repeated disposal detaches only that wrapper and does not emit a disconnection",
+    () => {
+      const first = createControls({ gamepadIndex: 0 });
+      const second = createControls({ gamepadIndex: 3 });
+      const firstEvents = observeControls(first);
+      const secondEvents = observeControls(second);
+      polling.publishFrame([0], [3]);
+      first.update(0.1);
+      second.update(0.1);
+      first.dispose();
+      first.dispose();
+      polling.publishFrame(
+        [0, { buttons: [createGamepadButton(true)] }],
+        [3, { buttons: [createGamepadButton(true)] }],
+      );
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        createGamepad(0, { connected: false }),
+      );
+      dispatchGamepadEvent("gamepadconnected", createGamepad(0));
+      polling.getGamepads.mockClear();
+      first.update(0.2);
+
+      expect(polling.getGamepads).not.toHaveBeenCalled();
+
+      second.update(0.2);
+
+      expect(second.input.wasPressed(0)).toBe(true);
+      expect(second.updateDeltas).toEqual([0.1, 0.2]);
+      expect(first.gamepad).toBeNull();
+      expect(first.updateDeltas).toEqual([0.1]);
+      expect(firstEvents).toEqual([controlEvent("connected", 0)]);
+      expect(secondEvents).toEqual([controlEvent("connected", 3)]);
     },
   );
 });
