@@ -14,7 +14,7 @@ Gamepad input state reader for gameplay, menus, and custom interactions.
 | --- | --- | --- | --- |
 | `axisDeadzone` | `number` | `0.1` | Default dead zone threshold for scalar `axis()` reads. |
 | `stickPipeline` | `GamepadStickPipeline` | `DEFAULT_GAMEPAD_STICK_PIPELINE` | Default stateless pipeline for `stick()` reads. |
-| `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later. |
 
 Configure stick processing defaults once when creating the input:
 
@@ -40,7 +40,7 @@ const gamepadInput = new GamepadInput({
 
 | Property | Type | Description |
 | --- | --- | --- |
-| `enabled` | `boolean` | When `false`, input polling is paused. |
+| `enabled` | `boolean` | When `false`, polling through `update()` is paused; stored state and browser listeners remain active. |
 | `gamepad` | `Gamepad \| null` | The active gamepad snapshot, or `null`. |
 | `connected` | `boolean` | Whether a gamepad is currently active. |
 | `mapping` | `GamepadMappingType \| null` | Mapping reported by the active gamepad. |
@@ -53,9 +53,11 @@ const gamepadInput = new GamepadInput({
 
 Polls the gamepad and refreshes current and previous button state. Call this once per frame before reading buttons, axes, or sticks.
 
+While disabled, `update()` does not poll or refresh state. Browser connection and disconnection events still run; a connection event may poll and adopt a gamepad. A loss visible only through polling is observed after resuming. On resume, buttons are compared with the last observed state: a newly held press or release creates its corresponding transition, but a complete click between observations is not reconstructed. Adoption always seeds held buttons without a synthetic press. See [Pause, resume, and disposal](./multiple-gamepads.md#pause-resume-and-disposal).
+
 ### `dispose()`
 
-Removes window-level gamepad event listeners and clears stored state.
+Removes this input's window-level gamepad listeners, clears stored state, and sets `enabled` to `false`. It does not emit `disconnected` or affect other inputs. Repeated disposal is safe; reuse after disposal is unsupported, so create a new instance when needed.
 
 ### `isPressed(button)`
 
@@ -63,11 +65,15 @@ Returns whether a button is currently pressed.
 
 ### `wasPressed(button)`
 
-Returns `true` only on the update where a button changes from released to pressed.
+Returns whether the latest observed button state changed from released to pressed.
+
+Paused updates retain the last result until the next observation or cleanup. This is a snapshot comparison, not a queued click event.
 
 ### `wasReleased(button)`
 
-Returns `true` only on the update where a button changes from pressed to released. Disconnecting a gamepad clears state without producing artificial release transitions.
+Returns whether the latest observed button state changed from pressed to released. Disconnecting a gamepad clears state without producing artificial release transitions.
+
+Paused updates retain the last result until the next observation or cleanup.
 
 ### `buttonValue(button)`
 
@@ -110,7 +116,9 @@ See [Haptic Feedback](./haptic-feedback.md) for effect parameters, graceful degr
 | Event | Extra fields | Description |
 | --- | --- | --- |
 | `connected` | `gamepad: Gamepad` | Fired when a gamepad is adopted as active. |
-| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects or is replaced in the same slot. |
+| `disconnected` | `gamepad: Gamepad` | Fired on a browser disconnection event for the active slot or when polling observes that slot missing or disconnected. The payload is the previously active snapshot. |
+
+Continuous snapshots in the same connected slot do not emit another `connected` or `disconnected`, even when their object reference, `id`, or `timestamp` changes. This does not guarantee detection of a physical replacement without an observed loss. After loss, adoption waits until a subsequent update; a single polling update never reports both transitions. See [Observed connection lifecycle](./multiple-gamepads.md#observed-connection-lifecycle).
 
 ## Usage
 

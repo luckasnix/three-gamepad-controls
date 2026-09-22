@@ -37,7 +37,8 @@ export type GamepadControlsEventMap = {
   };
 
   /**
-   * Fired when the active gamepad is disconnected or replaced in its slot.
+   * Fired on a matching browser disconnection event or when polling observes
+   * the active slot missing or disconnected, not on snapshot identity changes.
    */
   disconnected: {
     /**
@@ -60,13 +61,16 @@ export type GamepadControlsOptions = Pick<GamepadInputOptions, "gamepadIndex">;
  */
 export abstract class GamepadControls extends EventDispatcher<GamepadControlsEventMap> {
   /**
-   * When `false`, all input processing is paused.
+   * When `false`, `update()` pauses polling and subclass input application,
+   * retaining state. Browser connection/disconnection listeners remain active.
+   * Assignment alone does not cancel an interaction or dispose the wrapper.
    * @default true
    */
   public enabled = true;
 
   /**
-   * The currently active gamepad, or `null` if no gamepad is connected.
+   * The active gamepad snapshot, or `null` if none has been adopted.
+   * Automatic selection keeps its adopted slot until an observed loss.
    */
   public gamepad: Gamepad | null = null;
 
@@ -144,6 +148,8 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
 
   /**
    * Advances the controller by one frame. Call this inside your render loop.
+   * While paused, polling-only losses remain unobserved until updates resume.
+   * Resume compares button state with the last observation, without replay.
    *
    * @param deltaTime - Seconds since the last frame.
    */
@@ -193,7 +199,9 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
   }
 
   /**
-   * Removes all event listeners attached by this controller. Call when no longer needed.
+   * Removes this wrapper's internal input listeners, clears state, and disables
+   * it without dispatching a synthetic disconnection. Does not dispose the
+   * wrapped Three.js control or affect other wrappers. Reuse is unsupported.
    */
   public dispose(): void {
     this.#gamepadInput.removeEventListener(
@@ -231,8 +239,8 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
   }
 
   /**
-   * Called when the active gamepad disconnects or is replaced through the
-   * shared input reader.
+   * Called when the shared input reader observes a matching disconnection
+   * event or a missing/disconnected active slot, including events during pause.
    *
    * The default dispatches a `disconnected` event.
    *

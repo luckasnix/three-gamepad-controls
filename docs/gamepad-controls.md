@@ -12,7 +12,7 @@ Subclasses pass selection options to `super(options?)`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, selects the connected gamepad with the lowest index. |
+| `gamepadIndex` | `number` | `undefined` | Browser-assigned gamepad slot to select. When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later. |
 
 `gamepadIndex` must be an integer from [`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) through [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index); any other value throws a `RangeError`. Selecting an explicit slot disables automatic fallback. See [Multiple Gamepads](./multiple-gamepads.md) for slot reuse, lifecycle, and examples using multiple controls.
 
@@ -56,8 +56,8 @@ Pipelines are not applied to triggers, digital buttons, scalar zoom, vertical mo
 
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | `true` | When `false`, all input processing is paused. |
-| `gamepad` | `Gamepad \| null` | `null` | The currently active gamepad, or `null` if not connected. By default, this is the connected gamepad with the lowest index. |
+| `enabled` | `boolean` | `true` | When `false`, `update()` pauses polling and subclass input application. State and browser connection/disconnection listeners are retained. |
+| `gamepad` | `Gamepad \| null` | `null` | The active snapshot, or `null` if none has been adopted. Automatic selection retains its adopted slot until an observed loss. |
 | `vibrationSupported` | `boolean` | `false` | Whether the active gamepad exposes the current vibration API. |
 
 ## Methods
@@ -68,6 +68,10 @@ Advances the controller by one frame. Call this inside your render loop. When th
 
 `update()` delegates polling to the internal `GamepadInput`, refreshes the active gamepad snapshot, and then calls `onUpdate(deltaTime)` when a gamepad is available.
 
+Setting the wrapper's `enabled` to `false` makes this method return without polling or calling `onUpdate()`. The assignment itself does not reset or cancel an interaction. Browser events can still adopt or disconnect a gamepad and invoke lifecycle hooks while paused; a connection event may poll. A loss visible only through polling is detected when updates resume.
+
+On resume, buttons compare against the last observed state. A newly held press can produce `wasPressed`, but complete clicks between observations are not replayed. Adoption after an observed loss seeds held buttons without a press transition. The native control's `enabled` is independent: the base continues polling while the wrapper is enabled, and subclasses handle native permissions and their own interaction cleanup. See [Pause, resume, and disposal](./multiple-gamepads.md#pause-resume-and-disposal).
+
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `deltaTime` | `number` | Time elapsed since the last frame, in **seconds**. |
@@ -75,6 +79,8 @@ Advances the controller by one frame. Call this inside your render loop. When th
 ### `dispose()`
 
 Removes all gamepad input listeners attached by this controller. Call this when the controller is no longer needed to prevent memory leaks. After `dispose()`, `update()` becomes a no-op regardless of whether a gamepad is connected.
+
+Disposal clears state and disables the wrapper without fabricating `disconnected`. Repeated disposal is safe and leaves other instances alone. Reuse after disposal is unsupported; create a new wrapper when needed.
 
 This method does not dispose the wrapped Three.js control. The application owns
 that instance and must call its own `dispose()` separately.
@@ -94,7 +100,9 @@ These methods are inherited by every `Gamepad*Controls` wrapper. See [Haptic Fee
 | Event | Extra fields | Description |
 | --- | --- | --- |
 | `connected` | `gamepad: Gamepad` | Fired when a gamepad is adopted as active. |
-| `disconnected` | `gamepad: Gamepad` | Fired when the active gamepad disconnects or is replaced in the same slot. |
+| `disconnected` | `gamepad: Gamepad` | Fired on a browser disconnection event for the active slot or when polling observes that slot missing or disconnected. The payload is the previously active snapshot. |
+
+New snapshots, IDs, or timestamps in a continuously connected slot do not signal reconnection. Physical replacement detection requires an observed loss. Adoption after loss waits until a subsequent update. See [Observed connection lifecycle](./multiple-gamepads.md#observed-connection-lifecycle).
 
 ## Hooks
 
@@ -125,6 +133,8 @@ Called when `GamepadInput` adopts a gamepad as active. The default implementatio
 ### `onGamepadDisconnected(gamepad)`
 
 Called when the active gamepad disconnects. The default implementation dispatches `disconnected`.
+
+This hook also runs for browser disconnection events while the wrapper is paused. Subclasses can use it to clean up interactions they own. Pausing by assignment alone does not invoke this hook.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

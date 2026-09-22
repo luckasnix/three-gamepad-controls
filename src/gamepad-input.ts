@@ -27,7 +27,9 @@ export type GamepadInputEventMap = {
   };
 
   /**
-   * Fired when the active gamepad is disconnected or replaced in its slot.
+   * Fired on a matching browser disconnection event or when polling observes
+   * the active slot missing or disconnected. Continuous snapshots in the same
+   * slot do not establish a physical-device identity or signal replacement.
    */
   disconnected: {
     /**
@@ -56,7 +58,9 @@ export type GamepadInputOptions = {
   /**
    * Browser-assigned gamepad slot to use.
    *
-   * When omitted, the connected gamepad with the lowest index is selected.
+   * When omitted, the lowest connected index is chosen at adoption and kept
+   * until its loss is observed, even if a lower index subsequently connects.
+   * Multiple unconfigured instances may adopt the same slot.
    * The index must be an integer from `MIN_GAMEPAD_INDEX` through
    * `MAX_GAMEPAD_INDEX`.
    * A valid but empty slot keeps this input disconnected without falling back
@@ -140,7 +144,9 @@ const getGamepadButtonValue = (gamepad: Gamepad, button: number): number => {
  */
 export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   /**
-   * When `false`, input polling is paused.
+   * When `false`, polling through `update()` is paused and the last observed
+   * state, including button transitions, is retained. Browser listeners remain
+   * active and may adopt or disconnect a gamepad; connection events may poll.
    * @default true
    */
   public enabled = true;
@@ -253,6 +259,9 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
 
   /**
    * Polls the gamepad and refreshes current and previous button state.
+   *
+   * Resuming compares against the last observed state, without replaying clicks
+   * completed during the pause. Adoption seeds held buttons without transitions.
    */
   public update(): void {
     if (!this.enabled) {
@@ -286,7 +295,9 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   }
 
   /**
-   * Removes all window-level event listeners attached by this input reader.
+   * Removes this reader's window listeners, clears its state, and disables it.
+   * Does not dispatch a synthetic disconnection or affect other input readers.
+   * Reusing a disposed reader is unsupported; create a new instance instead.
    */
   public dispose(): void {
     window.removeEventListener("gamepadconnected", this.#onGamepadConnected);
@@ -311,10 +322,11 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   }
 
   /**
-   * Returns whether a button was pressed during the latest update.
+   * Returns whether a button changed to pressed in the latest observed state.
+   * Paused updates retain this result until the next observation or cleanup.
    *
    * @param button - Button index to inspect.
-   * @returns `true` only on the frame where the button transitions to pressed.
+   * @returns Whether the latest observed button state transitioned to pressed.
    */
   public wasPressed(button: number): boolean {
     return (
@@ -324,10 +336,11 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
   }
 
   /**
-   * Returns whether a button was released during the latest update.
+   * Returns whether a button changed to released in the latest observed state.
+   * Paused updates retain this result until the next observation or cleanup.
    *
    * @param button - Button index to inspect.
-   * @returns `true` only on the frame where the button transitions to released.
+   * @returns Whether the latest observed button state transitioned to released.
    */
   public wasReleased(button: number): boolean {
     return (

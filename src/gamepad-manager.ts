@@ -26,13 +26,13 @@ export type GamepadManagerUpdateResult = {
 
 // Internal options for active gamepad selection.
 export type GamepadManagerOptions = {
-  // Browser-assigned gamepad index to use, or `undefined` for the first available gamepad.
+  // Fixed slot, or `undefined` to adopt the lowest connected index until loss.
   gamepadIndex?: number;
 };
 
 type GamepadSelection =
   | {
-      // Selects the connected gamepad with the lowest browser-assigned index.
+      // Adopts the lowest connected index and keeps it until observed loss.
       type: "first-available";
     }
   | {
@@ -140,8 +140,10 @@ export class GamepadManager {
   /**
    * Polls the Gamepad API and refreshes the active gamepad snapshot.
    *
-   * Polling re-resolves the browser slot so a disconnected device, a reused
-   * index, or an updated active device is observed before consumers read input.
+   * Polling refreshes the active slot without treating changes in object
+   * reference, `id`, or `timestamp` as reconnections. A missing or disconnected
+   * slot reports only a disconnection; adoption waits until the next update.
+   * Physical replacements without an observed loss cannot be distinguished.
    *
    * @returns The active gamepad and any connect/disconnect transition found.
    */
