@@ -22,17 +22,17 @@ jobs:
           node-version-file: "package.json"
           cache: "pnpm"
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pn install --frozen-lockfile
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pn exec playwright install --with-deps chromium
       - name: Check lint and formatting
-        run: pnpm check-ci
+        run: pn check-ci
       - name: Check types
-        run: pnpm type:check
+        run: pn type:check
       - name: Test
-        run: pnpm test:coverage
+        run: pn test:coverage
       - name: Build
-        run: pnpm build
+        run: pn build
       - name: Upload dist
         uses: actions/upload-artifact@v7
         with:
@@ -62,7 +62,7 @@ jobs:
         with:
           node-version-file: "package.json"
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pn install --frozen-lockfile
       - name: Download dist
         uses: actions/download-artifact@v8
         with:
@@ -78,4 +78,4 @@ jobs:
           git tag -a "v${{ steps.version.outputs.value }}" -m "Release v${{ steps.version.outputs.value }}"
           git push origin "v${{ steps.version.outputs.value }}"
       - name: Publish to npm
-        run: pnpm publish --no-git-checks
+        run: pn publish --no-git-checks

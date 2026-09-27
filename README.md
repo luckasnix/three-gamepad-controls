@@ -25,8 +25,8 @@ npm i -D @types/three # optional: for TypeScript projects
 pnpm:
 
 ```bash
-pnpm add three three-gamepad-controls
-pnpm add -D @types/three # optional: for TypeScript projects
+pn add three three-gamepad-controls
+pn add -D @types/three # optional: for TypeScript projects
 ```
 
 Yarn:
@@ -65,25 +65,25 @@ Tests use Vitest with Browser Mode and Playwright for browser-dependent behavior
 After installing the project dependencies, install Chromium once:
 
 ```bash
-pnpm exec playwright install chromium
+pn exec playwright install chromium
 ```
 
 Run the test suite once:
 
 ```bash
-pnpm test
+pn test
 ```
 
 Start Vitest in watch mode while developing:
 
 ```bash
-pnpm test:watch
+pn test:watch
 ```
 
 Generate the coverage report:
 
 ```bash
-pnpm test:coverage
+pn test:coverage
 ```
 
 ## 🔗 Compatibility
