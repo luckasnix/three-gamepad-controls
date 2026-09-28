@@ -68,9 +68,27 @@ Advances the controller by one frame. Call this inside your render loop. When th
 
 `update()` delegates polling to the internal `GamepadInput`, refreshes the active gamepad snapshot, and then calls `onUpdate(deltaTime)` when a gamepad is available.
 
+The base rechecks `enabled` after polling: a synchronous `connected` listener that pauses or disposes the wrapper prevents input application in that same update.
+
 Setting the wrapper's `enabled` to `false` makes this method return without polling or calling `onUpdate()`. The assignment itself does not reset or cancel an interaction. Browser events can still adopt or disconnect a gamepad and invoke lifecycle hooks while paused; a connection event may poll. A loss visible only through polling is detected when updates resume.
 
 On resume, buttons compare against the last observed state. A newly held press can produce `wasPressed`, but complete clicks between observations are not replayed. Adoption after an observed loss seeds held buttons without a press transition. The native control's `enabled` is independent: the base continues polling while the wrapper is enabled, and subclasses handle native permissions and their own interaction cleanup. See [Pause, resume, and disposal](./multiple-gamepads.md#pause-resume-and-disposal).
+
+#### Native input permissions
+
+All built-in wrappers require the native control's `enabled` to accept new gamepad actions. Orbit/Map also respect `enableRotate`, `enablePan`, and `enableZoom` independently; Trackball respects `noRotate`, `noPan`, and `noZoom`. Arcball retains its action and focus permissions. PointerLock gamepad input does not require `isLocked`.
+
+| Wrapper `enabled` | Native `enabled` | Result of a wrapper update |
+| --- | --- | --- |
+| `true` | `true` | Poll and apply permitted actions. |
+| `true` | `false` | Poll and advance button history, without applying or queuing new actions. Observe native disable and cancel an owned Arcball, Drag, or Transform interaction. |
+| `false` | Either | No polling or input application. Retain interaction state until resume, observed disconnection, or disposal. |
+
+Changing the native flag is observed at the next wrapper update, or at the next permission check after a synchronous native callback in an update already in progress. If the wrapper is paused, changing the native flag alone does not cancel its session; it observes the flag on resume. Browser disconnection events and `dispose()` can still end an owned session during pause. A disable/re-enable completed entirely between observations is not recorded.
+
+Button presses observed while native input is blocked are not replayed: mode/space/axis/reset commands, Drag selection, and Arcball focus require a new observed press. Held analog input can resume immediately when allowed, without accumulating blocked frames.
+
+Blocking gamepad input does not erase keyboard/pointer input or native damping history. Continue calling the native update as documented for that control; residual motion or automatic movement may still occur according to Three.js. Native listeners can pause, disable, or dispose controls synchronously: subsequent gamepad operations recheck permissions, while operations already applied are not rolled back. Custom subclasses remain responsible for their own native permissions.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

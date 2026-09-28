@@ -136,6 +136,11 @@ export class GamepadOrbitControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
+    if (!this.#canApplyInput()) {
+      return;
+    }
+
+    const controls = this.#controls;
     const {
       rotateSpeed,
       panSpeed,
@@ -157,11 +162,13 @@ export class GamepadOrbitControls extends GamepadControls {
       rotateStick.pipeline,
     );
 
-    if (rotate.x !== 0) {
-      this.#controls.rotateLeft(rotate.x * rotateSpeed * deltaTime * Math.PI);
+    if (controls.enableRotate && rotate.x !== 0) {
+      controls.rotateLeft(rotate.x * rotateSpeed * deltaTime * Math.PI);
+      if (!this.#canApplyInput()) return;
     }
-    if (rotate.y !== 0) {
-      this.#controls.rotateUp(rotate.y * rotateSpeed * deltaTime * Math.PI);
+    if (controls.enableRotate && rotate.y !== 0) {
+      controls.rotateUp(rotate.y * rotateSpeed * deltaTime * Math.PI);
+      if (!this.#canApplyInput()) return;
     }
 
     // Pan (right stick by default).
@@ -169,11 +176,12 @@ export class GamepadOrbitControls extends GamepadControls {
     // feels comfortable at typical viewport sizes; tune via `panSpeed`.
     const pan = input.stick(panStick.xAxis, panStick.yAxis, panStick.pipeline);
 
-    if (pan.x !== 0 || pan.y !== 0) {
-      this.#controls.pan(
+    if (controls.enablePan && (pan.x !== 0 || pan.y !== 0)) {
+      controls.pan(
         pan.x * panSpeed * deltaTime * 500,
         pan.y * panSpeed * deltaTime * 500,
       );
+      if (!this.#canApplyInput()) return;
     }
 
     // Dolly and zoom (triggers by default).
@@ -184,11 +192,18 @@ export class GamepadOrbitControls extends GamepadControls {
     const triggerIn = input.buttonValue(buttonDollyIn);
     const triggerOut = input.buttonValue(buttonDollyOut);
 
-    if (triggerIn > buttonDeadzone) {
-      this.#controls.dollyIn(1 / (1 + zoomSpeed * triggerIn * deltaTime));
+    if (controls.enableZoom && triggerIn > buttonDeadzone) {
+      controls.dollyIn(1 / (1 + zoomSpeed * triggerIn * deltaTime));
+      if (!this.#canApplyInput()) return;
     }
-    if (triggerOut > buttonDeadzone) {
-      this.#controls.dollyOut(1 / (1 + zoomSpeed * triggerOut * deltaTime));
+    if (controls.enableZoom && triggerOut > buttonDeadzone) {
+      controls.dollyOut(1 / (1 + zoomSpeed * triggerOut * deltaTime));
     }
+  }
+
+  // Public native operations update synchronously and can notify listeners
+  // that disable either control, dispose the wrapper, or disconnect the pad.
+  #canApplyInput(): boolean {
+    return this.enabled && this.#controls.enabled && this.gamepad !== null;
   }
 }

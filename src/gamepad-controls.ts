@@ -161,7 +161,8 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
     this.#gamepadInput.update();
     this.gamepad = this.#gamepadInput.gamepad;
 
-    if (this.gamepad === null) {
+    // Polling can synchronously notify listeners that pause or dispose us.
+    if (!this.enabled || this.gamepad === null) {
       return;
     }
 

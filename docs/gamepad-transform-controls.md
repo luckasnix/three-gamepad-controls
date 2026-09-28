@@ -72,7 +72,13 @@ When the processed transform stick becomes nonzero, a native-style transform int
 
 `transformStick` accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Mode, axis, space, and reset buttons are not processed by the stick pipeline. See [Stick Processing](./gamepad-stick-processing.md).
 
-Gamepad transforms respect `TransformControls.enabled`, `mode`, `axis`, `space`, `translationSnap`, `rotationSnap`, `scaleSnap`, and translation min/max bounds. The wrapper maintains unsnapped internal accumulators, so small stick movements are not lost while snap settings are active.
+Gamepad transforms respect `TransformControls.enabled`, `mode`, the wrapper's selected axis, `space`, `translationSnap`, `rotationSnap`, `scaleSnap`, and translation min/max bounds. The wrapper maintains unsnapped internal accumulators, so small stick movements are not lost while snap settings are active.
+
+Native disable blocks mode, space, axis, reset, and transformation commands before they are applied. Polling continues, so a button held through the blocked period requires a new press to execute its command. An owned gamepad interaction ends once when native disable is observed. See [Native input permissions](./gamepad-controls.md#native-input-permissions) for pause and observation timing.
+
+While a native pointer drag is active, the wrapper does not acquire a transformation or apply gamepad buttons. Disconnection, disposal, or native disable does not clear a pointer interaction or an external axis selection when the wrapper owns no session. Native setters and `mouseDown` listeners can disable input before gamepad movement occurs; a start cancelled before `mouseDown` does not fabricate `mouseUp`.
+
+Outside a pointer drag, enabled updates currently restore the wrapper's remembered axis even with a neutral stick. External axis selection is therefore not yet authoritative, and a stick held through the end of a pointer drag can acquire a gamepad transformation immediately. Neutralize the stick before handing control back to the gamepad when this is undesirable.
 
 `buttonReset` restores the object to the state captured when the current gamepad transform interaction began. It has no effect until moving the transform stick has started that interaction.
 

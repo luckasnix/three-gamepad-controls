@@ -46,6 +46,8 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and 
 
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
 
+Gamepad input respects `OrbitControls.enabled`, `enableRotate`, `enablePan`, and `enableZoom`. Blocking one action leaves the others available. Native `change` listeners can change permissions during an update; subsequent gamepad operations use the new values. See [Native input permissions](./gamepad-controls.md#native-input-permissions) for polling, pause, and residual motion.
+
 ## Events
 
 Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
@@ -75,9 +77,9 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
-  // Queue gamepad deltas before OrbitControls applies them.
+  // Apply gamepad input through OrbitControls' public operations.
   gamepadOrbitControls.update(delta);
-  // Apply damping and flush the queued deltas.
+  // Continue the native damping and automatic movement update.
   orbitControls.update(delta);
   renderer.render(scene, camera);
 });

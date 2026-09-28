@@ -97,23 +97,11 @@ const DEFAULT_TRACKBALL_OPTIONS: ResolvedGamepadTrackballControlsOptions = {
 };
 
 type TrackballControlsWithInput = TrackballControls & {
-  // Internal last rotation angle tracked by TrackballControls.
-  _lastAngle: number;
-
-  // Previous normalized pointer position used for rotation.
-  _movePrev: Vector2;
-
   // Current normalized pointer position used for rotation.
   _moveCurr: Vector2;
 
-  // Previous normalized pointer position used for zoom damping.
-  _zoomStart: Vector2;
-
   // Current normalized pointer position used for zoom damping.
   _zoomEnd: Vector2;
-
-  // Previous normalized pointer position used for pan damping.
-  _panStart: Vector2;
 
   // Current normalized pointer position used for pan damping.
   _panEnd: Vector2;
@@ -160,6 +148,10 @@ export class GamepadTrackballControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
+    if (!this.#controls.enabled) {
+      return;
+    }
+
     const {
       rotateSpeed,
       panSpeed,
@@ -197,8 +189,6 @@ export class GamepadTrackballControls extends GamepadControls {
     const controls = this.#controls;
 
     if (controls.noRotate) {
-      controls._movePrev.copy(controls._moveCurr);
-      controls._lastAngle = 0;
       return;
     }
 
@@ -235,7 +225,6 @@ export class GamepadTrackballControls extends GamepadControls {
     const controls = this.#controls;
 
     if (controls.noPan) {
-      controls._panStart.copy(controls._panEnd);
       return;
     }
 
@@ -270,7 +259,6 @@ export class GamepadTrackballControls extends GamepadControls {
     const controls = this.#controls;
 
     if (controls.noZoom) {
-      controls._zoomStart.copy(controls._zoomEnd);
       return;
     }
 

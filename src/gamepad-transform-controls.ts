@@ -260,6 +260,8 @@ export class GamepadTransformControls extends GamepadControls {
   readonly #tempQuaternion: Quaternion;
 
   #isTransforming = false;
+  // Ownership precedes the observable dragging setter; mouseDown follows it.
+  #transformStarted = false;
   #rotationAmount = 0;
   #freeRotationX = 0;
   #freeRotationY = 0;
@@ -328,27 +330,37 @@ export class GamepadTransformControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
+    const controls = this.#controls;
+    if (!this.#canApplyInput()) return;
+
+    // A native pointer drag is not a gamepad session.
+    if (controls.dragging && !this.#isTransforming) return;
+
     const startedButtons = this.#getStartedButtons();
 
     this.#handleModeAndAxisButtons(startedButtons);
+    if (!this.#canApplyInput()) return;
 
     if (startedButtons.has(this.#options.buttonReset)) {
       this.#resetActiveTransform();
     }
 
-    const controls = this.#controls;
+    if (!this.#canApplyInput()) return;
 
     const object = controls.object;
 
-    if (!controls.enabled || object === undefined) {
+    if (object === undefined) {
       this.#endTransform(true);
+
       return;
     }
 
     const axis = this.#ensureValidAxis();
+    if (!this.#canApplyInput()) return;
 
     if (axis === null) {
       this.#endTransform(true);
+
       return;
     }
 
@@ -368,6 +380,15 @@ export class GamepadTransformControls extends GamepadControls {
       this.#startTransform(object);
     }
 
+    if (!this.#canApplyInput()) return;
+
+    if (!this.#transformStarted) {
+      this.#transformStarted = true;
+      controls.dispatchEvent({ type: "mouseDown", mode: controls.mode });
+    }
+
+    if (!this.#canApplyInput()) return;
+
     if (
       this.#applyCurrentTransform(
         object,
@@ -383,11 +404,11 @@ export class GamepadTransformControls extends GamepadControls {
   }
 
   /**
-   * Ends any active transform before disposing the gamepad lifecycle listeners.
+   * Disables gamepad updates and ends only this wrapper's active transform.
    */
   public override dispose(): void {
-    this.#endTransform(true);
     super.dispose();
+    this.#endTransform(true);
   }
 
   /**
@@ -398,6 +419,18 @@ export class GamepadTransformControls extends GamepadControls {
   protected override onGamepadDisconnected(gamepad: Gamepad): void {
     this.#endTransform(true);
     super.onGamepadDisconnected(gamepad);
+  }
+
+  // A native block cancels only our own session. A wrapper pause retains it.
+  // Setters and native events can change these conditions synchronously.
+  #canApplyInput(): boolean {
+    if (!this.#controls.enabled) {
+      this.#endTransform(true);
+
+      return false;
+    }
+
+    return this.enabled && this.gamepad !== null;
   }
 
   /**
@@ -419,43 +452,43 @@ export class GamepadTransformControls extends GamepadControls {
       buttonAxisNext,
     } = this.#options;
 
-    if (startedButtons.has(buttonTranslate)) {
+    if (startedButtons.has(buttonTranslate) && this.#canApplyInput()) {
       this.#setMode("translate");
     }
 
-    if (startedButtons.has(buttonRotate)) {
+    if (startedButtons.has(buttonRotate) && this.#canApplyInput()) {
       this.#setMode("rotate");
     }
 
-    if (startedButtons.has(buttonScale)) {
+    if (startedButtons.has(buttonScale) && this.#canApplyInput()) {
       this.#setMode("scale");
     }
 
-    if (startedButtons.has(buttonToggleSpace)) {
+    if (startedButtons.has(buttonToggleSpace) && this.#canApplyInput()) {
       this.#toggleSpace();
     }
 
-    if (startedButtons.has(buttonAxisX)) {
+    if (startedButtons.has(buttonAxisX) && this.#canApplyInput()) {
       this.#selectAxis("X");
     }
 
-    if (startedButtons.has(buttonAxisY)) {
+    if (startedButtons.has(buttonAxisY) && this.#canApplyInput()) {
       this.#selectAxis("Y");
     }
 
-    if (startedButtons.has(buttonAxisZ)) {
+    if (startedButtons.has(buttonAxisZ) && this.#canApplyInput()) {
       this.#selectAxis("Z");
     }
 
-    if (startedButtons.has(buttonAxisComposite)) {
+    if (startedButtons.has(buttonAxisComposite) && this.#canApplyInput()) {
       this.#cycleCompositeAxis();
     }
 
-    if (startedButtons.has(buttonAxisPrevious)) {
+    if (startedButtons.has(buttonAxisPrevious) && this.#canApplyInput()) {
       this.#cycleAxis(-1);
     }
 
-    if (startedButtons.has(buttonAxisNext)) {
+    if (startedButtons.has(buttonAxisNext) && this.#canApplyInput()) {
       this.#cycleAxis(1);
     }
   }
@@ -471,14 +504,16 @@ export class GamepadTransformControls extends GamepadControls {
     }
 
     this.#endTransform(false);
+    if (!this.#canApplyInput()) return;
     this.#controls.setMode(mode);
-    this.#ensureValidAxis();
+    if (this.#canApplyInput()) this.#ensureValidAxis();
   }
 
   // Toggles TransformControls between local and world transform space.
   #toggleSpace(): void {
     const nextSpace = this.#controls.space === "world" ? "local" : "world";
     this.#endTransform(false);
+    if (!this.#canApplyInput()) return;
     this.#controls.setSpace(nextSpace);
   }
 
@@ -493,6 +528,7 @@ export class GamepadTransformControls extends GamepadControls {
     }
 
     this.#endTransform(false);
+    if (!this.#canApplyInput()) return;
     this.#activeAxisByMode[this.#controls.mode] = axis;
     this.#ensureValidAxis();
   }
@@ -522,10 +558,12 @@ export class GamepadTransformControls extends GamepadControls {
   #cycleThroughAxes(axes: readonly TransformAxis[], direction: -1 | 1): void {
     if (axes.length === 0) {
       this.#setActiveAxis(null);
+
       return;
     }
 
     this.#endTransform(false);
+    if (!this.#canApplyInput()) return;
 
     const current = this.#activeAxisByMode[this.#controls.mode];
     const currentIndex = current === null ? -1 : axes.indexOf(current);
@@ -652,12 +690,8 @@ export class GamepadTransformControls extends GamepadControls {
     const controls = this.#controls;
 
     this.#captureTransformStart(object);
-    controls.dragging = true;
     this.#isTransforming = true;
-    controls.dispatchEvent({
-      type: "mouseDown",
-      mode: controls.mode,
-    });
+    controls.dragging = true;
   }
 
   /**
@@ -666,17 +700,19 @@ export class GamepadTransformControls extends GamepadControls {
    * @param clearAxis - Whether to clear the highlighted axis after ending.
    */
   #endTransform(clearAxis: boolean): void {
+    if (!this.#isTransforming) return;
+
     const controls = this.#controls;
+    const started = this.#transformStarted;
+    const mode = controls.mode;
+    this.#isTransforming = false;
+    this.#transformStarted = false;
 
-    if (this.#isTransforming) {
-      this.#isTransforming = false;
-      controls.dispatchEvent({
-        type: "mouseUp",
-        mode: controls.mode,
-      });
-      controls.dragging = false;
-    }
-
+    // Release ownership before notifying listeners so reentrant disposal
+    // cannot end the same session twice. Preserve native mouseUp ordering:
+    // listeners still observe dragging before it is reset below.
+    if (started) controls.dispatchEvent({ type: "mouseUp", mode });
+    controls.dragging = false;
     if (clearAxis) {
       this.#setActiveAxis(null);
     }

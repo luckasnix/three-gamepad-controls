@@ -38,6 +38,8 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields. The
 
 ## Properties
 
+`PointerLockControls.enabled = false` blocks both gamepad movement and look. Gamepad input remains independent of `isLocked`; re-enabling the native control does not require pointer lock. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
+
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
 
 ## Events

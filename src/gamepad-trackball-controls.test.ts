@@ -122,7 +122,7 @@ describe("GamepadTrackballControls input gating", () => {
     expect(trackballControls._zoomEnd).toEqual(new Vector2());
   });
 
-  gamepadTest("synchronizes native state while actions are disabled", () => {
+  gamepadTest("preserves native state while actions are disabled", () => {
     const trackballControls = createTrackballControls();
     trackballControls.noRotate = true;
     trackballControls.noPan = true;
@@ -142,10 +142,10 @@ describe("GamepadTrackballControls input gating", () => {
 
     controls.update(0.2);
 
-    expect(trackballControls._movePrev).toEqual(trackballControls._moveCurr);
-    expect(trackballControls._lastAngle).toBe(0);
-    expect(trackballControls._panStart).toEqual(trackballControls._panEnd);
-    expect(trackballControls._zoomStart).toEqual(trackballControls._zoomEnd);
+    expect(trackballControls._movePrev).toEqual(new Vector2(-0.1, -0.2));
+    expect(trackballControls._lastAngle).toBe(0.7);
+    expect(trackballControls._panStart).toEqual(new Vector2(-0.2, -0.3));
+    expect(trackballControls._zoomStart).toEqual(new Vector2(-0.4, -0.5));
   });
 });
 

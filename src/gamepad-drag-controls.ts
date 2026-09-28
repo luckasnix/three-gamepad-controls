@@ -163,16 +163,11 @@ export class GamepadDragControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
-    const controls = this.#controls;
     const selectStarted = this.gamepadInput.wasPressed(
       this.#options.buttonSelect,
     );
 
-    if (!controls.enabled) {
-      this.#releaseSelected();
-      this.#clearHover();
-      return;
-    }
+    if (!this.#canApplyInput()) return;
 
     const selected = this.#selected;
 
@@ -188,20 +183,22 @@ export class GamepadDragControls extends GamepadControls {
 
     const hit = this.#intersectCenter();
     this.#updateHover(hit?.object ?? null);
+    if (!this.#canApplyInput()) return;
 
     if (selectStarted && hit !== undefined) {
       this.#grabObject(hit.object);
+      // A dragstart listener may have disabled the native control.
+      this.#canApplyInput();
     }
   }
 
   /**
-   * Releases any selected object and removes hover state before disposing the
-   * gamepad lifecycle listeners.
+   * Disables gamepad updates, releases selection, and removes hover state.
    */
   public override dispose(): void {
+    super.dispose();
     this.#releaseSelected();
     this.#clearHover();
-    super.dispose();
   }
 
   /**
@@ -213,6 +210,17 @@ export class GamepadDragControls extends GamepadControls {
     this.#releaseSelected();
     this.#clearHover();
     super.onGamepadDisconnected(gamepad);
+  }
+
+  #canApplyInput(): boolean {
+    if (!this.#controls.enabled) {
+      this.#releaseSelected();
+      this.#clearHover();
+
+      return false;
+    }
+
+    return this.enabled && this.gamepad !== null;
   }
 
   /**
@@ -256,6 +264,7 @@ export class GamepadDragControls extends GamepadControls {
         type: "drag",
         object: selected,
       });
+      this.#canApplyInput();
     }
   }
 
@@ -366,7 +375,7 @@ export class GamepadDragControls extends GamepadControls {
 
     this.#clearHover();
 
-    if (object === null) {
+    if (object === null || !this.#canApplyInput()) {
       return;
     }
 

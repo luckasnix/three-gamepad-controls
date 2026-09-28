@@ -116,6 +116,26 @@ describe("GamepadControls construction", () => {
 });
 
 describe("GamepadControls.update", () => {
+  gamepadTest.each(["pause", "dispose"] as const)(
+    "does not apply input after a connected listener requests %s",
+    (action) => {
+      const controls = createControls();
+      controls.addEventListener("connected", () => {
+        if (action === "pause") controls.enabled = false;
+        else controls.dispose();
+      });
+      polling.publishFrame([0, { axes: [1, 0, 0, 0] }]);
+      controls.update(0.1);
+      expect(controls.updateDeltas).toEqual([]);
+      expect(controls.enabled).toBe(false);
+      if (action === "pause") {
+        controls.enabled = true;
+        controls.update(0.1);
+        expect(controls.updateDeltas).toEqual([0.1]);
+      }
+    },
+  );
+
   gamepadTest("does not poll or update the subclass while disabled", () => {
     const controls = createControls();
     polling.gamepads[0] = createGamepad(0);

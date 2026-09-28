@@ -147,6 +147,10 @@ export class GamepadFlyControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
+    if (!this.#controls.enabled) {
+      return;
+    }
+
     const {
       moveSpeed,
       rotateSpeed,

@@ -46,6 +46,8 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and 
 
 ## Properties
 
+Native disable releases the wrapper's selection and hover when observed by a wrapper update. A selection press observed while disabled is consumed and requires a new press after re-enabling. Hover and drag callbacks can disable or dispose controls; the wrapper rechecks permissions before acquiring a selection and releases its own state when it observes native disable. Pausing only the wrapper retains its selection. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
+
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
 
 ## Events

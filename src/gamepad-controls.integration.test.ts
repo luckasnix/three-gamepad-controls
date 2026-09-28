@@ -1,4 +1,5 @@
 import {
+  type Controls,
   EventDispatcher,
   type Object3D,
   Quaternion,
@@ -77,6 +78,13 @@ const kinds = [
   "transform",
 ] as const;
 type Kind = (typeof kinds)[number];
+// Runtime helpers omitted or declared as DOM events by @types/three r186.
+type TransformWithSnapshots = TransformControls & { pointStart: Vector3 };
+type ArcballWithFocus = ArcballControls & {
+  focus(point: Vector3, size: number): void;
+};
+const transformPointer = (y: number, button: number): PointerEvent =>
+  ({ x: 0, y, button }) as PointerEvent;
 const delta = 0.1;
 const strength = 0.5;
 
@@ -108,7 +116,9 @@ const createScenario = (
     remove: vi.spyOn(element, "removeEventListener"),
   };
   const options = { gamepadIndex: 3 };
-  const native = <T extends { dispose(): void }>(controls: T): T => {
+  let nativeControls: Controls | undefined;
+  const native = <T extends Controls>(controls: T): T => {
+    nativeControls = controls;
     cleanup.add("native", () => controls.dispose());
     return controls;
   };
@@ -274,8 +284,11 @@ const createScenario = (
     expected.position.x += strength * delta * 4;
   }
 
+  if (nativeControls === undefined) throw new Error("Missing native control");
+
   return {
     ...environment,
+    nativeControls,
     elementListeners,
     nativeEvents,
     focusRaycaster,
@@ -290,8 +303,784 @@ const createScenario = (
   };
 };
 
+describe("native input permissions", () => {
+  for (const kind of ["orbit", "map"] as const) {
+    integrationTest.for(["enableRotate", "enablePan", "enableZoom"] as const)(
+      `${kind}: gates %s independently`,
+      (flag, { cleanup, gamepadPolling }) => {
+        const actual = createScenario(kind, cleanup, gamepadPolling);
+        const reference = createScenario(kind, cleanup, gamepadPolling);
+        const controls = actual.nativeControls as OrbitControls;
+        const referenceControls = reference.nativeControls as OrbitControls;
+        controls[flag] = false;
+        const axes = [0.4, -0.3, 0.2, -0.1];
+        const buttons = createGamepadButtons([7, true, 0.6]);
+        actual.step({ axes, buttons });
+        const allowedAxes = [...axes];
+        if (flag !== "enableZoom") {
+          const offset =
+            (flag === "enableRotate") === (kind === "orbit") ? 0 : 2;
+          allowedAxes[offset] = 0;
+          allowedAxes[offset + 1] = 0;
+        }
+        reference.step({
+          axes: allowedAxes,
+          buttons: flag === "enableZoom" ? [] : buttons,
+        });
+        expectPose(actual.camera, pose(reference.camera));
+        expect(
+          controls.target.distanceTo(referenceControls.target),
+        ).toBeLessThan(1e-8);
+        expect(actual.camera.zoom).toBe(reference.camera.zoom);
+        controls[flag] = true;
+        actual.step({ axes, buttons });
+        reference.step({ axes, buttons });
+        expectPose(actual.camera, pose(reference.camera));
+      },
+    );
+  }
+
+  integrationTest.for([1, 2, 3, 4])(
+    "Orbit stops subsequent operations when change %i disables the native control",
+    (stopAt, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("orbit", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as OrbitControls;
+      let changes = 0;
+      let stoppedPose = scenario.initial;
+      const listener = () => {
+        changes++;
+        if (changes === stopAt) {
+          controls.enabled = false;
+          stoppedPose = pose(scenario.camera);
+        }
+      };
+      controls.addEventListener("change", listener);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("change", listener),
+      );
+      scenario.step({
+        axes: [0.4, -0.3, 0.2, -0.1],
+        buttons: createGamepadButtons([6, true, 0.4], [7, true, 0.8]),
+      });
+      expect(changes).toBe(stopAt);
+      expectPose(scenario.camera, stoppedPose);
+    },
+  );
+
+  integrationTest.for(["pause", "dispose"] as const)(
+    "Orbit stops subsequent operations when a change listener requests %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("orbit", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as OrbitControls;
+      let changes = 0;
+      const listener = () => {
+        changes++;
+        if (action === "pause") scenario.wrapper.enabled = false;
+        else scenario.wrapper.dispose();
+      };
+      controls.addEventListener("change", listener);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("change", listener),
+      );
+      scenario.step({
+        axes: [0.4, -0.3, 0.2, -0.1],
+        buttons: createGamepadButtons([7, true]),
+      });
+      expect(changes).toBe(1);
+    },
+  );
+
+  integrationTest(
+    "Orbit rechecks action permissions after change without blocking other actions",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("orbit", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as OrbitControls;
+      const rotateUp = vi.spyOn(controls, "rotateUp");
+      const pan = vi.spyOn(controls, "pan");
+      const listener = () => {
+        controls.enableRotate = false;
+        controls.enableZoom = false;
+      };
+      controls.addEventListener("change", listener);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("change", listener),
+      );
+      scenario.step({
+        axes: [0.4, -0.3, 0.2, -0.1],
+        buttons: createGamepadButtons([7, true]),
+      });
+      expect(rotateUp).not.toHaveBeenCalled();
+      expect(pan).toHaveBeenCalledOnce();
+      expect(controls.target.length()).toBeGreaterThan(0);
+      expect(controls.getDistance()).toBeCloseTo(10);
+    },
+  );
+
+  integrationTest(
+    "Trackball preserves native wheel input while zoom is blocked and after re-enabling",
+    ({ cleanup, gamepadPolling }) => {
+      const actual = createScenario("trackball", cleanup, gamepadPolling);
+      const reference = createScenario("trackball", cleanup, gamepadPolling);
+      const controls = actual.nativeControls as TrackballControls;
+      const referenceControls = reference.nativeControls as TrackballControls;
+      reference.wrapper.dispose();
+      for (const scenario of [actual, reference]) {
+        const native = scenario.nativeControls as TrackballControls;
+        native.staticMoving = false;
+        scenario.element.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: 100, cancelable: true }),
+        );
+        native.noZoom = true;
+      }
+      actual.step({ buttons: createGamepadButtons([7, true, 0.8]) });
+      referenceControls.update();
+      expectPose(actual.camera, pose(reference.camera));
+      controls.noZoom = false;
+      referenceControls.noZoom = false;
+      for (let i = 0; i < 4; i++) {
+        actual.step();
+        referenceControls.update();
+        expectPose(actual.camera, pose(reference.camera));
+      }
+      expect(
+        actual.camera.position.distanceTo(actual.initial.position),
+      ).toBeGreaterThan(0.01);
+    },
+  );
+
+  integrationTest.for(["native disabled", "disconnect", "dispose"] as const)(
+    "Transform preserves a pointer drag during %s without owning a session",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformWithSnapshots;
+      controls.axis = "Y";
+      scenario.syncMatrices();
+      controls.pointerDown(transformPointer(0, 0));
+      expect(controls.dragging).toBe(true);
+      const start = controls.pointStart.clone();
+      const up = vi.fn();
+      controls.addEventListener("mouseUp", up);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("mouseUp", up),
+      );
+      if (action === "native disabled") {
+        controls.enabled = false;
+        scenario.step({
+          axes: [0.5, 0, 0, 0],
+          buttons: createGamepadButtons([1, true], [3, true], [9, true]),
+        });
+      } else if (action === "disconnect") {
+        dispatchGamepadEvent("gamepaddisconnected", createGamepad(3));
+      } else scenario.wrapper.dispose();
+      expect(controls.axis).toBe("Y");
+      expect(controls.mode).toBe("translate");
+      expect(controls.space).toBe("world");
+      expect(controls.dragging).toBe(true);
+      expect(controls.pointStart).toEqual(start);
+      expect(up).not.toHaveBeenCalled();
+      controls.enabled = true;
+      controls.pointerMove(transformPointer(0.2, -1));
+      expect(scenario.mesh.position.y).toBeGreaterThan(0);
+      expect(scenario.mesh.position.x).toBe(0);
+      controls.pointerUp(transformPointer(0.2, 0));
+    },
+  );
+
+  integrationTest.for(["disable", "pause", "dispose"] as const)(
+    "Transform stops before movement when mouseDown requests %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      const events: string[] = [];
+      const down = () => {
+        events.push("down");
+        if (action === "disable") controls.enabled = false;
+        else if (action === "pause") scenario.wrapper.enabled = false;
+        else scenario.wrapper.dispose();
+      };
+      const up = () => events.push("up");
+      controls.addEventListener("mouseDown", down);
+      controls.addEventListener("mouseUp", up);
+      cleanup.add("listener", () => {
+        controls.removeEventListener("mouseDown", down);
+        controls.removeEventListener("mouseUp", up);
+      });
+      scenario.step(scenario.active);
+      expectPose(scenario.mesh, scenario.initial);
+      expect(events).toEqual(action === "pause" ? ["down"] : ["down", "up"]);
+      scenario.wrapper.dispose();
+      expect(events).toEqual(["down", "up"]);
+    },
+  );
+
+  integrationTest.for(["transform", "drag", "arcball"] as const)(
+    "%s consumes blocked button presses without replay after re-enabling",
+    (kind, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario(kind, cleanup, gamepadPolling);
+      const controls = scenario.nativeControls;
+      const button = kind === "transform" ? 1 : 0;
+      const observed =
+        kind === "transform"
+          ? vi.spyOn(controls as TransformControls, "setMode")
+          : kind === "arcball"
+            ? vi.spyOn(controls as ArcballWithFocus, "focus")
+            : vi.spyOn(controls as DragControls, "dispatchEvent");
+      controls.enabled = false;
+      const input = { buttons: createGamepadButtons([button, true]) };
+      scenario.step(input);
+      controls.enabled = true;
+      observed.mockClear();
+      scenario.step(input);
+      if (kind === "drag")
+        expect(
+          observed.mock.calls.some(
+            ([event]) =>
+              typeof event === "object" &&
+              event !== null &&
+              "type" in event &&
+              event.type === "dragstart",
+          ),
+        ).toBe(false);
+      else expect(observed).not.toHaveBeenCalled();
+      scenario.step();
+      observed.mockClear();
+      scenario.step(input);
+      expect(observed).toHaveBeenCalled();
+    },
+  );
+
+  integrationTest.for(["disable", "pause", "dispose"] as const)(
+    "Arcball revalidates input after start requests %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("arcball", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as ArcballControls;
+      const events: string[] = [];
+      const start = () => {
+        events.push("start");
+        if (action === "disable") controls.enabled = false;
+        else if (action === "pause") scenario.wrapper.enabled = false;
+        else scenario.wrapper.dispose();
+      };
+      const end = () => events.push("end");
+      controls.addEventListener("start", start);
+      controls.addEventListener("end", end);
+      cleanup.add("listener", () => {
+        controls.removeEventListener("start", start);
+        controls.removeEventListener("end", end);
+      });
+      scenario.step(scenario.active);
+      expectPose(scenario.camera, scenario.initial);
+      expect(events).toEqual(action === "pause" ? ["start"] : ["start", "end"]);
+      scenario.wrapper.dispose();
+      scenario.wrapper.dispose();
+      expect(events).toEqual(["start", "end"]);
+    },
+  );
+
+  integrationTest.for(["event", "polling", "dispose"] as const)(
+    "Arcball ends an owned interaction once on %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("arcball", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as ArcballControls;
+      const events: string[] = [];
+      const start = () => events.push("start");
+      const end = () => {
+        events.push("end");
+        scenario.wrapper.dispose();
+      };
+      controls.addEventListener("start", start);
+      controls.addEventListener("end", end);
+      cleanup.add("listener", () => {
+        controls.removeEventListener("start", start);
+        controls.removeEventListener("end", end);
+      });
+      scenario.step(scenario.active);
+      if (action === "event") {
+        scenario.wrapper.enabled = false;
+        dispatchGamepadEvent("gamepaddisconnected", createGamepad(3));
+      } else if (action === "polling") {
+        gamepadPolling.publishFrame();
+        scenario.wrapper.update(delta);
+      } else scenario.wrapper.dispose();
+      scenario.wrapper.dispose();
+      expect(events).toEqual(["start", "end"]);
+    },
+  );
+
+  integrationTest.for(["disable", "pause", "dispose"] as const)(
+    "Drag does not acquire a selection after hoveron requests %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("drag", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as DragControls;
+      // Clear the hover established by the neutral adoption frame.
+      scenario.mesh.position.x = 100;
+      scenario.step();
+      scenario.mesh.position.x = 0;
+      const stop = () => {
+        if (action === "disable") controls.enabled = false;
+        else if (action === "pause") scenario.wrapper.enabled = false;
+        else scenario.wrapper.dispose();
+      };
+      const start = vi.fn();
+      controls.addEventListener("hoveron", stop);
+      controls.addEventListener("dragstart", start);
+      cleanup.add("listener", () => {
+        controls.removeEventListener("hoveron", stop);
+        controls.removeEventListener("dragstart", start);
+      });
+      scenario.step({ buttons: createGamepadButtons([0, true]) });
+      expect(start).not.toHaveBeenCalled();
+      expectPose(scenario.mesh, scenario.initial);
+    },
+  );
+});
+
+describe("permission transitions and native state", () => {
+  integrationTest(
+    "Arcball focus joins continuous movement and reconnection starts a new session",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("arcball", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as ArcballWithFocus;
+      const focus = vi.spyOn(controls, "focus");
+      const events: string[] = [];
+      for (const type of ["start", "end"] as const) {
+        const listener = () => events.push(type);
+        controls.addEventListener(type, listener);
+        cleanup.add("listener", () =>
+          controls.removeEventListener(type, listener),
+        );
+      }
+      scenario.step(scenario.active);
+      scenario.step({
+        ...scenario.active,
+        buttons: createGamepadButtons([0, true]),
+      });
+      expect(focus).toHaveBeenCalledOnce();
+      expect(events).toEqual(["start"]);
+      dispatchGamepadEvent("gamepaddisconnected", createGamepad(3));
+      expect(events).toEqual(["start", "end"]);
+      scenario.step(scenario.active);
+      scenario.step();
+      expect(events).toEqual(["start", "end", "start", "end"]);
+    },
+  );
+
+  integrationTest.for(["fly", "firstPerson"] as const)(
+    "%s preserves keyboard movement across wrapper pause and native disable",
+    (kind, { cleanup, gamepadPolling }) => {
+      const actual = createScenario(kind, cleanup, gamepadPolling);
+      const reference = createScenario(kind, cleanup, gamepadPolling);
+      reference.wrapper.dispose();
+      actual.wrapper.enabled = false;
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW" }));
+      actual.step({ axes: [1, 1, 1, 1] });
+      reference.step();
+      expectPose(actual.camera, pose(reference.camera));
+      expect(actual.camera.position.z).toBeLessThan(10);
+      actual.wrapper.enabled = true;
+      actual.nativeControls.enabled = false;
+      reference.nativeControls.enabled = false;
+      actual.step({ axes: [1, 1, 1, 1] });
+      reference.step();
+      expectPose(actual.camera, pose(reference.camera));
+      actual.nativeControls.enabled = true;
+      reference.nativeControls.enabled = true;
+      actual.step();
+      reference.step();
+      expectPose(actual.camera, pose(reference.camera));
+      window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
+    },
+  );
+
+  integrationTest(
+    "Orbit native damping survives blocked gamepad input",
+    ({ cleanup, gamepadPolling }) => {
+      const actual = createScenario("orbit", cleanup, gamepadPolling);
+      const reference = createScenario("orbit", cleanup, gamepadPolling);
+      reference.wrapper.dispose();
+      for (const scenario of [actual, reference]) {
+        const controls = scenario.nativeControls as OrbitControls;
+        controls.enableDamping = true;
+        controls.listenToKeyEvents(scenario.element);
+        scenario.element.dispatchEvent(
+          new KeyboardEvent("keydown", { code: "ArrowLeft", cancelable: true }),
+        );
+        controls.enabled = false;
+      }
+      const start = pose(actual.camera);
+      for (let i = 0; i < 4; i++) {
+        actual.step({
+          axes: [0.6, 0.5, 0.4, 0.3],
+          buttons: createGamepadButtons([7, true]),
+        });
+        reference.step();
+        expectPose(actual.camera, pose(reference.camera));
+      }
+      expect(actual.camera.position.distanceTo(start.position)).toBeGreaterThan(
+        0.01,
+      );
+    },
+  );
+
+  integrationTest.for(["noRotate", "noPan"] as const)(
+    "Trackball preserves pointer state across %s without gamepad cleanup",
+    (flag, { cleanup, gamepadPolling }) => {
+      const actual = createScenario("trackball", cleanup, gamepadPolling);
+      const reference = createScenario("trackball", cleanup, gamepadPolling);
+      reference.wrapper.dispose();
+      for (const scenario of [actual, reference]) {
+        // Call Three.js' real mouse handlers with native event objects. The
+        // pointer capture layer requires a hardware pointer and is irrelevant
+        // to producing the native deltas and damping history under comparison.
+        const controls = scenario.nativeControls as TrackballControls & {
+          _onMouseDown(event: MouseEvent): void;
+          _onMouseMove(event: MouseEvent): void;
+          _onMouseUp(): void;
+        };
+        controls.staticMoving = false;
+        controls._onMouseDown(
+          new MouseEvent("mousedown", {
+            button: flag === "noRotate" ? 0 : 2,
+            clientX: 400,
+            clientY: 300,
+          }),
+        );
+        controls._onMouseMove(
+          new MouseEvent("mousemove", { clientX: 460, clientY: 320 }),
+        );
+        controls.update();
+        controls._onMouseUp();
+        controls[flag] = true;
+      }
+      const start = pose(actual.camera);
+      actual.step();
+      reference.step();
+      expectPose(actual.camera, pose(reference.camera));
+      (actual.nativeControls as TrackballControls)[flag] = false;
+      (reference.nativeControls as TrackballControls)[flag] = false;
+      for (let i = 0; i < 4; i++) {
+        actual.step();
+        reference.step();
+        expectPose(actual.camera, pose(reference.camera));
+      }
+      expect(actual.camera.position.distanceTo(start.position)).toBeGreaterThan(
+        0.01,
+      );
+    },
+  );
+
+  integrationTest(
+    "Transform ignores gamepad buttons and movement throughout a native pointer drag",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      controls.axis = "Y";
+      scenario.syncMatrices();
+      controls.pointerDown(transformPointer(0, 0));
+      scenario.step({
+        axes: [0.5, 0, 0, 0],
+        buttons: createGamepadButtons([1, true], [3, true], [9, true]),
+      });
+      expect(controls.axis).toBe("Y");
+      expect(controls.mode).toBe("translate");
+      expect(controls.space).toBe("world");
+      expectPose(scenario.mesh, scenario.initial);
+      controls.pointerMove(transformPointer(0.2, -1));
+      expect(scenario.mesh.position.y).toBeGreaterThan(0);
+      controls.pointerUp(transformPointer(0.2, 0));
+    },
+  );
+
+  integrationTest(
+    "Transform stops later buttons and axis writes when a mode listener disables input",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      controls.axis = "Y";
+      const stop = () => {
+        controls.enabled = false;
+      };
+      controls.addEventListener("mode-changed", stop);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("mode-changed", stop),
+      );
+      scenario.step({
+        axes: [0.5, 0, 0, 0],
+        buttons: createGamepadButtons(
+          [1, true],
+          [2, true],
+          [3, true],
+          [15, true],
+        ),
+      });
+      expect(controls.mode).toBe("rotate");
+      expect(controls.space).toBe("world");
+      expect(controls.axis).toBe("Y");
+      expectPose(scenario.mesh, scenario.initial);
+    },
+  );
+
+  integrationTest.for(["axis-changed", "dragging-changed"] as const)(
+    "Transform stops acquisition when %s disables input before mouseDown",
+    (event, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      controls.axis = null;
+      const events: string[] = [];
+      const stop = () => {
+        controls.enabled = false;
+      };
+      const down = () => events.push("down");
+      const up = () => events.push("up");
+      controls.addEventListener(event, stop);
+      controls.addEventListener("mouseDown", down);
+      controls.addEventListener("mouseUp", up);
+      cleanup.add("listener", () => {
+        controls.removeEventListener(event, stop);
+        controls.removeEventListener("mouseDown", down);
+        controls.removeEventListener("mouseUp", up);
+      });
+      scenario.step(scenario.active);
+      expectPose(scenario.mesh, scenario.initial);
+      expect(controls.dragging).toBe(false);
+      expect(events).toEqual([]);
+    },
+  );
+
+  integrationTest.for([3, 12, 2])(
+    "Transform requires a fresh press for button %i observed while disabled",
+    (button, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      const selection = () => ({
+        mode: controls.mode,
+        space: controls.space,
+        axis: controls.axis,
+      });
+      const initial = selection();
+      const input = { buttons: createGamepadButtons([button, true]) };
+      controls.enabled = false;
+      scenario.step(input);
+      expect(selection()).toEqual(initial);
+      controls.enabled = true;
+      scenario.step(input);
+      expect(selection()).toEqual(initial);
+      scenario.step();
+      scenario.step(input);
+      expect(selection()).not.toEqual(initial);
+    },
+  );
+
+  integrationTest(
+    "Transform does not reset an owned transformation while native input is disabled",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      scenario.step(scenario.active);
+      const before = pose(scenario.mesh);
+      expect(before.position.x).toBeGreaterThan(0);
+      controls.enabled = false;
+      const reset = vi.spyOn(controls, "reset");
+      scenario.step({ buttons: createGamepadButtons([9, true]) });
+      expect(reset).not.toHaveBeenCalled();
+      expectPose(scenario.mesh, before);
+      expect(controls.dragging).toBe(false);
+      controls.enabled = true;
+      scenario.step({ buttons: createGamepadButtons([9, true]) });
+      expect(reset).not.toHaveBeenCalled();
+    },
+  );
+
+  integrationTest(
+    "Transform pause in dragging-changed defers mouseDown until resume",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      const pause = () => {
+        scenario.wrapper.enabled = false;
+      };
+      const down = vi.fn();
+      controls.addEventListener("dragging-changed", pause);
+      controls.addEventListener("mouseDown", down);
+      cleanup.add("listener", () => {
+        controls.removeEventListener("dragging-changed", pause);
+        controls.removeEventListener("mouseDown", down);
+      });
+      scenario.step(scenario.active);
+      expect(down).not.toHaveBeenCalled();
+      expectPose(scenario.mesh, scenario.initial);
+      expect(controls.dragging).toBe(true);
+      scenario.wrapper.enabled = true;
+      scenario.step(scenario.active);
+      expect(down).toHaveBeenCalledOnce();
+      expectPose(scenario.mesh, scenario.expected);
+    },
+  );
+
+  integrationTest(
+    "Transform stops movement when reset notifies a disabling listener",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      scenario.step(scenario.active);
+      expect(scenario.mesh.position.x).toBeGreaterThan(0);
+      const stop = () => {
+        controls.enabled = false;
+      };
+      controls.addEventListener("objectChange", stop);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("objectChange", stop),
+      );
+      scenario.step({
+        ...scenario.active,
+        buttons: createGamepadButtons([9, true]),
+      });
+      expectPose(scenario.mesh, scenario.initial);
+      expect(controls.dragging).toBe(false);
+    },
+  );
+
+  integrationTest.for([1, 3, 12, 5])(
+    "Transform does not apply button %i after mouseUp disables input",
+    (button, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      scenario.step(scenario.active);
+      const before = pose(scenario.mesh);
+      const stop = () => {
+        controls.enabled = false;
+      };
+      controls.addEventListener("mouseUp", stop);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("mouseUp", stop),
+      );
+      scenario.step({
+        ...scenario.active,
+        buttons: createGamepadButtons([button, true]),
+      });
+      expect(controls.mode).toBe("translate");
+      expect(controls.space).toBe("world");
+      expect(controls.axis).toBe("X");
+      expect(controls.dragging).toBe(false);
+      expectPose(scenario.mesh, before);
+    },
+  );
+
+  integrationTest.for(["transform", "drag", "arcball"] as const)(
+    "%s observes native disable on resume and cleans up once",
+    (kind, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario(kind, cleanup, gamepadPolling);
+      scenario.prepareAction();
+      scenario.step(scenario.active);
+      const controls = scenario.nativeControls as Controls<{
+        [type: string]: object;
+      }>;
+      const dispatch = vi.spyOn(controls, "dispatchEvent");
+      const before = pose(scenario.object);
+      scenario.wrapper.enabled = false;
+      controls.enabled = false;
+      dispatch.mockClear();
+      scenario.step(scenario.active);
+      expect(dispatch).not.toHaveBeenCalled();
+      expectPose(scenario.object, before);
+      scenario.wrapper.enabled = true;
+      scenario.step(scenario.active);
+      scenario.step(scenario.active);
+      scenario.wrapper.dispose();
+      const endType =
+        kind === "transform" ? "mouseUp" : kind === "drag" ? "dragend" : "end";
+      expect(
+        dispatch.mock.calls.filter(([event]) => event.type === endType),
+      ).toHaveLength(1);
+      expectPose(scenario.object, before);
+    },
+  );
+
+  integrationTest.for([
+    "enableRotate",
+    "enablePan",
+    "enableZoom",
+    "enableFocus",
+  ] as const)(
+    "Arcball respects %s changed in its start listener",
+    (flag, { cleanup, gamepadPolling }) => {
+      const scenario = createScenario("arcball", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as ArcballWithFocus & {
+        rotate(axis: Vector3, angle: number): unknown;
+        pan(a: Vector3, b: Vector3): unknown;
+        scale(size: number, point: Vector3): unknown;
+        zRotate(point: Vector3, angle: number): unknown;
+      };
+      const method =
+        flag === "enableRotate"
+          ? "rotate"
+          : flag === "enablePan"
+            ? "pan"
+            : flag === "enableZoom"
+              ? "scale"
+              : "focus";
+      const operation = vi.spyOn(controls, method);
+      const roll = vi.spyOn(controls, "zRotate");
+      const stop = () => {
+        controls[flag] = false;
+      };
+      controls.addEventListener("start", stop);
+      cleanup.add("listener", () =>
+        controls.removeEventListener("start", stop),
+      );
+      scenario.step({
+        axes: [0.3, 0.2, 0.2, -0.1],
+        buttons: createGamepadButtons([0, true], [4, true], [7, true, 0.6]),
+      });
+      expect(operation).not.toHaveBeenCalled();
+      if (flag === "enableRotate") expect(roll).not.toHaveBeenCalled();
+    },
+  );
+});
+
 for (const kind of kinds) {
   describe(`${kind}: real Three.js contract`, () => {
+    integrationTest(
+      "blocks new native-disabled input while continuing to poll",
+      ({ cleanup, gamepadPolling }) => {
+        const scenario = createScenario(kind, cleanup, gamepadPolling);
+        scenario.nativeControls.enabled = false;
+        gamepadPolling.getGamepads.mockClear();
+        scenario.step({
+          axes: [0.5, -0.4, 0.3, -0.2],
+          buttons: createGamepadButtons(
+            [0, true],
+            [1, true],
+            [3, true],
+            [6, true, 0.4],
+            [7, true, 0.8],
+          ),
+        });
+        expectPose(scenario.object, scenario.initial);
+        expect(gamepadPolling.getGamepads).toHaveBeenCalledOnce();
+        expect(scenario.wrapper.gamepad).toBe(gamepadPolling.gamepads[3]);
+        if (scenario.nativeControls instanceof TransformControls) {
+          expect(scenario.nativeControls.mode).toBe("translate");
+          expect(scenario.nativeControls.space).toBe("world");
+        }
+      },
+    );
+
+    if (kind !== "drag") {
+      integrationTest(
+        "resumes held analog input without accumulating blocked frames",
+        ({ cleanup, gamepadPolling }) => {
+          const scenario = createScenario(kind, cleanup, gamepadPolling);
+          scenario.nativeControls.enabled = false;
+          for (let i = 0; i < 3; i++) scenario.step(scenario.active);
+          expectPose(scenario.object, scenario.initial);
+          scenario.nativeControls.enabled = true;
+          scenario.step(scenario.active);
+          expectPose(scenario.object, scenario.expected);
+        },
+      );
+    }
+
     integrationTest(
       "keeps a neutral frame geometrically unchanged",
       ({ cleanup, gamepadPolling }) => {
@@ -476,8 +1265,18 @@ describe("real raycasts and native event snapshots", () => {
         if (!scenario.focusRaycaster)
           throw new Error("Missing Arcball raycaster");
         const intersect = vi.spyOn(scenario.focusRaycaster, "intersectObjects");
+        const controls = scenario.nativeControls as ArcballControls;
+        const events: string[] = [];
+        for (const type of ["start", "change", "end"] as const) {
+          const listener = () => events.push(type);
+          controls.addEventListener(type, listener);
+          cleanup.add("listener", () =>
+            controls.removeEventListener(type, listener),
+          );
+        }
         if (!hit) scenario.mesh.position.x = 20;
         scenario.step({ buttons: createGamepadButtons([0, true]) });
+        expect(events).toEqual(hit ? ["start", "change", "end"] : []);
         expect(intersect).toHaveBeenCalledOnce();
         const result = intersect.mock.results[0];
         if (result.type !== "return") throw new Error("Raycast did not return");

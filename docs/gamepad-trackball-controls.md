@@ -50,6 +50,8 @@ When `staticMoving` is `false`, queued gamepad pan and zoom input is scaled by `
 
 ## Properties
 
+`TrackballControls.enabled = false` prevents the wrapper from adding new deltas. `noRotate`, `noPan`, and `noZoom` block their respective actions without clearing native pointer vectors or damping history. On re-enabling an action, Three.js may resume previously accumulated native motion. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
+
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
 
 ## Events

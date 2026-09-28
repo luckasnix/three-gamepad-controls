@@ -304,10 +304,7 @@ export class GamepadArcballControls extends GamepadControls {
 
     const focusPoint = this.#consumeFocusPoint(buttonFocus);
 
-    if (!controls.enabled) {
-      this.#endInteraction();
-      return;
-    }
+    if (!this.#canApplyInput()) return;
 
     let rotateX = 0;
     let rotateY = 0;
@@ -354,24 +351,41 @@ export class GamepadArcballControls extends GamepadControls {
     }
 
     if (!this.#wasInteracting) {
+      this.#wasInteracting = true;
       controls.dispatchEvent({ type: "start" });
     }
+    if (!this.#canApplyInput()) return;
 
     let changed = false;
 
-    changed =
-      this.#applyRotation(deltaTime, rotateX, rotateY, rotateSpeed) || changed;
-    changed = this.#applyPan(deltaTime, panX, panY, panSpeed) || changed;
-    changed =
-      this.#applyZoom(deltaTime, zoom, zoomSpeed, buttonDeadzone) || changed;
-    changed =
-      this.#applyZRotation(
-        deltaTime,
-        zRotation,
-        zRotateSpeed,
-        buttonDeadzone,
-      ) || changed;
-    changed = this.#applyFocus(focusPoint) || changed;
+    if (controls.enableRotate) {
+      changed =
+        this.#applyRotation(deltaTime, rotateX, rotateY, rotateSpeed) ||
+        changed;
+    }
+
+    if (controls.enablePan) {
+      changed = this.#applyPan(deltaTime, panX, panY, panSpeed) || changed;
+    }
+
+    if (controls.enableZoom) {
+      changed =
+        this.#applyZoom(deltaTime, zoom, zoomSpeed, buttonDeadzone) || changed;
+    }
+
+    if (controls.enableRotate) {
+      changed =
+        this.#applyZRotation(
+          deltaTime,
+          zRotation,
+          zRotateSpeed,
+          buttonDeadzone,
+        ) || changed;
+    }
+
+    if (controls.enablePan && controls.enableFocus) {
+      changed = this.#applyFocus(focusPoint) || changed;
+    }
 
     if (changed) {
       controls.update();
@@ -379,11 +393,29 @@ export class GamepadArcballControls extends GamepadControls {
       controls.dispatchEvent({ type: "change" });
     }
 
-    this.#wasInteracting = activeInput;
-
-    if (!activeInput) {
+    if (!activeInput || !controls.enabled) {
       this.#endInteraction();
     }
+  }
+
+  public override dispose(): void {
+    super.dispose();
+    this.#endInteraction();
+  }
+
+  protected override onGamepadDisconnected(gamepad: Gamepad): void {
+    this.#endInteraction();
+    super.onGamepadDisconnected(gamepad);
+  }
+
+  // Native listeners may cancel input synchronously; wrapper pause alone
+  // retains the session until resume, disconnection, or disposal.
+  #canApplyInput(): boolean {
+    if (!this.#controls.enabled) {
+      this.#endInteraction();
+      return false;
+    }
+    return this.enabled && this.gamepad !== null;
   }
 
   /**
@@ -615,7 +647,7 @@ export class GamepadArcballControls extends GamepadControls {
       return;
     }
 
-    this.#controls.dispatchEvent({ type: "end" });
     this.#wasInteracting = false;
+    this.#controls.dispatchEvent({ type: "end" });
   }
 }

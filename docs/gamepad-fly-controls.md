@@ -49,6 +49,8 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields. The
 
 ## Properties
 
+`FlyControls.enabled = false` blocks gamepad translation, look, and roll while the wrapper continues polling. Pausing only the wrapper leaves the native keyboard/mouse behavior independent. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
+
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
 
 ## Events

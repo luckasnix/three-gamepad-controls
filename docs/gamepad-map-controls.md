@@ -46,6 +46,8 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and 
 
 ## Properties
 
+Map inherits Orbit's independent `enabled`, `enableRotate`, `enablePan`, and `enableZoom` gates with its swapped stick bindings. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
+
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
 
 ## Events

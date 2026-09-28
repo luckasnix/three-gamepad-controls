@@ -476,7 +476,7 @@ describe("GamepadArcballControls focus", () => {
       arcball.scaleFactor,
     );
     expect(arcball.update).toHaveBeenCalledOnce();
-    expect(eventTypes(arcball)).toEqual(["start", "change"]);
+    expect(eventTypes(arcball)).toEqual(["start", "change", "end"]);
   });
 
   gamepadTest("does not focus when no object is hit", () => {

@@ -115,6 +115,10 @@ export class GamepadPointerLockControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
+    if (!this.#controls.enabled) {
+      return;
+    }
+
     const { moveSpeed, lookSpeed, moveStick, lookStick } = this.#options;
     const input = this.gamepadInput;
 
