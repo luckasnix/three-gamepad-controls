@@ -58,7 +58,7 @@ Every binding is remappable via the `options` parameter.
 
 ## Behavior
 
-The wrapper keeps one active axis per mode:
+The wrapper remembers one active axis per mode:
 
 | Mode | Axes |
 | --- | --- |
@@ -66,21 +66,27 @@ The wrapper keeps one active axis per mode:
 | `rotate` | `X`, `Y`, `Z`, `E`, `XYZE` |
 | `scale` | `X`, `Y`, `Z`, `XYZ` |
 
-Axis selection respects `showX`, `showY`, `showZ`, `showXY`, `showYZ`, and `showXZ`. If the current axis becomes hidden or invalid for the selected mode, the wrapper selects the next valid axis or clears `controls.axis` when none is available.
+Axis selection respects `showX`, `showY`, `showZ`, `showXY`, `showYZ`, and `showXZ`. A neutral update without an owned interaction leaves the native axis, dragging state, and snapshots untouched. When acquiring an interaction, an explicit button selection takes priority, followed by a valid native `axis`, the remembered axis for the mode, and the first allowed axis. If none is available, acquisition clears the axis and does not start a drag. Axis cycles begin from the valid native selection; mode buttons explicitly restore that mode's remembered selection, with a fallback if necessary.
 
 When the processed transform stick becomes nonzero, a native-style transform interaction starts: `controls.dragging` becomes `true` and the wrapped instance emits `mouseDown`. Returning a zero vector from the pipeline emits `mouseUp` once and sets `controls.dragging` back to `false`, while preserving the selected axis highlight.
 
 `transformStick` accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Mode, axis, space, and reset buttons are not processed by the stick pipeline. See [Stick Processing](./gamepad-stick-processing.md).
 
-Gamepad transforms respect `TransformControls.enabled`, `mode`, the wrapper's selected axis, `space`, `translationSnap`, `rotationSnap`, `scaleSnap`, and translation min/max bounds. The wrapper maintains unsnapped internal accumulators, so small stick movements are not lost while snap settings are active.
+Gamepad transforms respect `TransformControls.enabled`, `mode`, the acquired axis, `space`, `translationSnap`, `rotationSnap`, `scaleSnap`, and translation min/max bounds. The wrapper maintains unsnapped internal accumulators, so small stick movements are not lost while snap settings are active.
 
 Native disable blocks mode, space, axis, reset, and transformation commands before they are applied. Polling continues, so a button held through the blocked period requires a new press to execute its command. An owned gamepad interaction ends once when native disable is observed. See [Native input permissions](./gamepad-controls.md#native-input-permissions) for pause and observation timing.
 
-While a native pointer drag is active, the wrapper does not acquire a transformation or apply gamepad buttons. Disconnection, disposal, or native disable does not clear a pointer interaction or an external axis selection when the wrapper owns no session. Native setters and `mouseDown` listeners can disable input before gamepad movement occurs; a start cancelled before `mouseDown` does not fabricate `mouseUp`.
+While a native pointer drag is active, the wrapper does not acquire a transformation or apply gamepad buttons. Polling still consumes button transitions, so held buttons are not replayed after the drag. If a nonzero processed stick is observed during the pointer drag, the wrapper requires a zero vector before acquiring another transformation. That neutral observation may occur during the pointer drag or after it ends.
 
-Outside a pointer drag, enabled updates currently restore the wrapper's remembered axis even with a neutral stick. External axis selection is therefore not yet authoritative, and a stick held through the end of a pointer drag can acquire a gamepad transformation immediately. Neutralize the stick before handing control back to the gamepad when this is undesirable.
+Each owned interaction is divided into segments identified by object, mode, space, and axis. Changing mode, space, or axis through buttons or external setters ends the previous segment and starts a new one if the stick remains active. The old `mouseUp` carries the old mode, and the next `mouseDown` uses the new mode. Each new segment captures its own reset origin once. An axis becoming disallowed also ends its segment before a fallback can be acquired.
 
-`buttonReset` restores the object to the state captured when the current gamepad transform interaction began. It has no effect until moving the transform stick has started that interaction.
+Changing the attached object or calling `detach()` during an owned interaction ends the previous segment and requires neutral input before acquiring the next object. The new object never receives the previous object's reset snapshot or accumulated movement. Calling `attach()` with the same object without an observed detach does not create a new segment.
+
+Context changes are observed at the next enabled wrapper update and after synchronous callbacks during an update. A callback that changes context stops the remaining commands and movement for that update; reacquisition waits until a later update and respects the neutral requirement. Changes entirely reversed between observations are not guaranteed to be detected. Pausing the wrapper preserves its session until updates resume; disconnection events and disposal still end an owned interaction.
+
+Disconnection, disposal, or native disable does not clear an unrelated pointer interaction or external selection. A native `mouseDown` listener distinguishes pointer acquisition from gamepad acquisition, including pointer takeover during cleanup, and is removed on disposal. Cleanup releases ownership before notifying listeners, emits an end only for a published start, and preserves selection or a new pointer drag established by callbacks. This does not provide general arbitration for multiple wrappers editing the same native control or object.
+
+`buttonReset` restores the object to the state captured at the start of the current owned segment and clears its accumulated movement without changing that origin. It has no effect without an owned segment. If context and permissions remain valid, the current frame's stick delta is applied after reset; a neutral stick or zero delta time allows observing the exact reset pose.
 
 If you use the same sticks for camera navigation and object transforms, pause the camera gamepad control on `mouseDown` and re-enable it on `mouseUp`.
 
@@ -96,10 +102,10 @@ The wrapped `TransformControls` instance continues to dispatch its native events
 
 | Event | Description |
 | --- | --- |
-| `mouseDown` | Fired once when stick movement starts a transform interaction. |
-| `mouseUp` | Fired once when stick movement ends, the controls are disabled, the object is detached, the gamepad disconnects, or the wrapper is disposed. |
+| `mouseDown` | Fired once when a gamepad segment starts; `mode` identifies that segment. |
+| `mouseUp` | Fired once per published segment on neutral input, context change, native disable, gamepad loss, or disposal; `mode` identifies the segment being ended. |
 | `change` | Fired when properties or object transforms change. |
-| `objectChange` | Fired once per gamepad transform frame. |
+| `objectChange` | Fired after an effective gamepad transform if its preceding `change` callback leaves the context and permissions valid; native reset also emits this event. |
 | `*-changed` | Fired by native `TransformControls` when properties such as `axis`, `mode`, `space`, or `dragging` change. |
 
 ## Types

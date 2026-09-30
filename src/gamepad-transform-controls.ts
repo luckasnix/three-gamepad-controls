@@ -153,12 +153,31 @@ const DEFAULT_TRANSFORM_OPTIONS: ResolvedGamepadTransformControlsOptions = {
 };
 
 type TranslateAxis = "X" | "Y" | "Z" | "XY" | "YZ" | "XZ" | "XYZ";
+
 type RotateAxis = "X" | "Y" | "Z" | "E" | "XYZE";
+
 type ScaleAxis = "X" | "Y" | "Z" | "XYZ";
+
 type TransformAxis = TranslateAxis | RotateAxis | ScaleAxis;
 
 type AxisLetter = "X" | "Y" | "Z";
+
 type TransformSpace = "world" | "local";
+
+type TransformContext = {
+  object: Object3D | undefined;
+  mode: TransformControlsMode;
+  space: TransformSpace;
+  axis: TransformControls["axis"];
+  dragging: boolean;
+  pointerRevision: number;
+};
+
+type TransformSegment = TransformContext & {
+  object: Object3D;
+  axis: TransformAxis;
+  started: boolean;
+};
 
 type RuntimeTransformControls = TransformControls & {
   // Object currently attached to TransformControls.
@@ -259,9 +278,21 @@ export class GamepadTransformControls extends GamepadControls {
   readonly #rotationQuaternion2: Quaternion;
   readonly #tempQuaternion: Quaternion;
 
-  #isTransforming = false;
-  // Ownership precedes the observable dragging setter; mouseDown follows it.
-  #transformStarted = false;
+  #segment: TransformSegment | null = null;
+  #updating = false;
+  #ending = false;
+  #disposed = false;
+  #interrupted = false;
+  #needsNeutral = false;
+  #pointerRevision = 0;
+  readonly #mouseDownEvent = {
+    type: "mouseDown" as const,
+    mode: "translate" as TransformControlsMode,
+  };
+  readonly #onNativeMouseDown: (event: {
+    type: "mouseDown";
+    mode: TransformControlsMode;
+  }) => void;
   #rotationAmount = 0;
   #freeRotationX = 0;
   #freeRotationY = 0;
@@ -321,6 +352,10 @@ export class GamepadTransformControls extends GamepadControls {
     this.#rotationQuaternion = new Quaternion();
     this.#rotationQuaternion2 = new Quaternion();
     this.#tempQuaternion = new Quaternion();
+    this.#onNativeMouseDown = (event) => {
+      if (event !== this.#mouseDownEvent) this.#pointerRevision += 1;
+    };
+    controls.addEventListener("mouseDown", this.#onNativeMouseDown);
   }
 
   /**
@@ -330,11 +365,41 @@ export class GamepadTransformControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
+    if (this.#updating || this.#ending) return;
+    this.#updating = true;
+    this.#interrupted = false;
+    try {
+      this.#updateTransform(deltaTime);
+    } finally {
+      this.#updating = false;
+    }
+  }
+
+  /**
+   * Processes one frame of selection, reset, and movement while respecting
+   * segment ownership and the neutral input required before reacquisition.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   */
+  #updateTransform(deltaTime: number): void {
     const controls = this.#controls;
+    const { transformStick } = this.#options;
+    const transform = this.gamepadInput.stick(
+      transformStick.xAxis,
+      transformStick.yAxis,
+      transformStick.pipeline,
+    );
+    const neutral = transform.x === 0 && transform.y === 0;
+
+    this.#reconcileSegment();
+    if (neutral) this.#needsNeutral = false;
     if (!this.#canApplyInput()) return;
 
     // A native pointer drag is not a gamepad session.
-    if (controls.dragging && !this.#isTransforming) return;
+    if (controls.dragging && this.#segment === null) {
+      this.#needsNeutral = !neutral;
+      return;
+    }
 
     const startedButtons = this.#getStartedButtons();
 
@@ -355,36 +420,29 @@ export class GamepadTransformControls extends GamepadControls {
       return;
     }
 
-    const axis = this.#ensureValidAxis();
-    if (!this.#canApplyInput()) return;
-
-    if (axis === null) {
-      this.#endTransform(true);
-
-      return;
-    }
-
-    const { transformStick } = this.#options;
-    const transform = this.gamepadInput.stick(
-      transformStick.xAxis,
-      transformStick.yAxis,
-      transformStick.pipeline,
-    );
-
-    if (transform.x === 0 && transform.y === 0) {
+    if (neutral) {
       this.#endTransform(false);
       return;
     }
 
-    if (!this.#isTransforming) {
-      this.#startTransform(object);
-    }
+    if (this.#needsNeutral) return;
+
+    const axis = this.#resolveAxis();
+    this.#setActiveAxis(axis);
+    if (!this.#canApplyInput()) return;
+    if (axis === null) return;
+
+    if (this.#segment === null) this.#startTransform(object, axis);
 
     if (!this.#canApplyInput()) return;
 
-    if (!this.#transformStarted) {
-      this.#transformStarted = true;
-      controls.dispatchEvent({ type: "mouseDown", mode: controls.mode });
+    const segment = this.#segment as TransformSegment;
+    if (!segment.started) {
+      segment.started = true;
+      const context = this.#readContext();
+      this.#mouseDownEvent.mode = segment.mode;
+      controls.dispatchEvent(this.#mouseDownEvent);
+      this.#afterCallback(context);
     }
 
     if (!this.#canApplyInput()) return;
@@ -398,8 +456,11 @@ export class GamepadTransformControls extends GamepadControls {
         transform.y,
       )
     ) {
+      const context = this.#readContext();
       controls.dispatchEvent({ type: "change" });
+      if (!this.#afterCallback(context)) return;
       controls.dispatchEvent({ type: "objectChange" });
+      this.#afterCallback(context);
     }
   }
 
@@ -408,7 +469,15 @@ export class GamepadTransformControls extends GamepadControls {
    */
   public override dispose(): void {
     super.dispose();
-    this.#endTransform(true);
+    this.#disposed = true;
+    // A reentrant disposal must keep observing pointer starts until the outer
+    // cleanup has finished all of its callbacks and conditional writes.
+    if (this.#ending) return;
+    try {
+      this.#endTransform(true);
+    } finally {
+      this.#controls.removeEventListener("mouseDown", this.#onNativeMouseDown);
+    }
   }
 
   /**
@@ -421,8 +490,13 @@ export class GamepadTransformControls extends GamepadControls {
     super.onGamepadDisconnected(gamepad);
   }
 
-  // A native block cancels only our own session. A wrapper pause retains it.
-  // Setters and native events can change these conditions synchronously.
+  /**
+   * Checks whether this update can continue applying gamepad input.
+   * Native disable ends the owned segment; a wrapper pause retains it.
+   *
+   * @returns `true` when input remains enabled, a gamepad is available,
+   *          and no callback has interrupted this update.
+   */
   #canApplyInput(): boolean {
     if (!this.#controls.enabled) {
       this.#endTransform(true);
@@ -430,7 +504,98 @@ export class GamepadTransformControls extends GamepadControls {
       return false;
     }
 
-    return this.enabled && this.gamepad !== null;
+    return !this.#interrupted && this.enabled && this.gamepad !== null;
+  }
+
+  /**
+   * Captures the native context and pointer acquisition revision without
+   * modifying the control or copying the attached object's transform.
+   *
+   * @returns A context snapshot for segment and callback validation.
+   */
+  #readContext(): TransformContext {
+    const { object, mode, space, axis, dragging } = this.#controls;
+
+    return {
+      object,
+      mode,
+      space,
+      axis,
+      dragging,
+      pointerRevision: this.#pointerRevision,
+    };
+  }
+
+  /**
+   * Compares the current native context and pointer revision with a snapshot.
+   *
+   * @param context - Expected object, selection, dragging state, and pointer revision.
+   * @returns `true` when every captured context field still matches.
+   */
+  #matchesContext(context: TransformContext): boolean {
+    const controls = this.#controls;
+
+    return (
+      controls.object === context.object &&
+      controls.mode === context.mode &&
+      controls.space === context.space &&
+      controls.axis === context.axis &&
+      controls.dragging === context.dragging &&
+      this.#pointerRevision === context.pointerRevision
+    );
+  }
+
+  /**
+   * Ends the owned segment when its context changes or its axis is disallowed.
+   * A change of attached object also requires neutral input before reacquisition.
+   */
+  #reconcileSegment(): void {
+    const segment = this.#segment;
+    if (segment === null) return;
+    if (
+      !this.#matchesContext(segment) ||
+      !this.#isAxisAllowed(segment.mode, segment.axis)
+    ) {
+      if (this.#controls.object !== segment.object) this.#needsNeutral = true;
+      this.#endTransform(false);
+    }
+  }
+
+  /**
+   * Revalidates context, segment ownership, and permissions after synchronous
+   * callbacks, interrupting this update if its context or segment was invalidated.
+   *
+   * @param context - Context expected after the operation that invoked callbacks.
+   * @returns `true` when this update may continue applying gamepad input.
+   */
+  #afterCallback(context: TransformContext): boolean {
+    const segment = this.#segment;
+    if (!this.#matchesContext(context)) {
+      this.#interrupted = true;
+      if (this.#controls.object !== context.object) this.#needsNeutral = true;
+    }
+    this.#reconcileSegment();
+    if (segment !== null && this.#segment !== segment) this.#interrupted = true;
+
+    return this.#canApplyInput();
+  }
+
+  /**
+   * Writes a native property and revalidates the context after its synchronous
+   * notifications, accounting for the intended property change.
+   *
+   * @param key - Native selection or dragging property to update.
+   * @param value - Value to assign to the selected property.
+   */
+  #writeProperty<K extends "axis" | "dragging">(
+    key: K,
+    value: TransformContext[K],
+  ): void {
+    const context = { ...this.#readContext(), [key]: value };
+    const controls: Pick<TransformContext, "axis" | "dragging"> =
+      this.#controls;
+    controls[key] = value;
+    this.#afterCallback(context);
   }
 
   /**
@@ -505,16 +670,28 @@ export class GamepadTransformControls extends GamepadControls {
 
     this.#endTransform(false);
     if (!this.#canApplyInput()) return;
+    const context = { ...this.#readContext(), mode };
     this.#controls.setMode(mode);
-    if (this.#canApplyInput()) this.#ensureValidAxis();
+    if (this.#afterCallback(context)) {
+      // A mode button explicitly selects that mode's remembered axis.
+      this.#setActiveAxis(this.#resolveAxis(null));
+    }
   }
 
-  // Toggles TransformControls between local and world transform space.
+  /**
+   * Ends the owned segment and toggles between local and world transform space
+   * if input remains permitted after the end notification.
+   */
   #toggleSpace(): void {
     const nextSpace = this.#controls.space === "world" ? "local" : "world";
     this.#endTransform(false);
     if (!this.#canApplyInput()) return;
+    const context: TransformContext = {
+      ...this.#readContext(),
+      space: nextSpace,
+    };
     this.#controls.setSpace(nextSpace);
+    this.#afterCallback(context);
   }
 
   /**
@@ -529,11 +706,12 @@ export class GamepadTransformControls extends GamepadControls {
 
     this.#endTransform(false);
     if (!this.#canApplyInput()) return;
-    this.#activeAxisByMode[this.#controls.mode] = axis;
-    this.#ensureValidAxis();
+    this.#setActiveAxis(axis);
   }
 
-  // Cycles through composite axes available in the current mode.
+  /**
+   * Selects the next visible composite axis available in the current mode.
+   */
   #cycleCompositeAxis(): void {
     const validAxes = this.#getVisibleAxes(COMPOSITE_AXES[this.#controls.mode]);
 
@@ -556,45 +734,43 @@ export class GamepadTransformControls extends GamepadControls {
    * @param direction - `1` for next axis, `-1` for previous axis.
    */
   #cycleThroughAxes(axes: readonly TransformAxis[], direction: -1 | 1): void {
+    this.#endTransform(false);
+    if (!this.#canApplyInput()) return;
     if (axes.length === 0) {
       this.#setActiveAxis(null);
 
       return;
     }
 
-    this.#endTransform(false);
-    if (!this.#canApplyInput()) return;
-
-    const current = this.#activeAxisByMode[this.#controls.mode];
-    const currentIndex = current === null ? -1 : axes.indexOf(current);
+    const current = this.#resolveAxis();
+    // A nonempty candidate list guarantees a valid fallback in this mode.
+    const currentIndex = axes.indexOf(current as TransformAxis);
     const nextIndex =
       currentIndex === -1
         ? 0
         : (currentIndex + direction + axes.length) % axes.length;
 
-    this.#activeAxisByMode[this.#controls.mode] = axes[nextIndex];
-    this.#ensureValidAxis();
+    this.#setActiveAxis(axes[nextIndex]);
   }
 
   /**
-   * Ensures the highlighted TransformControls axis is valid and visible.
+   * Resolves selection without writing to the native control or axis memory.
    *
+   * @param nativeAxis - Preferred native axis, defaulting to the current selection.
+   *                     Pass `null` to use mode memory before the first allowed axis.
    * @returns The active valid axis, or `null` when no axis is available.
    */
-  #ensureValidAxis(): TransformAxis | null {
+  #resolveAxis(nativeAxis = this.#controls.axis): TransformAxis | null {
     const mode = this.#controls.mode;
+    if (nativeAxis !== null && this.#isAxisAllowed(mode, nativeAxis)) {
+      return nativeAxis;
+    }
     const current = this.#activeAxisByMode[mode];
     const validAxes = this.#getValidAxes(mode);
     const nextAxis =
       current !== null && validAxes.includes(current)
         ? current
         : (validAxes[0] ?? null);
-
-    this.#activeAxisByMode[mode] = nextAxis;
-
-    if (this.#controls.axis !== nextAxis) {
-      this.#controls.axis = nextAxis;
-    }
 
     return nextAxis;
   }
@@ -608,7 +784,7 @@ export class GamepadTransformControls extends GamepadControls {
     this.#activeAxisByMode[this.#controls.mode] = axis;
 
     if (this.#controls.axis !== axis) {
-      this.#controls.axis = axis;
+      this.#writeProperty("axis", axis);
     }
   }
 
@@ -682,53 +858,85 @@ export class GamepadTransformControls extends GamepadControls {
   }
 
   /**
-   * Starts a TransformControls drag interaction for the active object and axis.
+   * Captures a segment's transform origin and claims dragging ownership before
+   * notifying native property listeners. The update publishes `mouseDown` later.
    *
    * @param object - Object attached to TransformControls for this update.
+   * @param axis - Valid axis acquired for the new segment.
    */
-  #startTransform(object: Object3D): void {
-    const controls = this.#controls;
-
+  #startTransform(object: Object3D, axis: TransformAxis): void {
     this.#captureTransformStart(object);
-    this.#isTransforming = true;
-    controls.dragging = true;
+    // Establish ownership before the observable setter; publishing starts later.
+    this.#segment = {
+      ...this.#readContext(),
+      object,
+      axis,
+      dragging: true,
+      started: false,
+    };
+    this.#writeProperty("dragging", true);
   }
 
   /**
-   * Ends an active TransformControls drag interaction.
+   * Releases the owned segment and ends its published interaction once,
+   * preserving pointer ownership and context changes made by callbacks.
    *
-   * @param clearAxis - Whether to clear the highlighted axis after ending.
+   * @param clearAxis - Whether to clear the highlighted axis if ownership
+   *                    and context still permit it after end notifications.
    */
   #endTransform(clearAxis: boolean): void {
-    if (!this.#isTransforming) return;
-
+    const segment = this.#segment;
+    if (segment === null) return;
     const controls = this.#controls;
-    const started = this.#transformStarted;
-    const mode = controls.mode;
-    this.#isTransforming = false;
-    this.#transformStarted = false;
-
-    // Release ownership before notifying listeners so reentrant disposal
-    // cannot end the same session twice. Preserve native mouseUp ordering:
-    // listeners still observe dragging before it is reset below.
-    if (started) controls.dispatchEvent({ type: "mouseUp", mode });
-    controls.dragging = false;
-    if (clearAxis) {
-      this.#setActiveAxis(null);
+    const context = this.#readContext();
+    this.#segment = null;
+    this.#ending = true;
+    try {
+      // Keep native mouseUp ordering but release ownership before notification.
+      if (segment.started) {
+        controls.dispatchEvent({ type: "mouseUp", mode: segment.mode });
+      }
+      const unchanged = this.#matchesContext(context);
+      if (!unchanged) {
+        this.#interrupted = true;
+        if (controls.object !== context.object) this.#needsNeutral = true;
+      }
+      // Object/mode changes do not transfer our dragging flag. A listener that
+      // already released it owns any subsequent changes from that setter.
+      const ownsDragging = this.#pointerRevision === segment.pointerRevision;
+      if (ownsDragging && controls.dragging === context.dragging) {
+        this.#writeProperty("dragging", false);
+      }
+      if (
+        clearAxis &&
+        ownsDragging &&
+        unchanged &&
+        this.#matchesContext({ ...context, dragging: false }) &&
+        controls.axis === segment.axis
+      ) {
+        this.#setActiveAxis(null);
+      }
+    } finally {
+      this.#ending = false;
+      if (this.#disposed) {
+        controls.removeEventListener("mouseDown", this.#onNativeMouseDown);
+      }
     }
   }
 
-  // Resets the active object to TransformControls' captured drag start state.
+  /**
+   * Restores the owned segment's transform origin through native reset and
+   * resets its accumulators if callbacks leave the same segment active.
+   */
   #resetActiveTransform(): void {
-    const object = this.#controls.object;
-
-    if (!this.#isTransforming || object === undefined) {
-      return;
-    }
-
+    const segment = this.#segment;
+    if (segment === null) return;
+    const context = this.#readContext();
     this.#controls.reset();
-    this.#accumulatedPosition.copy(object.position);
-    this.#accumulatedScale.copy(object.scale);
+    this.#afterCallback(context);
+    if (this.#segment !== segment) return;
+    this.#accumulatedPosition.copy(segment.object.position);
+    this.#accumulatedScale.copy(segment.object.scale);
     this.#rotationAmount = 0;
     this.#freeRotationX = 0;
     this.#freeRotationY = 0;
@@ -779,6 +987,7 @@ export class GamepadTransformControls extends GamepadControls {
       this.#parentQuaternion.identity();
       this.#parentQuaternionInv.identity();
       this.#parentScale.set(1, 1, 1);
+
       return;
     }
 

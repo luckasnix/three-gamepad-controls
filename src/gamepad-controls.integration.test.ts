@@ -636,6 +636,57 @@ describe("native input permissions", () => {
 });
 
 describe("permission transitions and native state", () => {
+  integrationTest.for([
+    "mouseUp",
+    "dragging-changed",
+    "reentrant-dispose",
+  ] as const)(
+    "Transform preserves pointer acquisition from a %s listener during cleanup",
+    (trigger, { cleanup, gamepadPolling }) => {
+      const event = trigger === "reentrant-dispose" ? "mouseUp" : trigger;
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      scenario.step(scenario.active);
+      const takeOver = () => {
+        controls.removeEventListener(event, takeOver);
+        if (trigger === "reentrant-dispose") scenario.wrapper.dispose();
+        controls.dragging = false;
+        controls.axis = "Y";
+        scenario.syncMatrices();
+        controls.pointerDown(transformPointer(0, 0));
+      };
+      controls.addEventListener(event, takeOver);
+      cleanup.add("listener", () =>
+        controls.removeEventListener(event, takeOver),
+      );
+      scenario.wrapper.dispose();
+      expect(controls.axis).toBe("Y");
+      expect(controls.dragging).toBe(true);
+      const before = pose(scenario.mesh);
+      controls.pointerMove(transformPointer(0.2, -1));
+      expect(scenario.mesh.position.y).toBeGreaterThan(before.position.y);
+      expect(scenario.mesh.position.x).toBeCloseTo(before.position.x);
+      controls.pointerUp(transformPointer(0.2, 0));
+    },
+  );
+
+  integrationTest(
+    "Transform can acquire after observing neutral input during a pointer drag",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("transform", cleanup, gamepadPolling);
+      const controls = scenario.nativeControls as TransformControls;
+      controls.axis = "Y";
+      scenario.syncMatrices();
+      controls.pointerDown(transformPointer(0, 0));
+      scenario.step(scenario.active);
+      scenario.step();
+      controls.pointerUp(transformPointer(0, 0));
+      scenario.step(scenario.active);
+      expect(controls.dragging).toBe(true);
+      expect(scenario.mesh.position.x).toBeGreaterThan(0);
+    },
+  );
+
   integrationTest(
     "Arcball focus joins continuous movement and reconnection starts a new session",
     ({ cleanup, gamepadPolling }) => {
@@ -788,6 +839,21 @@ describe("permission transitions and native state", () => {
       controls.pointerMove(transformPointer(0.2, -1));
       expect(scenario.mesh.position.y).toBeGreaterThan(0);
       controls.pointerUp(transformPointer(0.2, 0));
+      const afterPointer = pose(scenario.mesh);
+      scenario.step({
+        axes: [0.5, 0, 0, 0],
+        buttons: createGamepadButtons([1, true], [3, true], [9, true]),
+      });
+      expectPose(scenario.mesh, afterPointer);
+      expect(controls.dragging).toBe(false);
+      expect(controls.mode).toBe("translate");
+      expect(controls.space).toBe("world");
+      scenario.step();
+      scenario.step(scenario.active);
+      expect(controls.dragging).toBe(true);
+      expect(
+        scenario.mesh.position.distanceTo(afterPointer.position),
+      ).toBeGreaterThan(0);
     },
   );
 

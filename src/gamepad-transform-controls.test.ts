@@ -328,7 +328,7 @@ describe("GamepadTransformControls mode and axis selection", () => {
 
       updateInput(controls);
       transformFixture.controls.showX = false;
-      updateInput(controls);
+      updateInput(controls, { axes: [0, -1] });
       expect(transformFixture.controls.axis).toBe("Y");
 
       pressButton(controls, DEFAULT_BUTTONS.axisX);
@@ -336,7 +336,7 @@ describe("GamepadTransformControls mode and axis selection", () => {
 
       transformFixture.controls.showY = false;
       transformFixture.controls.showZ = false;
-      updateInput(controls);
+      updateInput(controls, { axes: [0, -1] });
       expect(transformFixture.controls.axis).toBeNull();
 
       pressButton(controls, DEFAULT_BUTTONS.axisNext);
@@ -388,6 +388,365 @@ describe("GamepadTransformControls mode and axis selection", () => {
 });
 
 describe("GamepadTransformControls interaction lifecycle", () => {
+  gamepadTest.for(["external", "button"] as const)(
+    "recaptures each mode, space and axis segment changed by %s",
+    (source) => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      const events: string[] = [];
+      fixture.controls.addEventListener("mouseDown", (e) =>
+        events.push(`down:${e.mode}`),
+      );
+      fixture.controls.addEventListener("mouseUp", (e) =>
+        events.push(`up:${e.mode}`),
+      );
+      updateInput(wrapper);
+      const axes = [0.5, -0.5];
+      updateInput(wrapper, { axes });
+      const changes = [
+        {
+          button: 12,
+          change: () => {
+            fixture.controls.axis = "Y";
+          },
+          mode: "translate",
+        },
+        {
+          button: 3,
+          change: () => fixture.controls.setSpace("local"),
+          mode: "translate",
+        },
+        {
+          button: 1,
+          change: () => fixture.controls.setMode("rotate"),
+          mode: "rotate",
+        },
+      ];
+      let previousMode = "translate";
+      for (const { button, change, mode } of changes) {
+        const position = fixture.object.position.clone();
+        const quaternion = fixture.object.quaternion.clone();
+        const scale = fixture.object.scale.clone();
+        if (source === "external") change();
+        updateInput(wrapper, {
+          axes,
+          buttons:
+            source === "button" ? createGamepadButtons([button, true]) : [],
+        });
+        expect(events.slice(-2)).toEqual([
+          `up:${previousMode}`,
+          `down:${mode}`,
+        ]);
+        updateInput(wrapper, { axes });
+        updateInput(wrapper, {
+          axes,
+          buttons: createGamepadButtons([9, true]),
+          deltaTime: 0,
+        });
+        expect(fixture.object.position).toEqual(position);
+        expect(fixture.object.quaternion.angleTo(quaternion)).toBeLessThan(
+          1e-7,
+        );
+        expect(fixture.object.scale).toEqual(scale);
+        previousMode = mode;
+      }
+      updateInput(wrapper);
+      expect(events).toEqual([
+        "down:translate",
+        "up:translate",
+        "down:translate",
+        "up:translate",
+        "down:translate",
+        "up:translate",
+        "down:rotate",
+        "up:rotate",
+      ]);
+    },
+  );
+
+  gamepadTest(
+    "cycles from external selection and falls back to remembered acquisition",
+    () => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      updateInput(wrapper);
+      fixture.controls.axis = "Y";
+      pressButton(wrapper, 5);
+      expect(fixture.controls.axis).toBe("Z");
+      fixture.controls.axis = null;
+      updateInput(wrapper, { axes: [0, -1] });
+      expect(fixture.controls.axis).toBe("Z");
+      updateInput(wrapper);
+      fixture.controls.axis = "Y";
+      updateInput(wrapper, {
+        axes: [1, 0],
+        buttons: createGamepadButtons([15, true]),
+      });
+      expect(fixture.controls.axis).toBe("X");
+      expect(fixture.object.position.x).toBeGreaterThan(0);
+    },
+  );
+
+  gamepadTest.for(["axis-changed", "dragging-changed", "mouseDown"] as const)(
+    "aborts acquisition when %s replaces the object",
+    (event) => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      const replacement = new Object3D();
+      replacement.position.x = 100;
+      updateInput(wrapper);
+      const replace = () => {
+        fixture.controls.removeEventListener(event, replace);
+        fixture.controls.attach(replacement);
+      };
+      fixture.controls.addEventListener(event, replace);
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(fixture.object.position.x).toBe(0);
+      expect(replacement.position.x).toBe(100);
+      expect(fixture.controls.dragging).toBe(false);
+      expect(fixture.mouseUp).toHaveBeenCalledTimes(
+        event === "mouseDown" ? 1 : 0,
+      );
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(replacement.position.x).toBe(100);
+      updateInput(wrapper);
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(replacement.position.x).toBeGreaterThan(100);
+    },
+  );
+
+  gamepadTest.for(["mode", "space", "axis", "detach", "release"] as const)(
+    "aborts movement when mouseDown changes %s",
+    (change) => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      const invalidate = () => {
+        fixture.controls.removeEventListener("mouseDown", invalidate);
+        if (change === "mode") fixture.controls.setMode("rotate");
+        else if (change === "space") fixture.controls.setSpace("local");
+        else if (change === "axis") fixture.controls.axis = "Y";
+        else if (change === "detach") fixture.controls.detach();
+        else fixture.controls.dragging = false;
+      };
+      fixture.controls.addEventListener("mouseDown", invalidate);
+      updateInput(wrapper, { axes: [1, -1] });
+      expect(fixture.object.position).toEqual(new Vector3());
+      expect(fixture.object.quaternion.angleTo(new Quaternion())).toBe(0);
+      expect(fixture.mouseDown).toHaveBeenCalledOnce();
+      expect(fixture.mouseUp).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ mode: "translate" }),
+      );
+      expect(fixture.controls.dragging).toBe(false);
+      expect(fixture.objectChange).not.toHaveBeenCalled();
+    },
+  );
+
+  gamepadTest.for(["mode-changed", "space-changed"] as const)(
+    "stops later buttons when %s changes selection",
+    (event) => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      updateInput(wrapper);
+      const change = () => {
+        fixture.controls.axis = "Y";
+      };
+      fixture.controls.addEventListener(event, change);
+      updateInput(wrapper, {
+        axes: [1, 0],
+        buttons: createGamepadButtons(
+          [event === "mode-changed" ? 1 : 3, true],
+          [14, true],
+        ),
+      });
+      expect(fixture.controls.axis).toBe("Y");
+      expect(fixture.controls.dragging).toBe(false);
+      expect(fixture.mouseDown).not.toHaveBeenCalled();
+      expect(fixture.object.position).toEqual(new Vector3());
+    },
+  );
+
+  gamepadTest.for(["change", "objectChange"] as const)(
+    "closes the segment when a movement %s listener detaches the object",
+    (event) => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      updateInput(wrapper, { axes: [1, 0] });
+      const detach = () => {
+        fixture.controls.removeEventListener(event, detach);
+        fixture.controls.detach();
+      };
+      fixture.controls.addEventListener(event, detach);
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(fixture.mouseUp).toHaveBeenCalledOnce();
+      expect(fixture.controls.dragging).toBe(false);
+      const position = fixture.object.position.clone();
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(fixture.object.position).toEqual(position);
+    },
+  );
+
+  gamepadTest.for(["replace", "mode", "pause", "dispose"] as const)(
+    "does not apply movement after reset requests %s",
+    (action) => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      const replacement = new Object3D();
+      replacement.position.x = 100;
+      updateInput(wrapper);
+      updateInput(wrapper, { axes: [1, 0] });
+      const stop = () => {
+        fixture.controls.removeEventListener("objectChange", stop);
+        if (action === "replace") fixture.controls.attach(replacement);
+        else if (action === "mode") fixture.controls.setMode("rotate");
+        else if (action === "pause") wrapper.enabled = false;
+        else wrapper.dispose();
+      };
+      fixture.controls.addEventListener("objectChange", stop);
+      updateInput(wrapper, {
+        axes: [1, 0],
+        buttons: createGamepadButtons([9, true]),
+      });
+      expect(fixture.object.position).toEqual(new Vector3());
+      expect(replacement.position.x).toBe(100);
+      expect(fixture.controls.dragging).toBe(action === "pause");
+      if (action === "pause") {
+        wrapper.enabled = true;
+        updateInput(wrapper, { axes: [1, 0], deltaTime: 0 });
+        expect(fixture.object.position).toEqual(new Vector3());
+      }
+    },
+  );
+
+  gamepadTest.for(["replace", "axis", "release", "dispose"] as const)(
+    "preserves listener state when mouseUp requests %s",
+    (action) => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      const replacement = new Object3D();
+      updateInput(wrapper, { axes: [1, 0] });
+      const before = fixture.object.position.clone();
+      const stop = () => {
+        expect(fixture.controls.dragging).toBe(true);
+        if (action === "replace") fixture.controls.attach(replacement);
+        else if (action === "axis") fixture.controls.axis = "Y";
+        else if (action === "release") fixture.controls.dragging = false;
+        else wrapper.dispose();
+        wrapper.update(0.1);
+      };
+      fixture.controls.addEventListener("mouseUp", stop);
+      updateInput(wrapper, {
+        axes: [1, 0],
+        buttons: createGamepadButtons([1, true]),
+      });
+      expect(fixture.object.position).toEqual(before);
+      expect(replacement.position).toEqual(new Vector3());
+      expect(fixture.mouseUp).toHaveBeenCalledOnce();
+      expect(fixture.controls.mode).toBe("translate");
+      expect(fixture.controls.axis).toBe(action === "axis" ? "Y" : "X");
+    },
+  );
+
+  gamepadTest("does not acquire recursively or apply a frame twice", () => {
+    const fixture = createTransformControls();
+    const wrapper = createControls(fixture.controls);
+    fixture.controls.addEventListener("mouseDown", () => wrapper.update(0.1));
+    updateInput(wrapper, { axes: [1, 0] });
+    const first = fixture.object.position.x;
+    expect(fixture.mouseDown).toHaveBeenCalledOnce();
+    updateInput(wrapper, { axes: [1, 0] });
+    expect(fixture.object.position.x).toBeCloseTo(first * 2);
+  });
+
+  gamepadTest(
+    "ends before movement when mouseDown hides the selected axis",
+    () => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      fixture.controls.addEventListener("mouseDown", () => {
+        fixture.controls.showX = false;
+      });
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(fixture.object.position).toEqual(new Vector3());
+      expect(fixture.mouseUp).toHaveBeenCalledOnce();
+      expect(fixture.controls.dragging).toBe(false);
+    },
+  );
+
+  gamepadTest("requires a fresh acquisition after detach and reattach", () => {
+    const fixture = createTransformControls();
+    const wrapper = createControls(fixture.controls);
+    updateInput(wrapper, { axes: [1, 0] });
+    fixture.controls.detach();
+    updateInput(wrapper, { axes: [1, 0] });
+    const before = fixture.object.position.clone();
+    fixture.controls.attach(fixture.object);
+    updateInput(wrapper, { axes: [1, 0] });
+    expect(fixture.object.position).toEqual(before);
+    updateInput(wrapper);
+    updateInput(wrapper, { axes: [1, 0] });
+    expect(fixture.object.position.x).toBeGreaterThan(before.x);
+    updateInput(wrapper, {
+      axes: [1, 0],
+      buttons: createGamepadButtons([9, true]),
+      deltaTime: 0,
+    });
+    expect(fixture.object.position).toEqual(before);
+  });
+
+  gamepadTest("preserves an external axis during neutral frames", () => {
+    const fixture = createTransformControls();
+    const wrapper = createControls(fixture.controls);
+    updateInput(wrapper);
+    expect(fixture.controls.axis).toBeNull();
+    fixture.controls.axis = "Y";
+    updateInput(wrapper);
+    expect(fixture.controls.axis).toBe("Y");
+    updateInput(wrapper, { axes: [0, -1] });
+    expect(fixture.object.position.y).toBeGreaterThan(0);
+    expect(fixture.object.position.x).toBe(0);
+  });
+
+  gamepadTest(
+    "ends with the original mode after an external mode change",
+    () => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      updateInput(wrapper, { axes: [1, 0] });
+      fixture.controls.setMode("rotate");
+      updateInput(wrapper);
+      expect(fixture.mouseUp).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ mode: "translate" }),
+      );
+    },
+  );
+
+  gamepadTest(
+    "requires neutral input before acquiring a replacement object",
+    () => {
+      const fixture = createTransformControls();
+      const wrapper = createControls(fixture.controls);
+      updateInput(wrapper, { axes: [1, 0] });
+      const before = fixture.object.position.clone();
+      const replacement = new Object3D();
+      replacement.position.x = 100;
+      fixture.controls.attach(replacement);
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(replacement.position.x).toBe(100);
+      expect(fixture.object.position).toEqual(before);
+      expect(fixture.controls.dragging).toBe(false);
+      expect(fixture.mouseUp).toHaveBeenCalledOnce();
+      updateInput(wrapper);
+      updateInput(wrapper, { axes: [1, 0] });
+      expect(replacement.position.x).toBeGreaterThan(100);
+      updateInput(wrapper, {
+        axes: [1, 0],
+        buttons: createGamepadButtons([9, true]),
+        deltaTime: 0,
+      });
+      expect(replacement.position.x).toBe(100);
+    },
+  );
+
   gamepadTest(
     "dispatches native-style events from stick press to release",
     () => {
