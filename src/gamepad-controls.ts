@@ -6,18 +6,11 @@ import {
   type GamepadInputOptions,
 } from "./gamepad-input.ts";
 
-// `EventDispatcher` listeners add `type` and `target` to the event-specific
-// fields in `GamepadInputEventMap`, keeping this private bridge fully typed.
-type GamepadInputConnectedEvent = GamepadInputEventMap["connected"] & {
-  readonly type: "connected";
-  readonly target: GamepadInput;
-};
+// The input uses native custom events; wrappers retain Three.js event objects.
+type GamepadInputConnectedEvent = GamepadInputEventMap["connected"];
 
 // Private equivalent of `GamepadInputConnectedEvent` for disconnection events.
-type GamepadInputDisconnectedEvent = GamepadInputEventMap["disconnected"] & {
-  readonly type: "disconnected";
-  readonly target: GamepadInput;
-};
+type GamepadInputDisconnectedEvent = GamepadInputEventMap["disconnected"];
 
 /**
  * Event map for {@link GamepadControls}.
@@ -133,7 +126,7 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    */
   #handleGamepadConnected(event: GamepadInputConnectedEvent): void {
     this.gamepad = this.#gamepadInput.gamepad;
-    this.onGamepadConnected(event.gamepad);
+    this.onGamepadConnected(event.detail.gamepad);
   }
 
   /**
@@ -143,7 +136,7 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    */
   #handleGamepadDisconnected(event: GamepadInputDisconnectedEvent): void {
     this.gamepad = this.#gamepadInput.gamepad;
-    this.onGamepadDisconnected(event.gamepad);
+    this.onGamepadDisconnected(event.detail.gamepad);
   }
 
   /**

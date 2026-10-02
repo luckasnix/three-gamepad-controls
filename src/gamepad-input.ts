@@ -1,5 +1,3 @@
-import { EventDispatcher } from "three";
-
 import {
   isGamepadVibrationSupported,
   playGamepadVibrationEffect,
@@ -13,31 +11,36 @@ import {
 } from "./gamepad-stick-processing.ts";
 
 /**
- * Event map for {@link GamepadInput}.
+ * Native custom event map for {@link GamepadInput}.
+ * Gamepad snapshots are available through `event.detail.gamepad`.
  */
 export type GamepadInputEventMap = {
   /**
    * Fired when a gamepad is connected and becomes active.
    */
-  connected: {
+  connected: CustomEvent<{
     /**
      * Gamepad snapshot that became active.
      */
     gamepad: Gamepad;
-  };
+  }>;
 
   /**
    * Fired on a matching browser disconnection event or when polling observes
    * the active slot missing or disconnected. Continuous snapshots in the same
    * slot do not establish a physical-device identity or signal replacement.
    */
-  disconnected: {
+  disconnected: CustomEvent<{
     /**
      * Gamepad snapshot that was active before disconnection.
      */
     gamepad: Gamepad;
-  };
+  }>;
 };
+
+type GamepadInputEventListener<K extends keyof GamepadInputEventMap> =
+  | ((this: GamepadInput, event: GamepadInputEventMap[K]) => void)
+  | { handleEvent(event: GamepadInputEventMap[K]): void };
 
 /**
  * Configuration for {@link GamepadInput}.
@@ -141,8 +144,13 @@ const getGamepadButtonValue = (gamepad: Gamepad, button: number): number => {
  * Gamepad input state reader for gameplay, menus, and custom actions.
  *
  * Call {@link update} once per frame before reading button transitions or axes.
+ * Connection notifications are synchronous native `CustomEvent` objects with
+ * the gamepad snapshot in `event.detail.gamepad`. Input state is updated before
+ * listeners run. Inherited `dispatchEvent()` requires an `Event` instance;
+ * listener exceptions are reported by the browser instead of propagating to
+ * the dispatch caller.
  */
-export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
+export class GamepadInput extends EventTarget {
   /**
    * When `false`, polling through `update()` is paused and the last observed
    * state, including button transitions, is retained. Browser listeners remain
@@ -190,6 +198,113 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
 
     window.addEventListener("gamepadconnected", this.#onGamepadConnected);
     window.addEventListener("gamepaddisconnected", this.#onGamepadDisconnected);
+  }
+
+  /**
+   * Adds a native event listener with typed connection event details.
+   *
+   * Connection callbacks receive a `CustomEvent` with `detail.gamepad`.
+   * Supports callback functions and objects with `handleEvent`. Registering
+   * the same event type, listener, and capture flag again does not duplicate it.
+   * A regular callback's `this` is this input; a listener object's `this` is
+   * the listener object. Manage subscriptions separately from {@link dispose}.
+   *
+   * @param type - Event name to observe.
+   * @param listener - Callback or listener object, or `null` for a no-op.
+   * @param options - Capture flag (default `false`) or native options including
+   * `capture`, `once`, `passive`, and `signal`.
+   * @example
+   * ```ts
+   * const subscriptions = new AbortController();
+   * input.addEventListener("connected", (event) => {
+   *   console.log(event.detail.gamepad.id);
+   * }, { signal: subscriptions.signal });
+   * subscriptions.abort();
+   * ```
+   */
+  public override addEventListener<K extends keyof GamepadInputEventMap>(
+    type: K,
+    listener: GamepadInputEventListener<K> | null,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  /**
+   * Adds a listener using standard `EventTarget` types for any event name.
+   *
+   * @param type - Event name to observe.
+   * @param listener - Native callback or listener object, or `null` for a no-op.
+   * @param options - Capture flag or native event listener options.
+   */
+  public override addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  public override addEventListener(
+    type: string,
+    listener:
+      | GamepadInputEventListener<keyof GamepadInputEventMap>
+      | EventListenerOrEventListenerObject
+      | null,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
+    super.addEventListener(
+      type,
+      listener as EventListenerOrEventListenerObject | null,
+      options,
+    );
+  }
+
+  /**
+   * Removes a native event listener with the matching capture option.
+   *
+   * The event type, callback or object identity, and capture flag must match
+   * registration. Other registration options do not affect removal. A missing
+   * listener or `null` is a no-op. Removal during dispatch prevents a pending
+   * invocation of that listener.
+   *
+   * @param type - Event name being observed.
+   * @param listener - Previously registered callback or listener object, or `null`.
+   * @param options - Capture flag (default `false`) or an object with `capture`.
+   * @example
+   * ```ts
+   * const onConnected = (event: GamepadInputEventMap["connected"]) => {
+   *   console.log(event.detail.gamepad.id);
+   * };
+   * input.addEventListener("connected", onConnected);
+   * input.removeEventListener("connected", onConnected);
+   * ```
+   */
+  public override removeEventListener<K extends keyof GamepadInputEventMap>(
+    type: K,
+    listener: GamepadInputEventListener<K> | null,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  /**
+   * Removes a listener using standard `EventTarget` types for any event name.
+   *
+   * @param type - Event name being observed.
+   * @param listener - Previously registered native callback or listener object,
+   * or `null` for a no-op.
+   * @param options - Capture flag or an object with the matching `capture` flag.
+   */
+  public override removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  public override removeEventListener(
+    type: string,
+    listener:
+      | GamepadInputEventListener<keyof GamepadInputEventMap>
+      | EventListenerOrEventListenerObject
+      | null,
+    options?: boolean | EventListenerOptions,
+  ): void {
+    super.removeEventListener(
+      type,
+      listener as EventListenerOrEventListenerObject | null,
+      options,
+    );
   }
 
   /**
@@ -273,20 +388,18 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
     if (connected !== null) {
       this.#gamepad = gamepad;
       this.#syncButtonState({ seedPrevious: true });
-      this.dispatchEvent({
-        type: "connected",
-        gamepad: connected,
-      });
+      this.dispatchEvent(
+        new CustomEvent("connected", { detail: { gamepad: connected } }),
+      );
       return;
     }
 
     if (disconnected !== null) {
       this.#gamepad = null;
       this.#clearButtonState();
-      this.dispatchEvent({
-        type: "disconnected",
-        gamepad: disconnected,
-      });
+      this.dispatchEvent(
+        new CustomEvent("disconnected", { detail: { gamepad: disconnected } }),
+      );
       return;
     }
 
@@ -445,10 +558,9 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
 
     this.#gamepad = connectedGamepad;
     this.#syncButtonState({ seedPrevious: true });
-    this.dispatchEvent({
-      type: "connected",
-      gamepad: connectedGamepad,
-    });
+    this.dispatchEvent(
+      new CustomEvent("connected", { detail: { gamepad: connectedGamepad } }),
+    );
   }
 
   /**
@@ -468,10 +580,11 @@ export class GamepadInput extends EventDispatcher<GamepadInputEventMap> {
 
     this.#gamepad = null;
     this.#clearButtonState();
-    this.dispatchEvent({
-      type: "disconnected",
-      gamepad: disconnectedGamepad,
-    });
+    this.dispatchEvent(
+      new CustomEvent("disconnected", {
+        detail: { gamepad: disconnectedGamepad },
+      }),
+    );
   }
 
   /**

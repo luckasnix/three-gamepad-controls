@@ -1,4 +1,4 @@
-import { describe, expect, vi } from "vitest";
+import { describe, expect, expectTypeOf, vi } from "vitest";
 
 import {
   createGamepad,
@@ -10,10 +10,7 @@ import {
   type GamepadPollingFixture,
   gamepadTest,
 } from "../test/fixtures/gamepad-browser.ts";
-import {
-  collectEvents,
-  createCleanup,
-} from "../test/fixtures/three-controls.ts";
+import { createCleanup } from "../test/fixtures/three-controls.ts";
 import { MAX_GAMEPAD_INDEX, MIN_GAMEPAD_INDEX } from "./core.ts";
 import {
   GamepadInput,
@@ -29,15 +26,24 @@ let inputs: GamepadInput[];
 let polling: GamepadPollingFixture;
 let cleanup: ReturnType<typeof createCleanup>;
 
-const observeInput = (input: GamepadInput) =>
-  collectEvents<
-    GamepadInputEventMap,
-    keyof GamepadInputEventMap,
-    { index: number; targetMatches: boolean }
-  >(cleanup, input, ["connected", "disconnected"], "input", (event) => ({
-    index: event.gamepad.index,
-    targetMatches: event.target === input,
-  }));
+const observeInput = (input: GamepadInput) => {
+  const records: ReturnType<typeof inputEvent>[] = [];
+  for (const type of ["connected", "disconnected"] as const) {
+    const listener = (event: GamepadInputEventMap[typeof type]): void => {
+      records.push({
+        type,
+        source: "input",
+        data: {
+          index: event.detail.gamepad.index,
+          targetMatches: event.target === input,
+        },
+      });
+    };
+    input.addEventListener(type, listener);
+    cleanup.add("listener", () => input.removeEventListener(type, listener));
+  }
+  return records;
+};
 
 const inputEvent = (type: keyof GamepadInputEventMap, index: number) => ({
   type,
@@ -111,9 +117,12 @@ describe("GamepadInput polling lifecycle", () => {
       });
       const connectedGamepads: Gamepad[] = [];
       const input = createInput();
-      input.addEventListener("connected", ({ gamepad: connectedGamepad }) => {
-        connectedGamepads.push(connectedGamepad);
-      });
+      input.addEventListener(
+        "connected",
+        ({ detail: { gamepad: connectedGamepad } }) => {
+          connectedGamepads.push(connectedGamepad);
+        },
+      );
       polling.gamepads[0] = gamepad;
       input.update();
 
@@ -167,7 +176,7 @@ describe("GamepadInput polling lifecycle", () => {
       const input = createInput();
       input.addEventListener(
         "disconnected",
-        ({ gamepad: disconnectedGamepad }) => {
+        ({ detail: { gamepad: disconnectedGamepad } }) => {
           disconnectedGamepads.push(disconnectedGamepad);
         },
       );
@@ -225,7 +234,7 @@ describe("GamepadInput browser events", () => {
       });
       const connectedGamepads: Gamepad[] = [];
       const input = createInput({ gamepadIndex: 2 });
-      input.addEventListener("connected", ({ gamepad }) => {
+      input.addEventListener("connected", ({ detail: { gamepad } }) => {
         connectedGamepads.push(gamepad);
       });
       polling.gamepads[2] = selectedGamepad;
@@ -247,7 +256,7 @@ describe("GamepadInput browser events", () => {
       });
       const disconnectedGamepads: Gamepad[] = [];
       const input = createInput();
-      input.addEventListener("disconnected", ({ gamepad }) => {
+      input.addEventListener("disconnected", ({ detail: { gamepad } }) => {
         disconnectedGamepads.push(gamepad);
       });
       polling.gamepads[1] = activeGamepad;
@@ -267,6 +276,231 @@ describe("GamepadInput browser events", () => {
       expect(input.wasReleased(0)).toBe(false);
     },
   );
+});
+
+describe("GamepadInput native event contract", () => {
+  for (const source of ["polling", "browser"] as const) {
+    gamepadTest(
+      `dispatches ${source} lifecycle events after updating state`,
+      () => {
+        const input = createInput();
+        const gamepad = createGamepad(0, {
+          buttons: [createGamepadButton(true)],
+        });
+        const observed: CustomEvent<{ gamepad: Gamepad }>[] = [];
+        input.addEventListener("connected", function (event) {
+          expectTypeOf(event).toEqualTypeOf<
+            GamepadInputEventMap["connected"]
+          >();
+
+          expectTypeOf(this).toEqualTypeOf<GamepadInput>();
+          expect(this).toBe(input);
+          expect(event).toBeInstanceOf(CustomEvent);
+          expect(event.target).toBe(input);
+          expect(event.currentTarget).toBe(input);
+          expect(event.detail.gamepad).toBe(gamepad);
+          expect(event.bubbles).toBe(false);
+          expect(event.cancelable).toBe(false);
+          expect(input.gamepad).toBe(gamepad);
+          expect(input.isPressed(0)).toBe(true);
+          expect(input.wasPressed(0)).toBe(false);
+
+          observed.push(event);
+        });
+        input.addEventListener("disconnected", (event) => {
+          expectTypeOf(event).toEqualTypeOf<
+            GamepadInputEventMap["disconnected"]
+          >();
+          expect(event).toBeInstanceOf(CustomEvent);
+          expect(event.target).toBe(input);
+          expect(event.currentTarget).toBe(input);
+          expect(event.detail.gamepad).toBe(gamepad);
+          expect(input.connected).toBe(false);
+          expect(input.isPressed(0)).toBe(false);
+          expect(input.wasReleased(0)).toBe(false);
+
+          observed.push(event);
+        });
+        expect(input).toBeInstanceOf(EventTarget);
+        polling.gamepads[0] = gamepad;
+        if (source === "polling") input.update();
+        else dispatchGamepadEvent("gamepadconnected", gamepad);
+        expect(observed.map((event) => event.type)).toEqual(["connected"]);
+        polling.gamepads[0] = null;
+        if (source === "polling") input.update();
+        else dispatchGamepadEvent("gamepaddisconnected", gamepad);
+        expect(observed.map((event) => event.type)).toEqual([
+          "connected",
+          "disconnected",
+        ]);
+        expect(observed.every((event) => event.currentTarget === null)).toBe(
+          true,
+        );
+        expect(observed.every((event) => event.target === input)).toBe(true);
+      },
+    );
+  }
+
+  gamepadTest(
+    "supports once and listeners removed through abort signals",
+    () => {
+      const input = createInput();
+      const once = vi.fn();
+      const aborted = vi.fn();
+      const preAborted = vi.fn();
+      const controller = new AbortController();
+      const preAbortedController = new AbortController();
+      preAbortedController.abort();
+      input.addEventListener("connected", once, { once: true });
+      input.addEventListener("connected", aborted, {
+        signal: controller.signal,
+      });
+      input.addEventListener("connected", preAborted, {
+        signal: preAbortedController.signal,
+      });
+      polling.publishFrame([0]);
+      input.update();
+      controller.abort();
+      polling.publishFrame();
+      input.update();
+      polling.publishFrame([0]);
+      input.update();
+      expect(once).toHaveBeenCalledOnce();
+      expect(aborted).toHaveBeenCalledOnce();
+      expect(preAborted).not.toHaveBeenCalled();
+    },
+  );
+
+  gamepadTest(
+    "deduplicates and removes callbacks and typed listener objects",
+    () => {
+      const input = createInput();
+      const snapshots: Gamepad[] = [];
+      const listener = {
+        handleEvent(event: GamepadInputEventMap["connected"]) {
+          expect(this).toBe(listener);
+          snapshots.push(event.detail.gamepad);
+        },
+      };
+      const removed = vi.fn();
+      input.addEventListener("connected", listener);
+      input.addEventListener("connected", listener);
+      input.addEventListener("connected", removed);
+      input.removeEventListener("connected", removed);
+      polling.publishFrame([0]);
+      input.update();
+      expect(snapshots).toEqual([input.gamepad]);
+      input.removeEventListener("connected", listener);
+      polling.publishFrame();
+      input.update();
+      polling.publishFrame([0]);
+      input.update();
+      expect(snapshots).toHaveLength(1);
+      expect(removed).not.toHaveBeenCalled();
+    },
+  );
+
+  gamepadTest("matches capture when removing a listener", () => {
+    const input = createInput();
+    const listener = vi.fn();
+    input.addEventListener("connected", listener, true);
+    input.removeEventListener("connected", listener, false);
+    polling.publishFrame([0]);
+    input.update();
+    expect(listener).toHaveBeenCalledOnce();
+    input.removeEventListener("connected", listener, { capture: true });
+    polling.publishFrame();
+    input.update();
+    polling.publishFrame([0]);
+    input.update();
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  gamepadTest(
+    "honors listener removal and defers additions during dispatch",
+    () => {
+      const input = createInput();
+      const calls: string[] = [];
+      const removed = () => calls.push("removed");
+      const added = () => calls.push("added");
+      input.addEventListener("connected", () => {
+        calls.push("first");
+        input.removeEventListener("connected", removed);
+        input.addEventListener("connected", added);
+      });
+      input.addEventListener("connected", removed);
+      input.addEventListener("connected", () => calls.push("last"));
+      polling.publishFrame([0]);
+      input.update();
+      expect(calls).toEqual(["first", "last"]);
+      polling.publishFrame();
+      input.update();
+      polling.publishFrame([0]);
+      input.update();
+      expect(calls).toEqual(["first", "last", "first", "last", "added"]);
+    },
+  );
+
+  gamepadTest("allows a listener to stop the remaining notifications", () => {
+    const input = createInput();
+    const skipped = vi.fn();
+    input.addEventListener("connected", (event) => {
+      event.stopImmediatePropagation();
+    });
+    input.addEventListener("connected", skipped);
+    polling.publishFrame([0]);
+    input.update();
+    expect(input.connected).toBe(true);
+    expect(skipped).not.toHaveBeenCalled();
+  });
+
+  gamepadTest(
+    "reports listener exceptions without interrupting input updates",
+    () => {
+      const input = createInput();
+      const failure = new Error("GamepadInput listener failure");
+      const errors: unknown[] = [];
+      const reportError = (event: ErrorEvent): void => {
+        if (event.error !== failure) return;
+        errors.push(event.error);
+        // This expected browser error must not become an unhandled test error.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
+      window.addEventListener("error", reportError, true);
+      cleanup.add("listener", () =>
+        window.removeEventListener("error", reportError, true),
+      );
+      const following = vi.fn();
+      input.addEventListener("connected", () => {
+        throw failure;
+      });
+      input.addEventListener("connected", following);
+      polling.publishFrame([0]);
+      expect(() => input.update()).not.toThrow();
+      expect(errors).toEqual([failure]);
+      expect(following).toHaveBeenCalledOnce();
+      expect(input.connected).toBe(true);
+      polling.publishFrame([0, { buttons: [createGamepadButton(true)] }]);
+      input.update();
+      expect(input.wasPressed(0)).toBe(true);
+    },
+  );
+
+  gamepadTest("retains the native EventTarget API for arbitrary events", () => {
+    const input = createInput();
+    const event = new Event("custom", { cancelable: true });
+    const listener = (received: Event) => {
+      expect(received).toBe(event);
+      received.preventDefault();
+    };
+    input.addEventListener("custom", listener);
+    input.addEventListener("custom", null);
+    expect(input.dispatchEvent(event)).toBe(false);
+    input.removeEventListener("custom", listener);
+    input.removeEventListener("custom", null);
+    expect(input.dispatchEvent(new Event("custom"))).toBe(true);
+  });
 });
 
 describe("GamepadInput value reads", () => {

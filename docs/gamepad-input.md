@@ -6,6 +6,8 @@ Gamepad input state reader for gameplay, menus, and custom interactions.
 
 `GamepadInput` owns its internal gamepad manager. Applications create and update only `GamepadInput`; `GamepadManager` is not part of the public API.
 
+The input module uses native `EventTarget` and has no Three.js dependency. The package entry point and control wrappers depend on Three.js.
+
 ## Constructor
 
 `new GamepadInput(options?)`
@@ -113,10 +115,45 @@ See [Haptic Feedback](./haptic-feedback.md) for effect parameters, graceful degr
 
 ## Events
 
-| Event | Extra fields | Description |
+| Event | Detail | Description |
 | --- | --- | --- |
-| `connected` | `gamepad: Gamepad` | Fired when a gamepad is adopted as active. |
-| `disconnected` | `gamepad: Gamepad` | Fired on a browser disconnection event for the active slot or when polling observes that slot missing or disconnected. The payload is the previously active snapshot. |
+| `connected` | `{ gamepad: Gamepad }` | Fired when a gamepad is adopted as active. |
+| `disconnected` | `{ gamepad: Gamepad }` | Fired on a browser disconnection event for the active slot or when polling observes that slot missing or disconnected. The payload is the previously active snapshot. |
+
+`GamepadInput` extends the native [`EventTarget`](https://developer.mozilla.org/en-US/docs/Web/API/EventTarget). Both notifications are non-bubbling, non-cancelable `CustomEvent` objects. `GamepadInputEventMap` maps event names to their typed `CustomEvent` objects, and the gamepad snapshot is available at `event.detail.gamepad`. Listeners run synchronously after input state has been updated; `event.target` and `event.currentTarget` identify the input during the callback.
+
+```ts
+const subscriptions = new AbortController();
+
+gamepadInput.addEventListener(
+  "connected",
+  (event) => {
+    console.log("Gamepad ready:", event.detail.gamepad.id);
+  },
+  { signal: subscriptions.signal },
+);
+
+gamepadInput.addEventListener(
+  "disconnected",
+  (event) => {
+    console.log("Gamepad lost:", event.detail.gamepad.id);
+  },
+  { once: true },
+);
+
+// Remove listeners associated with this signal.
+subscriptions.abort();
+```
+
+Listeners support native options (`capture`, `once`, `passive`, and `signal`), callback functions, and objects with `handleEvent`. Remove a listener with the same callback or object and matching `capture` option. `dispose()` removes the input's browser gamepad listeners; consumers manage their own subscriptions with `removeEventListener` or an abort signal.
+
+Registering the same event type, listener, and capture flag more than once does not duplicate the subscription. A regular callback's `this` is the input; a listener object's `this` is the listener object. Passing `null` or removing an unregistered listener is a no-op. Both listener methods also accept arbitrary event names using the standard `EventTarget` types.
+
+`dispatchEvent()` accepts an `Event` instance and returns `false` when a cancelable event is canceled, otherwise `true`. Exceptions thrown by listeners are reported by the browser without propagating to the caller; other listeners continue to run.
+
+Removing a listener during dispatch prevents its pending invocation, while newly added listeners wait for a later dispatch. `stopImmediatePropagation()` prevents subsequent listeners from running. After dispatch, `event.target` identifies the input and `event.currentTarget` is `null`.
+
+[`GamepadControls`](./gamepad-controls.md#events) emits Three.js event objects, with the gamepad snapshot at `event.gamepad`.
 
 Continuous snapshots in the same connected slot do not emit another `connected` or `disconnected`, even when their object reference, `id`, or `timestamp` changes. This does not guarantee detection of a physical replacement without an observed loss. After loss, adoption waits until a subsequent update; a single polling update never reports both transitions. See [Observed connection lifecycle](./multiple-gamepads.md#observed-connection-lifecycle).
 

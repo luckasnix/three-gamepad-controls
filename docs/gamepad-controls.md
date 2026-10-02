@@ -120,6 +120,8 @@ These methods are inherited by every `Gamepad*Controls` wrapper. See [Haptic Fee
 | `connected` | `gamepad: Gamepad` | Fired when a gamepad is adopted as active. |
 | `disconnected` | `gamepad: Gamepad` | Fired on a browser disconnection event for the active slot or when polling observes that slot missing or disconnected. The payload is the previously active snapshot. |
 
+The wrapper translates the internal input's native `CustomEvent` notifications into Three.js event objects. Wrapper listeners read `event.gamepad`; listeners attached directly to [`GamepadInput`](./gamepad-input.md#events), including through the protected `gamepadInput` getter, read `event.detail.gamepad`.
+
 New snapshots, IDs, or timestamps in a continuously connected slot do not signal reconnection. Physical replacement detection requires an observed loss. Adoption after loss waits until a subsequent update. See [Observed connection lifecycle](./multiple-gamepads.md#observed-connection-lifecycle).
 
 ## Hooks

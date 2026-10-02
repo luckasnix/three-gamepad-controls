@@ -192,6 +192,34 @@ describe("GamepadControls.update", () => {
 });
 
 describe("GamepadControls lifecycle events", () => {
+  gamepadTest("bridges native input events to Three.js wrapper events", () => {
+    const controls = createControls();
+    const gamepad = createGamepad(0);
+    const inputEvents: CustomEvent<{ gamepad: Gamepad }>[] = [];
+    const wrapperEvents: string[] = [];
+    for (const type of ["connected", "disconnected"] as const) {
+      controls.input.addEventListener(type, (event) => {
+        expect(event).toBeInstanceOf(CustomEvent);
+        expect(event.detail.gamepad).toBe(gamepad);
+        expect(event.target).toBe(controls.input);
+        inputEvents.push(event);
+      });
+      controls.addEventListener(type, (event) => {
+        expect(event).not.toBeInstanceOf(Event);
+        expect(event.gamepad).toBe(gamepad);
+        expect(event.target).toBe(controls);
+        wrapperEvents.push(event.type);
+      });
+    }
+    polling.gamepads[0] = gamepad;
+    controls.update(0.1);
+    polling.gamepads[0] = null;
+    controls.update(0.1);
+
+    expect(wrapperEvents).toEqual(["connected", "disconnected"]);
+    expect(inputEvents.map((event) => event.type)).toEqual(wrapperEvents);
+  });
+
   gamepadTest(
     "forwards connection and disconnection through hooks and events",
     () => {
