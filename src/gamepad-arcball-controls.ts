@@ -225,11 +225,33 @@ type ArcballControlsWithRuntimeHelpers = ArcballControls & {
 };
 
 /**
+ * Cached processed sticks, signed button differences, and an optional world-space
+ * focus point for one frame. Continuous button values are filtered during acceptance.
+ */
+type ArcballInput = {
+  rotateX: number;
+  rotateY: number;
+  panX: number;
+  panY: number;
+  zoom: number;
+  zRotation: number;
+  focus: Vector3 | null;
+};
+
+/**
+ * Accepted frame deltas: rotation in radians, pan in virtual trackball space,
+ * a positive finite zoom factor (`1` is neutral), and an optional focus point.
+ */
+type ArcballActions = Omit<ArcballInput, "zoom"> & { zoomSize: number };
+
+/**
  * Adds gamepad support to Three.js `ArcballControls`.
  *
  * Call `update()` inside the render loop to poll gamepad input and apply
  * Arcball transformations. The wrapped `ArcballControls.update()` is only
  * needed after manual camera or target changes, matching Arcball's native API.
+ * Gamepad `start`, `change`, and `end` events are dispatched on the native controls.
+ * The balanced session belongs to this wrapper, including isolated focus commands.
  */
 export class GamepadArcballControls extends GamepadControls {
   readonly #controls: ArcballControlsWithRuntimeHelpers;
@@ -243,7 +265,12 @@ export class GamepadArcballControls extends GamepadControls {
   readonly #cameraRight: Vector3;
   readonly #previousUp: Vector3;
 
+  /** Whether this wrapper owns an active gamepad interaction. */
   #wasInteracting = false;
+  /** Blocks recursive updates while a frame is being processed. */
+  #updating = false;
+  /** Blocks recursive updates while the owned interaction is ending. */
+  #ending = false;
 
   /**
    * @param controls - A Three.js `ArcballControls` instance.
@@ -279,21 +306,34 @@ export class GamepadArcballControls extends GamepadControls {
   }
 
   /**
-   * Maps the current gamepad state to `ArcballControls` rotation, pan, zoom,
-   * z-rotation, and center focus.
+   * Polls and applies gamepad input, ignoring updates from synchronous native listeners.
+   * Pausing through `enabled` retains the owned interaction until input resumes,
+   * the gamepad disconnects, or the wrapper is disposed.
    *
    * @param deltaTime - Seconds since the last frame.
    */
+  public override update(deltaTime: number): void {
+    if (this.#updating || this.#ending) return;
+    this.#updating = true;
+    try {
+      super.update(deltaTime);
+    } finally {
+      this.#updating = false;
+    }
+  }
+
+  /**
+   * Reads each binding once and applies accepted Arcball transforms in one session.
+   * Revalidates the cached frame after `start` and `change`; an isolated focus
+   * command ends immediately, while continuous input keeps the session open.
+   *
+   * @param deltaTime - Seconds elapsed for this input frame.
+   */
   protected override onUpdate(deltaTime: number): void {
-    const controls = this.#controls;
+    if (!this.#canApplyInput()) return;
     const {
-      rotateSpeed,
-      panSpeed,
-      zoomSpeed,
-      zRotateSpeed,
       rotateStick,
       panStick,
-      buttonDeadzone,
       buttonZoomIn,
       buttonZoomOut,
       buttonZRotateLeft,
@@ -301,115 +341,144 @@ export class GamepadArcballControls extends GamepadControls {
       buttonFocus,
     } = this.#options;
     const input = this.gamepadInput;
-
-    const focusPoint = this.#consumeFocusPoint(buttonFocus);
-
-    if (!this.#canApplyInput()) return;
-
-    let rotateX = 0;
-    let rotateY = 0;
-    if (controls.enableRotate) {
-      const rotate = input.stick(
-        rotateStick.xAxis,
-        rotateStick.yAxis,
-        rotateStick.pipeline,
-      );
-      rotateX = rotate.x;
-      rotateY = rotate.y;
-    }
-
-    let panX = 0;
-    let panY = 0;
-    if (controls.enablePan) {
-      const pan = input.stick(
-        panStick.xAxis,
-        panStick.yAxis,
-        panStick.pipeline,
-      );
-      panX = pan.x;
-      panY = pan.y;
-    }
-    const zoom = controls.enableZoom
-      ? input.buttonValue(buttonZoomIn) - input.buttonValue(buttonZoomOut)
-      : 0;
-    const zRotation = controls.enableRotate
-      ? input.buttonValue(buttonZRotateLeft) -
-        input.buttonValue(buttonZRotateRight)
-      : 0;
-
-    const activeInput =
-      rotateX !== 0 ||
-      rotateY !== 0 ||
-      panX !== 0 ||
-      panY !== 0 ||
-      Math.abs(zoom) > buttonDeadzone ||
-      Math.abs(zRotation) > buttonDeadzone;
-
-    if (!activeInput && focusPoint === null) {
-      this.#endInteraction();
-      return;
-    }
-
+    const rotate = input.stick(
+      rotateStick.xAxis,
+      rotateStick.yAxis,
+      rotateStick.pipeline,
+    );
+    const pan = input.stick(panStick.xAxis, panStick.yAxis, panStick.pipeline);
+    const frame = {
+      rotateX: rotate.x,
+      rotateY: rotate.y,
+      panX: pan.x,
+      panY: pan.y,
+      zoom: input.buttonValue(buttonZoomIn) - input.buttonValue(buttonZoomOut),
+      zRotation:
+        input.buttonValue(buttonZRotateLeft) -
+        input.buttonValue(buttonZRotateRight),
+      focus: this.#consumeFocusPoint(buttonFocus),
+    };
+    let actions = this.#acceptActions(frame, deltaTime);
+    if (actions === null) return;
+    const controls = this.#controls;
     if (!this.#wasInteracting) {
       this.#wasInteracting = true;
       controls.dispatchEvent({ type: "start" });
+      actions = this.#acceptActions(frame, deltaTime);
+      if (actions === null) return;
     }
-    if (!this.#canApplyInput()) return;
-
-    let changed = false;
-
-    if (controls.enableRotate) {
-      changed =
-        this.#applyRotation(deltaTime, rotateX, rotateY, rotateSpeed) ||
-        changed;
-    }
-
-    if (controls.enablePan) {
-      changed = this.#applyPan(deltaTime, panX, panY, panSpeed) || changed;
-    }
-
-    if (controls.enableZoom) {
-      changed =
-        this.#applyZoom(deltaTime, zoom, zoomSpeed, buttonDeadzone) || changed;
-    }
-
-    if (controls.enableRotate) {
-      changed =
-        this.#applyZRotation(
-          deltaTime,
-          zRotation,
-          zRotateSpeed,
-          buttonDeadzone,
-        ) || changed;
-    }
-
-    if (controls.enablePan && controls.enableFocus) {
-      changed = this.#applyFocus(focusPoint) || changed;
-    }
-
+    let changed = this.#applyRotation(actions.rotateX, actions.rotateY);
+    changed = this.#applyPan(actions.panX, actions.panY) || changed;
+    changed = this.#applyZoom(actions.zoomSize) || changed;
+    changed = this.#applyZRotation(actions.zRotation) || changed;
+    changed = this.#applyFocus(actions.focus) || changed;
     if (changed) {
       controls.update();
       controls.updateMatrixState();
       controls.dispatchEvent({ type: "change" });
     }
-
-    if (!activeInput || !controls.enabled) {
+    // Re-read permissions after change, using the already processed input.
+    // A focus command is a one-shot and never keeps a session open alone.
+    actions = this.#acceptActions(frame, deltaTime);
+    if (actions !== null && !this.#hasContinuousInput(actions)) {
       this.#endInteraction();
     }
   }
 
+  /**
+   * Resolves a cached frame against current permissions, gains, and zoom validity.
+   * Zero deltas and invalid or neutral zoom factors do not sustain an interaction.
+   * Ends the owned session when neither continuous input nor focus remains accepted.
+   *
+   * @param frame - Already processed input and the focus point resolved for this frame.
+   * @param delta - Frame duration in seconds.
+   * @returns Accepted deltas and focus, or `null` when input application must stop.
+   */
+  #acceptActions(frame: ArcballInput, delta: number): ArcballActions | null {
+    if (!this.#canApplyInput()) return null;
+    const controls = this.#controls;
+    const options = this.#options;
+    const rotate = controls.enableRotate
+      ? controls.rotateSpeed * options.rotateSpeed * delta * Math.PI
+      : 0;
+    const pan = controls.enablePan
+      ? controls._tbRadius * options.panSpeed * delta
+      : 0;
+    const zRotation =
+      controls.enableRotate &&
+      Math.abs(frame.zRotation) > options.buttonDeadzone
+        ? frame.zRotation * options.zRotateSpeed * delta * Math.PI
+        : 0;
+    let zoomSize = 1;
+    if (
+      controls.enableZoom &&
+      Math.abs(frame.zoom) > options.buttonDeadzone &&
+      controls.scaleFactor > 0
+    ) {
+      const size =
+        controls.scaleFactor **
+        (frame.zoom * options.zoomSpeed * delta * ZOOM_NOTCHES_PER_SECOND);
+      if (Number.isFinite(size) && size > 0) zoomSize = size;
+    }
+    const actions: ArcballActions = {
+      rotateX: frame.rotateX * rotate,
+      rotateY: frame.rotateY * rotate,
+      panX: frame.panX * pan,
+      panY: frame.panY * pan,
+      zoomSize,
+      zRotation,
+      focus: controls.enablePan && controls.enableFocus ? frame.focus : null,
+    };
+    if (!this.#hasContinuousInput(actions) && actions.focus === null) {
+      this.#endInteraction();
+      return null;
+    }
+    return actions;
+  }
+
+  /**
+   * Checks whether accepted movement can sustain a session, excluding one-shot focus.
+   *
+   * @param actions - Frame deltas already resolved against current permissions and gains.
+   * @returns `true` when any rotation, pan, or zoom delta is non-neutral.
+   */
+  #hasContinuousInput(actions: ArcballActions): boolean {
+    return (
+      actions.rotateX !== 0 ||
+      actions.rotateY !== 0 ||
+      actions.panX !== 0 ||
+      actions.panY !== 0 ||
+      actions.zoomSize !== 1 ||
+      actions.zRotation !== 0
+    );
+  }
+
+  /**
+   * Removes gamepad listeners and ends only this wrapper's active interaction.
+   * Repeated calls are safe; the native Arcball instance is not disposed.
+   */
   public override dispose(): void {
     super.dispose();
     this.#endInteraction();
   }
 
+  /**
+   * Ends the owned interaction before forwarding the active gamepad's disconnection.
+   *
+   * @param gamepad - The gamepad that just disconnected.
+   */
   protected override onGamepadDisconnected(gamepad: Gamepad): void {
     this.#endInteraction();
     super.onGamepadDisconnected(gamepad);
   }
 
-  // Native listeners may cancel input synchronously; wrapper pause alone
-  // retains the session until resume, disconnection, or disposal.
+  /**
+   * Checks whether input remains applicable after a synchronous native callback.
+   * Native disable ends the owned session; a wrapper pause retains it until resume,
+   * disconnection, or disposal.
+   *
+   * @returns `true` when the wrapper and native controls are enabled and a gamepad is available.
+   */
   #canApplyInput(): boolean {
     if (!this.#controls.enabled) {
       this.#endInteraction();
@@ -419,45 +488,27 @@ export class GamepadArcballControls extends GamepadControls {
   }
 
   /**
-   * Applies gamepad stick rotation through Arcball's runtime rotation helper.
+   * Applies accepted angular deltas through native rotation helpers.
    *
-   * @param deltaTime - Seconds since the last frame.
-   * @param rotateX - Horizontal rotation input after dead zone processing.
-   * @param rotateY - Vertical rotation input after dead zone processing.
-   * @param rotateSpeed - User-configured rotation speed multiplier.
-   * @returns `true` when a rotation was applied.
+   * @param rotateX - Horizontal rotation delta in radians.
+   * @param rotateY - Vertical rotation delta in radians.
+   * @returns `true` when at least one rotation transform was applied.
    */
-  #applyRotation(
-    deltaTime: number,
-    rotateX: number,
-    rotateY: number,
-    rotateSpeed: number,
-  ): boolean {
-    if (rotateX === 0 && rotateY === 0) {
-      return false;
-    }
-
+  #applyRotation(rotateX: number, rotateY: number): boolean {
     const controls = this.#controls;
-    const amount = controls.rotateSpeed * rotateSpeed * deltaTime * Math.PI;
     let changed = false;
-
     if (rotateX !== 0) {
       this.#rotationAxis.copy(controls.object.up).normalize();
-      changed =
-        this.#applyRotationAroundAxis(this.#rotationAxis, rotateX * amount) ||
-        changed;
+      changed = this.#applyRotationAroundAxis(this.#rotationAxis, rotateX);
     }
-
     if (rotateY !== 0) {
       controls.object.getWorldDirection(this.#cameraForward);
       this.#cameraRight
         .crossVectors(this.#cameraForward, controls.object.up)
         .normalize();
       changed =
-        this.#applyRotationAroundAxis(this.#cameraRight, -rotateY * amount) ||
-        changed;
+        this.#applyRotationAroundAxis(this.#cameraRight, -rotateY) || changed;
     }
-
     return changed;
   }
 
@@ -484,108 +535,54 @@ export class GamepadArcballControls extends GamepadControls {
   }
 
   /**
-   * Applies gamepad pan by converting stick input to Arcball trackball points.
+   * Applies accepted pan deltas between two virtual trackball points.
    *
-   * @param deltaTime - Seconds since the last frame.
-   * @param panX - Horizontal pan input after dead zone processing.
-   * @param panY - Vertical pan input after dead zone processing.
-   * @param panSpeed - User-configured pan speed multiplier.
-   * @returns `true` when a pan transform was applied.
+   * @param panX - Horizontal displacement in Arcball's virtual trackball space.
+   * @param panY - Vertical displacement in Arcball's virtual trackball space.
+   * @returns `true` when a nonzero pan transform was applied.
    */
-  #applyPan(
-    deltaTime: number,
-    panX: number,
-    panY: number,
-    panSpeed: number,
-  ): boolean {
-    if (panX === 0 && panY === 0) {
-      return false;
-    }
-
+  #applyPan(panX: number, panY: number): boolean {
+    if (panX === 0 && panY === 0) return false;
     const controls = this.#controls;
-    const distance = controls._tbRadius * panSpeed * deltaTime;
-
     controls.updateMatrixState();
     this.#panStart.set(0, 0, 0);
-    this.#panEnd.set(panX * distance, panY * distance, 0);
-
+    this.#panEnd.set(panX, panY, 0);
     this.#applyTransform(controls.pan(this.#panStart, this.#panEnd));
-
     return true;
   }
 
   /**
-   * Applies trigger-driven zoom around Arcball's gizmo center.
+   * Applies an accepted zoom factor around the native gizmo center.
    *
-   * @param deltaTime - Seconds since the last frame.
-   * @param zoom - Signed zoom input from the configured trigger pair.
-   * @param zoomSpeed - User-configured zoom speed multiplier.
-   * @param buttonDeadzone - Trigger dead zone threshold.
-   * @returns `true` when a zoom transform was applied.
+   * @param size - Positive finite scale factor; `1` leaves zoom unchanged.
+   * @returns `true` when the factor is non-neutral and the native helper returns a transform.
    */
-  #applyZoom(
-    deltaTime: number,
-    zoom: number,
-    zoomSpeed: number,
-    buttonDeadzone: number,
-  ): boolean {
-    if (Math.abs(zoom) <= buttonDeadzone || this.#controls.scaleFactor <= 0) {
-      return false;
-    }
-
+  #applyZoom(size: number): boolean {
+    if (size === 1) return false;
     const controls = this.#controls;
-    const size =
-      controls.scaleFactor **
-      (zoom * zoomSpeed * deltaTime * ZOOM_NOTCHES_PER_SECOND);
-
-    if (!Number.isFinite(size) || size <= 0 || size === 1) {
-      return false;
-    }
-
     controls.updateMatrixState();
-
     const transformation = controls.scale(size, controls._gizmos.position);
-
-    if (transformation === undefined) {
-      return false;
-    }
-
+    if (transformation === undefined) return false;
     this.#applyTransform(transformation);
-
     return true;
   }
 
   /**
-   * Applies shoulder-button rotation around the current camera view axis.
+   * Applies accepted rotation around the view axis and updates the camera's up vector.
    *
-   * @param deltaTime - Seconds since the last frame.
-   * @param zRotation - Signed z-rotation input from the configured buttons.
-   * @param zRotateSpeed - User-configured z-rotation speed multiplier.
-   * @param buttonDeadzone - Button value dead zone threshold.
-   * @returns `true` when a z-rotation transform was applied.
+   * @param angle - Rotation delta in radians.
+   * @returns `true` when a nonzero rotation transform was applied.
    */
-  #applyZRotation(
-    deltaTime: number,
-    zRotation: number,
-    zRotateSpeed: number,
-    buttonDeadzone: number,
-  ): boolean {
-    if (Math.abs(zRotation) <= buttonDeadzone) {
-      return false;
-    }
-
+  #applyZRotation(angle: number): boolean {
+    if (angle === 0) return false;
     const controls = this.#controls;
-    const angle = zRotation * zRotateSpeed * deltaTime * Math.PI;
-
     controls.updateMatrixState();
     controls.object.getWorldDirection(controls._rotationAxis);
     this.#previousUp.copy(controls.object.up);
-
     this.#applyTransform(controls.zRotate(controls._gizmos.position, angle));
     controls.object.up
       .copy(this.#previousUp)
       .applyAxisAngle(controls._rotationAxis, angle);
-
     return true;
   }
 
@@ -641,13 +638,21 @@ export class GamepadArcballControls extends GamepadControls {
     return controls.unprojectOnObj(this.#centerNdc, controls.object);
   }
 
-  // Dispatches Arcball's `end` event when an active gamepad interaction stops.
+  /**
+   * Releases session ownership before dispatching the native `end` event once.
+   * Blocks recursive updates during finalization, including disconnection and disposal.
+   */
   #endInteraction(): void {
     if (!this.#wasInteracting) {
       return;
     }
 
     this.#wasInteracting = false;
-    this.#controls.dispatchEvent({ type: "end" });
+    this.#ending = true;
+    try {
+      this.#controls.dispatchEvent({ type: "end" });
+    } finally {
+      this.#ending = false;
+    }
   }
 }

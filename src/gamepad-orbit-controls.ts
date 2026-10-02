@@ -12,6 +12,23 @@ import {
   resolveGamepadStickBinding,
 } from "./gamepad-stick-processing.ts";
 
+/** Processed stick values and individually filtered trigger values for one frame. */
+type OrbitInput = {
+  rotateX: number;
+  rotateY: number;
+  panX: number;
+  panY: number;
+  dollyIn: number;
+  dollyOut: number;
+};
+
+/**
+ * Accepted frame deltas after applying permissions and combined speed multipliers.
+ * Rotation is in radians, pan is in pixels, and dolly values are dimensionless
+ * amounts converted to native scale factors when applied.
+ */
+type OrbitActions = OrbitInput;
+
 /**
  * Configuration for {@link GamepadOrbitControls}.
  *
@@ -19,19 +36,19 @@ import {
  */
 export type GamepadOrbitControlsOptions = GamepadControlsOptions & {
   /**
-   * Multiplier on orbit rotation speed.
+   * Multiplier on `OrbitControls.rotateSpeed`.
    * @default 1.0
    */
   rotateSpeed: number;
 
   /**
-   * Multiplier on pan speed.
+   * Multiplier on `OrbitControls.panSpeed`.
    * @default 1.0
    */
   panSpeed: number;
 
   /**
-   * Multiplier on zoom (dolly) speed.
+   * Multiplier on `OrbitControls.zoomSpeed`.
    * @default 1.0
    */
   zoomSpeed: number;
@@ -49,7 +66,7 @@ export type GamepadOrbitControlsOptions = GamepadControlsOptions & {
   panStick: GamepadStickBindingOptions;
 
   /**
-   * Dead zone threshold for analog trigger values.
+   * Each analog trigger must be strictly above this threshold to drive dolly.
    * @default 0.1
    */
   buttonDeadzone: number;
@@ -100,10 +117,18 @@ const DEFAULT_ORBIT_OPTIONS: ResolvedGamepadOrbitControlsOptions = {
  *
  * Call `update()` inside the render loop **before** `OrbitControls.update()`.
  * Bindings and speeds are configurable via {@link GamepadOrbitControlsOptions}.
+ * The wrapper dispatches balanced gamepad `start` and `end` events on the native
+ * controls; native operations and damping remain responsible for `change`.
  */
 export class GamepadOrbitControls extends GamepadControls {
   readonly #controls: OrbitControls;
   readonly #options: ResolvedGamepadOrbitControlsOptions;
+  /** Whether this wrapper owns an active gamepad interaction. */
+  #interacting = false;
+  /** Blocks recursive updates while a frame is being processed. */
+  #updating = false;
+  /** Blocks recursive updates while the owned interaction is ending. */
+  #ending = false;
 
   /**
    * @param controls - A Three.js `OrbitControls` instance.
@@ -131,20 +156,34 @@ export class GamepadOrbitControls extends GamepadControls {
   }
 
   /**
-   * Maps the current gamepad state to `OrbitControls` rotation, pan, and dolly.
+   * Polls the gamepad and applies input, ignoring updates from synchronous listeners.
+   * Pausing through `enabled` retains the owned interaction until input resumes,
+   * the gamepad disconnects, or the wrapper is disposed.
    *
    * @param deltaTime - Seconds since the last frame.
    */
+  public override update(deltaTime: number): void {
+    if (this.#updating || this.#ending) return;
+    this.#updating = true;
+    try {
+      super.update(deltaTime);
+    } finally {
+      this.#updating = false;
+    }
+  }
+
+  /**
+   * Reads each binding once, manages the gamepad session, and applies native operations.
+   * Revalidates the cached frame after synchronous events can change permissions.
+   *
+   * @param deltaTime - Seconds elapsed for this input frame.
+   */
   protected override onUpdate(deltaTime: number): void {
-    if (!this.#canApplyInput()) {
+    if (!this.#controls.enabled) {
+      this.#endInteraction();
       return;
     }
-
-    const controls = this.#controls;
     const {
-      rotateSpeed,
-      panSpeed,
-      zoomSpeed,
       rotateStick,
       panStick,
       buttonDeadzone,
@@ -152,58 +191,141 @@ export class GamepadOrbitControls extends GamepadControls {
       buttonDollyOut,
     } = this.#options;
     const input = this.gamepadInput;
-
-    // Rotation (left stick by default).
-    // Axes are normalized to [-1, 1]. Multiply by π so a full stick push
-    // covers half a rotation per second at rotateSpeed 1.
     const rotate = input.stick(
       rotateStick.xAxis,
       rotateStick.yAxis,
       rotateStick.pipeline,
     );
-
-    if (controls.enableRotate && rotate.x !== 0) {
-      controls.rotateLeft(rotate.x * rotateSpeed * deltaTime * Math.PI);
-      if (!this.#canApplyInput()) return;
-    }
-    if (controls.enableRotate && rotate.y !== 0) {
-      controls.rotateUp(rotate.y * rotateSpeed * deltaTime * Math.PI);
-      if (!this.#canApplyInput()) return;
-    }
-
-    // Pan (right stick by default).
-    // `pan()` expects screen-space pixel deltas. 500 px/s at full deflection
-    // feels comfortable at typical viewport sizes; tune via `panSpeed`.
     const pan = input.stick(panStick.xAxis, panStick.yAxis, panStick.pipeline);
-
-    if (controls.enablePan && (pan.x !== 0 || pan.y !== 0)) {
-      controls.pan(
-        pan.x * panSpeed * deltaTime * 500,
-        pan.y * panSpeed * deltaTime * 500,
-      );
-      if (!this.#canApplyInput()) return;
-    }
-
-    // Dolly and zoom (triggers by default).
-    // Triggers return an analog value in [0, 1] via `button.value`.
-    // OrbitControls uses a scale below 1 to zoom in and above 1 to zoom out.
-    // Passing the same below-1 scale to dollyIn/dollyOut maps the triggers to
-    // their semantic actions across perspective and orthographic cameras.
     const triggerIn = input.buttonValue(buttonDollyIn);
     const triggerOut = input.buttonValue(buttonDollyOut);
-
-    if (controls.enableZoom && triggerIn > buttonDeadzone) {
-      controls.dollyIn(1 / (1 + zoomSpeed * triggerIn * deltaTime));
-      if (!this.#canApplyInput()) return;
+    const frame: OrbitInput = {
+      rotateX: rotate.x,
+      rotateY: rotate.y,
+      panX: pan.x,
+      panY: pan.y,
+      dollyIn: triggerIn > buttonDeadzone ? triggerIn : 0,
+      dollyOut: triggerOut > buttonDeadzone ? triggerOut : 0,
+    };
+    let actions = this.#acceptActions(frame, deltaTime);
+    if (actions === null) return;
+    if (!this.#interacting) {
+      this.#interacting = true;
+      this.#controls.dispatchEvent({ type: "start" });
+      actions = this.#acceptActions(frame, deltaTime);
+      if (actions === null) return;
     }
-    if (controls.enableZoom && triggerOut > buttonDeadzone) {
-      controls.dollyOut(1 / (1 + zoomSpeed * triggerOut * deltaTime));
+
+    // Public operations update synchronously; accept the remaining actions
+    // again after each operation without reading the stick pipelines again.
+    const controls = this.#controls;
+
+    if (actions.rotateX !== 0) {
+      controls.rotateLeft(actions.rotateX);
+      actions = this.#acceptActions(frame, deltaTime);
+      if (actions === null) return;
+    }
+
+    if (actions.rotateY !== 0) {
+      controls.rotateUp(actions.rotateY);
+      actions = this.#acceptActions(frame, deltaTime);
+      if (actions === null) return;
+    }
+
+    if (actions.panX !== 0 || actions.panY !== 0) {
+      controls.pan(actions.panX, actions.panY);
+      actions = this.#acceptActions(frame, deltaTime);
+      if (actions === null) return;
+    }
+
+    if (actions.dollyIn !== 0) {
+      controls.dollyIn(1 / (1 + actions.dollyIn));
+      actions = this.#acceptActions(frame, deltaTime);
+      if (actions === null) return;
+    }
+
+    if (actions.dollyOut !== 0) {
+      controls.dollyOut(1 / (1 + actions.dollyOut));
+      this.#acceptActions(frame, deltaTime);
     }
   }
 
-  // Public native operations update synchronously and can notify listeners
-  // that disable either control, dispose the wrapper, or disconnect the pad.
-  #canApplyInput(): boolean {
-    return this.enabled && this.#controls.enabled && this.gamepad !== null;
+  /**
+   * Removes gamepad listeners and ends only this wrapper's active interaction.
+   * Repeated calls are safe; the native controls and their damping are preserved.
+   */
+  public override dispose(): void {
+    super.dispose();
+    this.#endInteraction();
+  }
+
+  /**
+   * Ends the owned interaction before forwarding the active gamepad's disconnection.
+   *
+   * @param gamepad - The gamepad that just disconnected.
+   */
+  protected override onGamepadDisconnected(gamepad: Gamepad): void {
+    this.#endInteraction();
+    super.onGamepadDisconnected(gamepad);
+  }
+
+  /**
+   * Resolves a cached frame against current permissions and native/wrapper speeds.
+   * Native disable or lack of actionable input ends the owned session; a wrapper
+   * pause stops application while retaining it. Geometric limits do not erase intent.
+   *
+   * @param input - Already processed sticks and filtered triggers for this frame.
+   * @param delta - Frame duration in seconds.
+   * @returns Accepted frame deltas, or `null` when input application must stop.
+   */
+  #acceptActions(input: OrbitInput, delta: number): OrbitActions | null {
+    const controls = this.#controls;
+
+    if (!controls.enabled) {
+      this.#endInteraction();
+      return null;
+    }
+
+    if (!this.enabled || this.gamepad === null) return null;
+
+    const rotate = controls.enableRotate
+      ? controls.rotateSpeed * this.#options.rotateSpeed * delta * Math.PI
+      : 0;
+    const pan = controls.enablePan
+      ? controls.panSpeed * this.#options.panSpeed * delta * 500
+      : 0;
+    const zoom = controls.enableZoom
+      ? controls.zoomSpeed * this.#options.zoomSpeed * delta
+      : 0;
+    const actions: OrbitActions = {
+      rotateX: input.rotateX * rotate,
+      rotateY: input.rotateY * rotate,
+      panX: input.panX * pan,
+      panY: input.panY * pan,
+      dollyIn: input.dollyIn * zoom,
+      dollyOut: input.dollyOut * zoom,
+    };
+
+    if (!Object.values(actions).some((value) => value !== 0)) {
+      this.#endInteraction();
+      return null;
+    }
+
+    return actions;
+  }
+
+  /**
+   * Releases session ownership before dispatching the native `end` event once.
+   * Blocks recursive updates during finalization without clearing native input or damping.
+   */
+  #endInteraction(): void {
+    if (!this.#interacting) return;
+    this.#interacting = false;
+    this.#ending = true;
+    try {
+      this.#controls.dispatchEvent({ type: "end" });
+    } finally {
+      this.#ending = false;
+    }
   }
 }

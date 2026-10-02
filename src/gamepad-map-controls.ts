@@ -25,6 +25,8 @@ const DEFAULT_MAP_OPTIONS: Partial<GamepadOrbitControlsOptions> = {
  * mouse conventions. All options from {@link GamepadOrbitControlsOptions} are available.
  *
  * Call `update()` inside the render loop **before** `MapControls.update()`.
+ * Gamepad interaction events, pause semantics, and combined native/wrapper speeds
+ * are inherited from {@link GamepadOrbitControls}.
  */
 export class GamepadMapControls extends GamepadOrbitControls {
   /**

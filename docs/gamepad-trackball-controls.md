@@ -44,6 +44,8 @@ Every binding is remappable via the `options` parameter.
 
 `rotateSpeed`, `panSpeed`, and `zoomSpeed` multiply `TrackballControls`' own speed properties, so adjusting those properties affects both input sources at once. Gamepad input respects `noRotate`, `noPan`, `noZoom`, `staticMoving`, `dynamicDampingFactor`, camera distance limits, and orthographic zoom limits because the native `TrackballControls.update()` still applies the queued movement.
 
+Each zoom trigger is filtered independently: only values strictly above `buttonDeadzone` contribute, then zoom-out minus zoom-in determines the queued delta. A below-threshold opposing trigger cannot reduce a valid trigger, and equal valid triggers cancel. Zero native speeds or wrapper multipliers block new input for that action without clearing native damping history.
+
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Pipelines do not process zoom triggers; configure their scalar threshold with `buttonDeadzone`. See [Stick Processing](./gamepad-stick-processing.md).
 
 When `staticMoving` is `false`, queued gamepad pan and zoom input is scaled by `dynamicDampingFactor`. `TrackballControls` applies the remaining queued delta over multiple frames, so this compensation prevents damping from multiplying the total gamepad movement. The damping factor still controls how long the inertial tail lasts; setting `staticMoving` to `true` continues to consume each queued delta immediately.
@@ -57,6 +59,14 @@ Inherits all properties from [`GamepadControls`](./gamepad-controls.md#propertie
 ## Events
 
 Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
+
+The wrapper dispatches `start` and `end` on the wrapped native control. A session starts before the first permitted, nonzero gamepad delta and ends once on neutral input, loss of the last actionable input, observed native disable, gamepad disconnection (event or polling), or wrapper disposal. Changing from rotation to pan or zoom keeps the same session. Reaching a geometric limit does not end a held, otherwise actionable input.
+
+Native updates remain responsible for `change`. Damping can therefore produce `change` after `end`, without a new `start`. Pausing only the wrapper retains its session; neutral input or native disabling is observed on resume. Browser disconnection events and disposal still end a paused session.
+
+Permissions are checked again after synchronous listeners. Recursive wrapper updates during input application or session finalization are ignored. Finalization releases only the wrapper's own session and preserves native pointer state and residual motion.
+
+Mouse and gamepad events can interleave on the same native instance, with no additional source field in their payloads. The balanced pair belongs to the gamepad session; it is not an aggregate activity counter or arbitration between input sources.
 
 ## Types
 

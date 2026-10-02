@@ -33,14 +33,16 @@ Every binding is remappable via the `options` parameter.
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
-| `rotateSpeed` | `number` | `1.0` | Multiplier on orbit rotation speed. |
-| `panSpeed` | `number` | `1.0` | Multiplier on pan speed. |
-| `zoomSpeed` | `number` | `1.0` | Multiplier on zoom (dolly) speed. |
+| `rotateSpeed` | `number` | `1.0` | Multiplier on `MapControls.rotateSpeed`. |
+| `panSpeed` | `number` | `1.0` | Multiplier on `MapControls.panSpeed`. |
+| `zoomSpeed` | `number` | `1.0` | Multiplier on `MapControls.zoomSpeed`. |
 | `panStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for panning. |
 | `rotateStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for orbit rotation. |
 | `buttonDeadzone` | `number` | `0.1` | Dead zone threshold for analog dolly triggers. |
 | `buttonDollyIn` | `number` | `7` | Button index for zoom in — analog trigger value (right trigger). |
 | `buttonDollyOut` | `number` | `6` | Button index for zoom out — analog trigger value (left trigger). |
+
+Native speeds multiply the corresponding wrapper options, exactly as in Orbit. Zero effective speed blocks that action. Gamepad input currently does not suspend `autoRotate`.
 
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the Map-specific action default. Overriding only the pipeline therefore keeps left-stick pan and right-stick rotation. Pipelines do not process dolly triggers. See [Stick Processing](./gamepad-stick-processing.md).
 
@@ -53,6 +55,8 @@ Inherits all properties from [`GamepadControls`](./gamepad-controls.md#propertie
 ## Events
 
 Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
+
+Map inherits the [Orbit interaction lifecycle](./gamepad-orbit-controls.md#events). Gamepad `start` and `end` are dispatched on the wrapped `MapControls` instance; native operations remain responsible for `change`. The same rules apply to damping, pause, cancellation, synchronous callbacks, and interleaved mouse/gamepad events.
 
 ## Types
 
@@ -79,9 +83,9 @@ const timer = new Timer();
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
-  // Queue gamepad deltas before MapControls applies them.
+  // Apply gamepad input through MapControls' public operations.
   gamepadMapControls.update(delta);
-  // Apply damping and flush the queued deltas.
+  // Continue the native damping and automatic movement update.
   mapControls.update(delta);
   renderer.render(scene, camera);
 });

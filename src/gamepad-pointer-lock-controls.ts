@@ -1,4 +1,4 @@
-import { Euler } from "three";
+import { Euler, Quaternion } from "three";
 import type { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 
 import { GAMEPAD_AXIS } from "./core.ts";
@@ -75,6 +75,8 @@ const DEFAULT_POINTER_LOCK_OPTIONS: ResolvedGamepadPointerLockControlsOptions =
  * Gamepad input is fully independent of pointer lock state. When the pointer
  * IS locked, mouse and gamepad look inputs are additive.
  * Bindings and speeds are configurable via {@link GamepadPointerLockControlsOptions}.
+ * Look dispatches `change` on the native controls after an actual orientation
+ * change; movement does not dispatch it or alter pointer lock state.
  */
 export class GamepadPointerLockControls extends GamepadControls {
   readonly #controls: PointerLockControls;
@@ -82,6 +84,10 @@ export class GamepadPointerLockControls extends GamepadControls {
 
   // Pre-allocated Euler (YXZ order) to avoid per-frame GC pressure.
   readonly #euler: Euler;
+  /** Reusable orientation snapshot for sign-independent angular change detection. */
+  readonly #previousQuaternion = new Quaternion();
+  /** Blocks recursive input application from native `change` listeners. */
+  #updating = false;
 
   /**
    * @param controls - A Three.js `PointerLockControls` instance.
@@ -110,7 +116,27 @@ export class GamepadPointerLockControls extends GamepadControls {
   }
 
   /**
+   * Polls and applies movement and look, ignoring updates from synchronous listeners.
+   * Gamepad input remains independent of the native pointer lock state.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   */
+  public override update(deltaTime: number): void {
+    if (this.#updating) return;
+    this.#updating = true;
+    try {
+      super.update(deltaTime);
+    } finally {
+      this.#updating = false;
+    }
+  }
+
+  /**
    * Maps the current gamepad state to `PointerLockControls` movement and look.
+   * Dispatches at most one native `change` after look changes orientation by more
+   * than `1e-7` radians, treating opposite quaternion signs as equivalent.
+   * Translation, zero look gain, and pitch-only input held at a clamp do not
+   * dispatch `change`; permitted yaw can still change orientation at a pitch limit.
    *
    * @param deltaTime - Seconds since the last frame.
    */
@@ -149,11 +175,10 @@ export class GamepadPointerLockControls extends GamepadControls {
       lookStick.pipeline,
     );
 
-    if (look.x !== 0 || look.y !== 0) {
+    const scale = lookSpeed * this.#controls.pointerSpeed * deltaTime * Math.PI;
+    if ((look.x !== 0 || look.y !== 0) && scale !== 0) {
       const camera = this.#controls.object;
-      const scale =
-        lookSpeed * this.#controls.pointerSpeed * deltaTime * Math.PI;
-
+      this.#previousQuaternion.copy(camera.quaternion);
       this.#euler.setFromQuaternion(camera.quaternion);
       this.#euler.y -= look.x * scale;
       this.#euler.x -= look.y * scale;
@@ -162,6 +187,11 @@ export class GamepadPointerLockControls extends GamepadControls {
         Math.min(Math.PI / 2 - this.#controls.minPolarAngle, this.#euler.x),
       );
       camera.quaternion.setFromEuler(this.#euler);
+      // angleTo treats q and -q as the same orientation. 1e-7 radians
+      // excludes roundoff from the Euler/quaternion conversion at clamps.
+      if (this.#previousQuaternion.angleTo(camera.quaternion) > 1e-7) {
+        this.#controls.dispatchEvent({ type: "change" });
+      }
     }
   }
 }

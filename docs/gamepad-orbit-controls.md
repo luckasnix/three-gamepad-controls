@@ -31,14 +31,16 @@ Every binding is remappable via the `options` parameter.
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
-| `rotateSpeed` | `number` | `1.0` | Multiplier on orbit rotation speed. |
-| `panSpeed` | `number` | `1.0` | Multiplier on pan speed. |
-| `zoomSpeed` | `number` | `1.0` | Multiplier on zoom (dolly) speed. |
+| `rotateSpeed` | `number` | `1.0` | Multiplier on `OrbitControls.rotateSpeed`. |
+| `panSpeed` | `number` | `1.0` | Multiplier on `OrbitControls.panSpeed`. |
+| `zoomSpeed` | `number` | `1.0` | Multiplier on `OrbitControls.zoomSpeed`. |
 | `rotateStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for orbit rotation. |
 | `panStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for panning. |
 | `buttonDeadzone` | `number` | `0.1` | Dead zone threshold for analog dolly triggers. |
 | `buttonDollyIn` | `number` | `7` | Button index for zoom in — analog trigger value (right trigger). |
 | `buttonDollyOut` | `number` | `6` | Button index for zoom out — analog trigger value (left trigger). |
+
+The effective speed for each action is its native speed multiplied by the wrapper option. A zero native speed or multiplier blocks that action without opening or retaining a session by itself. Values 2 × 0.5 produce the same response as 1 × 1. Gamepad input currently does not suspend `autoRotate`.
 
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Stick pipelines do not process the dolly triggers; configure their scalar threshold with `buttonDeadzone`. See [Stick Processing](./gamepad-stick-processing.md).
 
@@ -51,6 +53,16 @@ Gamepad input respects `OrbitControls.enabled`, `enableRotate`, `enablePan`, and
 ## Events
 
 Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
+
+The wrapper dispatches `start` and `end` on the wrapped native control. A session starts before the first permitted, nonzero gamepad delta and ends once on neutral input, loss of the last actionable input, observed native disable, gamepad disconnection (event or polling), or wrapper disposal. Changing from rotation to pan or zoom keeps the same session. Reaching a geometric limit does not end a held, otherwise actionable input.
+
+Native updates remain responsible for `change`. Damping can therefore produce `change` after `end`, without a new `start`. Pausing only the wrapper retains its session; neutral input or native disabling is observed on resume. Browser disconnection events and disposal still end a paused session.
+
+Permissions are checked again after synchronous listeners. Recursive wrapper updates during input application or session finalization are ignored. Finalization releases only the wrapper's own session and preserves native pointer state and residual motion.
+
+Mouse and gamepad events can interleave on the same native instance, with no additional source field in their payloads. The balanced pair belongs to the gamepad session; it is not an aggregate activity counter or arbitration between input sources.
+
+Orbit public operations can emit multiple native `change` notifications in one update when several actions run. The wrapper does not synthesize additional `change` events.
 
 ## Types
 

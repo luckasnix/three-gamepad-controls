@@ -66,7 +66,11 @@ The wrapped `ArcballControls` instance continues to dispatch its native `start`,
 
 A successful isolated center focus finishes its interaction in the same update. Focus during continuous movement belongs to the existing interaction. An owned gamepad session ends once on observed native disable, gamepad loss (event or polling), or wrapper disposal. Reentrant disposal from an `end` listener does not emit another `end`.
 
-The wrapper rechecks native and wrapper permissions after `start` listeners before transforming the camera. Pausing only the wrapper retains an active session; a neutral frame after resume ends it. Focus presses observed while disabled are consumed and require a new press after re-enabling. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
+The wrapper rechecks native and wrapper permissions after `start` listeners before transforming the camera, and checks the remaining actionable input after `change`. Losing the last permitted action ends the owned session in that update. Pausing only the wrapper retains an active session; a neutral frame after resume ends it. Focus presses observed while disabled are consumed and require a new press after re-enabling. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
+
+Zero effective rotation, pan, zoom, or Z-rotation deltas do not acquire or retain a session by themselves. Neutral, non-finite, or non-positive zoom scales are excluded before acquisition. Distance and zoom clamps do not end otherwise actionable held input. Each stick pipeline is read once per update; callbacks are revalidated using the processed input. Recursive wrapper updates during application or finalization are ignored.
+
+Mouse and gamepad events can interleave on the same native instance without an additional source field. Gamepad session balance does not imply arbitration of native pointer sessions or animations.
 
 ## Types
 

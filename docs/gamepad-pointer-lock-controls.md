@@ -46,6 +46,12 @@ Inherits all properties from [`GamepadControls`](./gamepad-controls.md#propertie
 
 Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
 
+The wrapper dispatches at most one `change` on the native `PointerLockControls` instance after gamepad look changes the camera orientation. Listeners observe the updated quaternion, whether or not the pointer is locked. Floating-point roundoff and equivalent quaternion signs do not count as orientation changes.
+
+Neutral input, zero look speed, and pitch blocked entirely by polar limits do not emit `change`; yaw can still change while pitch is blocked. Translation does not emit `change`, matching the native `moveForward()`/`moveRight()` methods. The wrapper never synthesizes `lock` or `unlock`.
+
+This is a deliberate gamepad adaptation: the native mouse handler can emit `change` even at an angular limit. Mouse and gamepad notifications share the native instance and carry no additional source field. Recursive wrapper updates from its synchronous listeners are ignored.
+
 ## Types
 
 | Type | Description |

@@ -50,7 +50,7 @@ export type GamepadTrackballControlsOptions = GamepadControlsOptions & {
   panStick: GamepadStickBindingOptions;
 
   /**
-   * Dead zone threshold for analog trigger values.
+   * Each analog trigger must be strictly above this threshold before subtraction.
    * @default 0.1
    */
   buttonDeadzone: number;
@@ -74,6 +74,19 @@ type ResolvedGamepadTrackballControlsOptions = Omit<
 > & {
   rotateStick: GamepadStickBinding;
   panStick: GamepadStickBinding;
+};
+
+/**
+ * Rotation, pan, and signed zoom components used to resolve one input frame.
+ * Before acceptance, values are processed sticks and filtered zoom-out minus
+ * zoom-in triggers; after acceptance, they are native pointer-coordinate deltas.
+ */
+type TrackballInput = {
+  rotateX: number;
+  rotateY: number;
+  panX: number;
+  panY: number;
+  zoom: number;
 };
 
 // Default options merged in the constructor when no explicit configuration is provided.
@@ -112,10 +125,18 @@ type TrackballControlsWithInput = TrackballControls & {
  *
  * Call `update()` inside the render loop **before** `TrackballControls.update()`.
  * Bindings and speed multipliers are configurable via {@link GamepadTrackballControlsOptions}.
+ * The wrapper dispatches balanced gamepad `start` and `end` events on the native
+ * controls; the native update applies speeds and damping and dispatches `change`.
  */
 export class GamepadTrackballControls extends GamepadControls {
   readonly #controls: TrackballControlsWithInput;
   readonly #options: ResolvedGamepadTrackballControlsOptions;
+  /** Whether this wrapper owns an active gamepad interaction. */
+  #interacting = false;
+  /** Blocks recursive updates while a frame is being processed. */
+  #updating = false;
+  /** Blocks recursive updates while the owned interaction is ending. */
+  #ending = false;
 
   /**
    * @param controls - A Three.js `TrackballControls` instance.
@@ -143,149 +164,157 @@ export class GamepadTrackballControls extends GamepadControls {
   }
 
   /**
-   * Maps the current gamepad state to `TrackballControls` rotation, pan, and zoom.
+   * Polls the gamepad and queues input, ignoring updates from synchronous listeners.
+   * Pausing through `enabled` retains the owned interaction until input resumes,
+   * the gamepad disconnects, or the wrapper is disposed.
    *
    * @param deltaTime - Seconds since the last frame.
    */
+  public override update(deltaTime: number): void {
+    if (this.#updating || this.#ending) return;
+    this.#updating = true;
+    try {
+      super.update(deltaTime);
+    } finally {
+      this.#updating = false;
+    }
+  }
+
+  /**
+   * Reads each binding once, manages the gamepad session, and adds accepted deltas
+   * to native pointer vectors. Revalidates permissions after the `start` event.
+   *
+   * @param deltaTime - Seconds elapsed for this input frame.
+   */
   protected override onUpdate(deltaTime: number): void {
     if (!this.#controls.enabled) {
+      this.#endInteraction();
       return;
     }
-
     const {
-      rotateSpeed,
-      panSpeed,
-      zoomSpeed,
       rotateStick,
       panStick,
       buttonDeadzone,
       buttonZoomIn,
       buttonZoomOut,
     } = this.#options;
-
-    this.#queueRotation(deltaTime, rotateSpeed, rotateStick);
-    this.#queuePan(deltaTime, panSpeed, panStick);
-    this.#queueZoom(
-      deltaTime,
-      zoomSpeed,
-      buttonDeadzone,
-      buttonZoomIn,
-      buttonZoomOut,
-    );
-  }
-
-  /**
-   * Queues rotation input into TrackballControls' normalized move state.
-   *
-   * @param deltaTime - Seconds since the last frame.
-   * @param rotateSpeed - User-configured rotation speed multiplier.
-   * @param rotateStick - Resolved stick binding for rotation.
-   */
-  #queueRotation(
-    deltaTime: number,
-    rotateSpeed: number,
-    rotateStick: GamepadStickBinding,
-  ): void {
-    const controls = this.#controls;
-
-    if (controls.noRotate) {
-      return;
-    }
-
     const input = this.gamepadInput;
     const rotate = input.stick(
       rotateStick.xAxis,
       rotateStick.yAxis,
       rotateStick.pipeline,
     );
-
-    if (rotate.x === 0 && rotate.y === 0) {
-      return;
-    }
-
-    // TrackballControls consumes normalized pointer deltas. Scale a full stick
-    // push to half a virtual trackball turn per second at rotateSpeed 1.
-    const scale = rotateSpeed * deltaTime * Math.PI;
-    controls._moveCurr.x += rotate.x * scale;
-    controls._moveCurr.y += -rotate.y * scale;
-  }
-
-  /**
-   * Queues pan input into TrackballControls' normalized pan state.
-   *
-   * @param deltaTime - Seconds since the last frame.
-   * @param panSpeed - User-configured pan speed multiplier.
-   * @param panStick - Resolved stick binding for panning.
-   */
-  #queuePan(
-    deltaTime: number,
-    panSpeed: number,
-    panStick: GamepadStickBinding,
-  ): void {
-    const controls = this.#controls;
-
-    if (controls.noPan) {
-      return;
-    }
-
-    const input = this.gamepadInput;
     const pan = input.stick(panStick.xAxis, panStick.yAxis, panStick.pipeline);
-
-    if (pan.x === 0 && pan.y === 0) {
-      return;
-    }
-
-    const scale = panSpeed * deltaTime * this.#getInputDampingFactor();
-    controls._panEnd.x += pan.x * scale;
-    controls._panEnd.y += pan.y * scale;
-  }
-
-  /**
-   * Queues trigger zoom input into TrackballControls' normalized zoom state.
-   *
-   * @param deltaTime - Seconds since the last frame.
-   * @param zoomSpeed - User-configured zoom speed multiplier.
-   * @param buttonDeadzone - Trigger dead zone threshold.
-   * @param buttonZoomIn - Button index for zooming in.
-   * @param buttonZoomOut - Button index for zooming out.
-   */
-  #queueZoom(
-    deltaTime: number,
-    zoomSpeed: number,
-    buttonDeadzone: number,
-    buttonZoomIn: number,
-    buttonZoomOut: number,
-  ): void {
-    const controls = this.#controls;
-
-    if (controls.noZoom) {
-      return;
-    }
-
-    const input = this.gamepadInput;
     const triggerIn = input.buttonValue(buttonZoomIn);
     const triggerOut = input.buttonValue(buttonZoomOut);
-
-    if (triggerIn <= buttonDeadzone && triggerOut <= buttonDeadzone) {
-      return;
+    const zoom =
+      (triggerOut > buttonDeadzone ? triggerOut : 0) -
+      (triggerIn > buttonDeadzone ? triggerIn : 0);
+    const frame: TrackballInput = {
+      rotateX: rotate.x,
+      rotateY: rotate.y,
+      panX: pan.x,
+      panY: pan.y,
+      zoom,
+    };
+    let actions = this.#acceptActions(frame, deltaTime);
+    if (actions === null) return;
+    if (!this.#interacting) {
+      this.#interacting = true;
+      this.#controls.dispatchEvent({ type: "start" });
+      actions = this.#acceptActions(frame, deltaTime);
+      if (actions === null) return;
     }
-
-    controls._zoomEnd.y +=
-      (triggerOut - triggerIn) *
-      zoomSpeed *
-      deltaTime *
-      this.#getInputDampingFactor();
+    // Native speeds are consumed by Trackball itself. Only gate on them here;
+    // scaling the queued deltas by those speeds would apply them twice.
+    const controls = this.#controls;
+    controls._moveCurr.x += actions.rotateX;
+    controls._moveCurr.y -= actions.rotateY;
+    controls._panEnd.x += actions.panX;
+    controls._panEnd.y += actions.panY;
+    controls._zoomEnd.y += actions.zoom;
   }
 
   /**
-   * Compensates for TrackballControls reapplying queued pan and zoom deltas
-   * while their input state catches up through damping.
-   *
-   * @returns Multiplier that matches TrackballControls' damping mode.
+   * Removes gamepad listeners and ends only this wrapper's active interaction.
+   * Repeated calls are safe; native pointer vectors and damping are preserved.
    */
-  #getInputDampingFactor(): number {
+  public override dispose(): void {
+    super.dispose();
+    this.#endInteraction();
+  }
+
+  /**
+   * Ends the owned interaction before forwarding the active gamepad's disconnection.
+   *
+   * @param gamepad - The gamepad that just disconnected.
+   */
+  protected override onGamepadDisconnected(gamepad: Gamepad): void {
+    this.#endInteraction();
+    super.onGamepadDisconnected(gamepad);
+  }
+
+  /**
+   * Resolves a cached frame against current permissions, wrapper speeds, and damping.
+   * Native speeds only gate acceptance here; Trackball applies them during its update.
+   * Native disable or lack of actionable input ends the owned session; a wrapper
+   * pause stops application while retaining it. Geometric limits do not erase intent.
+   *
+   * @param input - Already processed sticks and independently filtered trigger difference.
+   * @param delta - Frame duration in seconds.
+   * @returns Accepted pointer-coordinate deltas, or `null` when application must stop.
+   */
+  #acceptActions(input: TrackballInput, delta: number): TrackballInput | null {
     const controls = this.#controls;
 
-    return controls.staticMoving ? 1 : controls.dynamicDampingFactor;
+    if (!controls.enabled) {
+      this.#endInteraction();
+      return null;
+    }
+
+    if (!this.enabled || this.gamepad === null) return null;
+
+    const damping = controls.staticMoving ? 1 : controls.dynamicDampingFactor;
+    const rotate =
+      !controls.noRotate && controls.rotateSpeed !== 0
+        ? this.#options.rotateSpeed * delta * Math.PI
+        : 0;
+    const pan =
+      !controls.noPan && controls.panSpeed !== 0
+        ? this.#options.panSpeed * delta * damping
+        : 0;
+    const zoom =
+      !controls.noZoom && controls.zoomSpeed !== 0
+        ? this.#options.zoomSpeed * delta * damping
+        : 0;
+    const actions: TrackballInput = {
+      rotateX: input.rotateX * rotate,
+      rotateY: input.rotateY * rotate,
+      panX: input.panX * pan,
+      panY: input.panY * pan,
+      zoom: input.zoom * zoom,
+    };
+
+    if (!Object.values(actions).some((value) => value !== 0)) {
+      this.#endInteraction();
+      return null;
+    }
+
+    return actions;
+  }
+
+  /**
+   * Releases session ownership before dispatching the native `end` event once.
+   * Blocks recursive updates during finalization without clearing native pointer vectors.
+   */
+  #endInteraction(): void {
+    if (!this.#interacting) return;
+    this.#interacting = false;
+    this.#ending = true;
+    try {
+      this.#controls.dispatchEvent({ type: "end" });
+    } finally {
+      this.#ending = false;
+    }
   }
 }
