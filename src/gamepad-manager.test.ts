@@ -58,7 +58,6 @@ describe("GamepadManager.connect", () => {
         higherIndexGamepad,
       ]);
       const manager = new GamepadManager();
-
       expect(manager.connect(createGamepad(9))).toBe(lowIndexGamepad);
       expect(manager.activeGamepad).toBe(lowIndexGamepad);
     },
@@ -67,7 +66,6 @@ describe("GamepadManager.connect", () => {
   gamepadTest("returns null when polling finds no selectable gamepad", () => {
     polling.setGamepads([null, createGamepad(1, { connected: false })]);
     const manager = new GamepadManager();
-
     expect(manager.connect(createGamepad(2))).toBeNull();
     expect(manager.activeGamepad).toBeNull();
   });
@@ -75,7 +73,6 @@ describe("GamepadManager.connect", () => {
   gamepadTest("ignores a connection event for a disconnected gamepad", () => {
     polling.setGamepads([createGamepad(0)]);
     const manager = new GamepadManager();
-
     expect(manager.connect(createGamepad(0, { connected: false }))).toBeNull();
     expect(manager.activeGamepad).toBeNull();
   });
@@ -87,7 +84,6 @@ describe("GamepadManager.connect", () => {
     const manager = new GamepadManager();
     manager.connect(activeGamepad);
     polling.setGamepads([replacementGamepad]);
-
     expect(manager.connect(replacementGamepad)).toBeNull();
     expect(manager.activeGamepad).toBe(activeGamepad);
   });
@@ -97,7 +93,6 @@ describe("GamepadManager.connect", () => {
     const polledGamepad = createGamepad(2, { timestamp: 2 });
     polling.gamepads[2] = polledGamepad;
     const manager = new GamepadManager({ gamepadIndex: 2 });
-
     expect(manager.connect(createGamepad(1))).toBeNull();
     expect(manager.connect(eventGamepad)).toBe(polledGamepad);
     expect(manager.activeGamepad).toBe(polledGamepad);
@@ -107,7 +102,6 @@ describe("GamepadManager.connect", () => {
     const eventGamepad = createGamepad(2);
     polling.gamepads[2] = createGamepad(2, { connected: false });
     const manager = new GamepadManager({ gamepadIndex: 2 });
-
     expect(manager.connect(eventGamepad)).toBeNull();
     expect(manager.activeGamepad).toBeNull();
   });
@@ -116,7 +110,6 @@ describe("GamepadManager.connect", () => {
 describe("GamepadManager.disconnect", () => {
   gamepadTest("ignores disconnection when no gamepad is active", () => {
     const manager = new GamepadManager();
-
     expect(manager.disconnect(createGamepad(0))).toBeNull();
   });
 
@@ -124,7 +117,6 @@ describe("GamepadManager.disconnect", () => {
     const activeGamepad = createGamepad(1);
     const manager = new GamepadManager();
     manager.activeGamepad = activeGamepad;
-
     expect(manager.disconnect(createGamepad(2))).toBeNull();
     expect(manager.activeGamepad).toBe(activeGamepad);
   });
@@ -140,12 +132,9 @@ describe("GamepadManager.disconnect", () => {
       const replacementGamepad = createGamepad(1, { timestamp: 3 });
       const manager = new GamepadManager();
       manager.activeGamepad = activeGamepad;
-
       expect(manager.disconnect(disconnectEventGamepad)).toBe(activeGamepad);
       expect(manager.activeGamepad).toBeNull();
-
       polling.gamepads[1] = replacementGamepad;
-
       expect(manager.connect(replacementGamepad)).toBeNull();
       expect(manager.update()).toEqual({
         gamepad: replacementGamepad,
@@ -162,7 +151,6 @@ describe("GamepadManager.update", () => {
     () => {
       polling.setGamepads([null, createGamepad(1, { connected: false })]);
       const manager = new GamepadManager();
-
       expect(manager.update()).toEqual({
         gamepad: null,
         connected: null,
@@ -176,7 +164,6 @@ describe("GamepadManager.update", () => {
     const gamepad = createGamepad(3);
     polling.setGamepads([gamepad]);
     const manager = new GamepadManager();
-
     expect(manager.update()).toEqual({
       gamepad,
       connected: gamepad,
@@ -190,15 +177,12 @@ describe("GamepadManager.update", () => {
     const selectedGamepad = createGamepad(2);
     polling.setGamepads([otherGamepad]);
     const manager = new GamepadManager({ gamepadIndex: 2 });
-
     expect(manager.update()).toEqual({
       gamepad: null,
       connected: null,
       disconnected: null,
     });
-
     polling.gamepads[2] = selectedGamepad;
-
     expect(manager.update()).toEqual({
       gamepad: selectedGamepad,
       connected: selectedGamepad,
@@ -218,7 +202,6 @@ describe("GamepadManager.update", () => {
     polling.gamepads[1] = refreshedGamepad;
     const manager = new GamepadManager();
     manager.activeGamepad = previousGamepad;
-
     expect(manager.update()).toEqual({
       gamepad: refreshedGamepad,
       connected: null,
@@ -234,7 +217,6 @@ describe("GamepadManager.update", () => {
       polling.gamepads[1] = createGamepad(1, { connected: false });
       const manager = new GamepadManager();
       manager.activeGamepad = activeGamepad;
-
       expect(manager.update()).toEqual({
         gamepad: null,
         connected: null,
@@ -249,7 +231,6 @@ describe("GamepadManager slot continuity", () => {
   gamepadTest("adopts the lowest sparse slot regardless of event order", () => {
     polling.publishFrame([3], [0]);
     const manager = new GamepadManager();
-
     expect(manager.connect(createGamepad(3))).toBe(polling.gamepads[0]);
     expect(manager.connect(createGamepad(0))).toBeNull();
     expect(manager.update()).toEqual({
@@ -267,17 +248,13 @@ describe("GamepadManager slot continuity", () => {
         polling.publishFrame([3]);
         manager.update();
         polling.publishFrame([0], [3]);
-
         expect(manager.connect(createGamepad(0))).toBeNull();
-
         const active = polling.gamepads[3];
-
         expect(manager.update()).toEqual({
           gamepad: active,
           connected: null,
           disconnected: null,
         });
-
         if (loss === "disconnected") {
           polling.publishFrame([0], [3, { connected: false }]);
         } else {
@@ -315,7 +292,6 @@ describe("GamepadManager slot continuity", () => {
       polling.publishFrame([0], [3]);
       const active = manager.update().gamepad;
       polling.publishFrame([0]);
-
       expect(manager.update().disconnected).toBe(active);
       expect(manager.connect(createGamepad(0))).toBeNull();
       expect(manager.update()).toEqual({
@@ -323,9 +299,7 @@ describe("GamepadManager slot continuity", () => {
         connected: null,
         disconnected: null,
       });
-
       polling.publishFrame([0], [3]);
-
       expect(manager.update().connected).toBe(polling.gamepads[3]);
     },
   );

@@ -98,15 +98,11 @@ export class GamepadManager {
     ) {
       return null;
     }
-
     const selectedGamepad = this.#getSelectableGamepad();
-
     if (selectedGamepad === null) {
       return null;
     }
-
     this.activeGamepad = selectedGamepad;
-
     return selectedGamepad;
   }
 
@@ -129,11 +125,9 @@ export class GamepadManager {
     ) {
       return null;
     }
-
     const disconnectedGamepad = this.activeGamepad;
     this.activeGamepad = null;
     this.#connectionDeferredUntilUpdate = true;
-
     return disconnectedGamepad;
   }
 
@@ -151,36 +145,28 @@ export class GamepadManager {
     if (this.activeGamepad === null) {
       this.#connectionDeferredUntilUpdate = false;
       const connectedGamepad = this.#getSelectableGamepad();
-
       if (connectedGamepad === null) {
         return EMPTY_UPDATE_RESULT;
       }
-
       this.activeGamepad = connectedGamepad;
-
       return {
         gamepad: connectedGamepad,
         connected: connectedGamepad,
         disconnected: null,
       };
     }
-
     const previousGamepad = this.activeGamepad;
     const nextGamepad = this.#getGamepadByIndex(previousGamepad.index);
-
     if (nextGamepad === null) {
       this.activeGamepad = null;
       this.#connectionDeferredUntilUpdate = true;
-
       return {
         gamepad: null,
         connected: null,
         disconnected: previousGamepad,
       };
     }
-
     this.activeGamepad = nextGamepad;
-
     return {
       gamepad: nextGamepad,
       connected: null,
@@ -197,7 +183,6 @@ export class GamepadManager {
     if (this.#selection.type === "index") {
       return this.#getGamepadByIndex(this.#selection.index);
     }
-
     return this.#getFirstAvailableGamepad();
   }
 
@@ -209,7 +194,6 @@ export class GamepadManager {
    */
   #getGamepadByIndex(index: number): Gamepad | null {
     const gamepad = navigator.getGamepads()[index] ?? null;
-
     return gamepad?.connected === true ? gamepad : null;
   }
 
@@ -223,7 +207,6 @@ export class GamepadManager {
    */
   #getFirstAvailableGamepad(): Gamepad | null {
     let firstAvailableGamepad: Gamepad | null = null;
-
     for (const gamepad of navigator.getGamepads()) {
       if (
         gamepad?.connected === true &&
@@ -233,7 +216,6 @@ export class GamepadManager {
         firstAvailableGamepad = gamepad;
       }
     }
-
     return firstAvailableGamepad;
   }
 
@@ -247,7 +229,6 @@ export class GamepadManager {
     if (this.#selection.type === "index") {
       return gamepad.index === this.#selection.index;
     }
-
     return true;
   }
 
@@ -263,7 +244,6 @@ export class GamepadManager {
     if (gamepadIndex === undefined) {
       return { type: "first-available" };
     }
-
     if (
       !Number.isInteger(gamepadIndex) ||
       gamepadIndex < MIN_GAMEPAD_INDEX ||
@@ -273,7 +253,6 @@ export class GamepadManager {
         `gamepadIndex must be an integer between ${MIN_GAMEPAD_INDEX} and ${MAX_GAMEPAD_INDEX}.`,
       );
     }
-
     return {
       type: "index",
       index: gamepadIndex,

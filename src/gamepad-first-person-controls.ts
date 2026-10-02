@@ -161,7 +161,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
     if (!this.#controls.enabled) {
       return;
     }
-
     const {
       moveSpeed,
       lookSpeed,
@@ -171,7 +170,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
       buttonMoveUp,
       buttonMoveDown,
     } = this.#options;
-
     this.#applyMovement(
       deltaTime,
       moveSpeed,
@@ -180,7 +178,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
       buttonMoveUp,
       buttonMoveDown,
     );
-
     this.#applyLook(deltaTime, lookSpeed, lookStick);
   }
 
@@ -216,7 +213,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
     const forward = move.y;
     if (forward !== 0) {
       let distance = forward * moveMult;
-
       if (forward < 0 && controls.heightSpeed) {
         const y = MathUtils.clamp(
           controls.object.position.y,
@@ -227,7 +223,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
         distance -=
           -forward * deltaTime * heightDelta * controls.heightCoef * moveSpeed;
       }
-
       controls.object.translateZ(distance);
     }
 
@@ -277,27 +272,20 @@ export class GamepadFirstPersonControls extends GamepadControls {
     const controls = this.#controls;
     const actualLookSpeed =
       controls.lookSpeed * lookSpeed * deltaTime * LOOK_SPEED_SCALE;
-
     const orientation = this.#getOrientation();
     let { lat, lon } = orientation;
-
     let verticalLookRatio = 1;
     const verticalRange = controls.verticalMax - controls.verticalMin;
-
     if (controls.constrainVertical && verticalRange !== 0) {
       verticalLookRatio = Math.PI / verticalRange;
     }
-
     lon -= lookX * actualLookSpeed;
     if (controls.lookVertical) {
       lat -= lookY * actualLookSpeed * verticalLookRatio;
     }
-
     lat = Math.max(-85, Math.min(85, lat));
-
     let phi = MathUtils.degToRad(90 - lat);
     const theta = MathUtils.degToRad(lon);
-
     if (controls.constrainVertical) {
       phi = MathUtils.mapLinear(
         phi,
@@ -307,7 +295,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
         controls.verticalMax,
       );
     }
-
     this.#targetPosition
       .setFromSphericalCoords(1, phi, theta)
       .add(controls.object.position);
@@ -326,19 +313,16 @@ export class GamepadFirstPersonControls extends GamepadControls {
    */
   #getOrientation(): FirstPersonOrientation {
     const { _lat, _lon } = this.#controls;
-
     if (Number.isFinite(_lat) && Number.isFinite(_lon)) {
       return {
         lat: _lat,
         lon: _lon,
       };
     }
-
     this.#lookDirection
       .set(0, 0, -1)
       .applyQuaternion(this.#controls.object.quaternion);
     this.#spherical.setFromVector3(this.#lookDirection);
-
     return {
       lat: 90 - MathUtils.radToDeg(this.#spherical.phi),
       lon: MathUtils.radToDeg(this.#spherical.theta),

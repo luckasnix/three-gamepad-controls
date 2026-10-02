@@ -13,7 +13,6 @@ describe("gamepadStickPipeline", () => {
     const value = Object.freeze({ x: 0.25, y: -0.5 });
     const pipeline = gamepadStickPipeline();
     const configuredPipeline = pipeline.deadzone();
-
     expect(pipeline.process(value)).toBe(value);
     expect(configuredPipeline).not.toBe(pipeline);
     expect(Object.isFrozen(pipeline)).toBe(true);
@@ -30,7 +29,6 @@ describe("gamepadStickPipeline", () => {
     const pipeline = gamepadStickPipeline()
       .transform(first)
       .pipe(reusablePipeline);
-
     expect(pipeline.process(input)).toBe(secondResult);
     expect(first).toHaveBeenCalledExactlyOnceWith(input);
     expect(second).toHaveBeenCalledExactlyOnceWith(firstResult);
@@ -49,7 +47,6 @@ describe("gamepadStickPipeline", () => {
     const pipeline = gamepadStickPipeline()
       .pipe(failingProcessor)
       .pipe(followingProcessor);
-
     expect(() => pipeline.process({ x: 0, y: 0 })).toThrow(error);
     expect(followingProcessor.process).not.toHaveBeenCalled();
   });
@@ -59,7 +56,6 @@ describe("GamepadStickPipeline.deadzone", () => {
   test("uses an axial threshold of 0.1 without rescaling by default", () => {
     const input = Object.freeze({ x: 0.09, y: -0.1 });
     const pipeline = gamepadStickPipeline().deadzone();
-
     expect(pipeline.process(input)).toEqual({ x: 0, y: -0.1 });
     expect(input).toEqual({ x: 0.09, y: -0.1 });
   });
@@ -70,7 +66,6 @@ describe("GamepadStickPipeline.deadzone", () => {
       rescale: true,
     });
     const result = pipeline.process({ x: 0.2, y: -0.6 });
-
     expect(result.x).toBe(0);
     expect(result.y).toBeCloseTo(-0.5);
   });
@@ -79,7 +74,6 @@ describe("GamepadStickPipeline.deadzone", () => {
     const pipeline = gamepadStickPipeline().deadzone(1, {
       rescale: true,
     });
-
     expect(pipeline.process({ x: 1, y: 2 })).toEqual({ x: 0, y: 0 });
   });
 
@@ -87,14 +81,12 @@ describe("GamepadStickPipeline.deadzone", () => {
     const pipeline = gamepadStickPipeline().deadzone(0.2, {
       rescale: true,
     });
-
     expect(pipeline.process({ x: 1.4, y: -2 })).toEqual({ x: 1, y: -1 });
   });
 
   test("removes radial values below the configured magnitude", () => {
     const input = Object.freeze({ x: 0.3, y: 0.4 });
     const pipeline = gamepadStickPipeline({ mode: "radial" }).deadzone(0.6);
-
     expect(pipeline.process(input)).toEqual({ x: 0, y: 0 });
     expect(input).toEqual({ x: 0.3, y: 0.4 });
   });
@@ -102,7 +94,6 @@ describe("GamepadStickPipeline.deadzone", () => {
   test("keeps a radial value exactly at an unscaled threshold", () => {
     const input = Object.freeze({ x: 0.3, y: 0.4 });
     const pipeline = gamepadStickPipeline({ mode: "radial" }).deadzone(0.5);
-
     expect(pipeline.process(input)).toBe(input);
   });
 
@@ -111,7 +102,6 @@ describe("GamepadStickPipeline.deadzone", () => {
       rescale: true,
     });
     const result = pipeline.process({ x: 0.45, y: 0.6 });
-
     expect(result.x).toBeCloseTo(0.3);
     expect(result.y).toBeCloseTo(0.4);
   });
@@ -119,7 +109,6 @@ describe("GamepadStickPipeline.deadzone", () => {
   test("keeps a neutral radial value unchanged", () => {
     const input = Object.freeze({ x: 0, y: 0 });
     const pipeline = gamepadStickPipeline({ mode: "radial" }).deadzone();
-
     expect(pipeline.process(input)).toBe(input);
   });
 
@@ -127,7 +116,6 @@ describe("GamepadStickPipeline.deadzone", () => {
     const input = Object.freeze({ x: -0, y: -0 });
     const pipeline = gamepadStickPipeline().deadzone();
     const result = pipeline.process(input);
-
     expect(Object.is(result.x, -0)).toBe(false);
     expect(Object.is(result.y, -0)).toBe(false);
     expect(Object.is(input.x, -0)).toBe(true);
@@ -138,7 +126,6 @@ describe("GamepadStickPipeline.deadzone", () => {
     const input = Object.freeze({ x: 0.05, y: 0.2 });
     const source = gamepadStickPipeline();
     const pipeline = source.deadzone();
-
     expect(Object.isFrozen(pipeline)).toBe(true);
     expect(source.process(input)).toBe(input);
     expect(pipeline.process(input)).toEqual({ x: 0, y: 0.2 });
@@ -154,7 +141,6 @@ describe("GamepadStickPipeline.responseCurve", () => {
     "applies the $curve response curve independently in axial mode",
     ({ curve, expected }) => {
       const pipeline = gamepadStickPipeline().responseCurve(curve);
-
       expect(pipeline.process({ x: 0.5, y: -0.5 })).toEqual({
         x: expected,
         y: -expected,
@@ -170,7 +156,6 @@ describe("GamepadStickPipeline.responseCurve", () => {
         mode: "axial",
       },
     );
-
     expect(pipeline.process(input)).toBe(input);
   });
 
@@ -179,7 +164,6 @@ describe("GamepadStickPipeline.responseCurve", () => {
       "quadratic",
     );
     const result = pipeline.process({ x: 0.3, y: 0.4 });
-
     expect(result.x).toBeCloseTo(0.15);
     expect(result.y).toBeCloseTo(0.2);
   });
@@ -189,7 +173,6 @@ describe("GamepadStickPipeline.responseCurve", () => {
     const pipeline = gamepadStickPipeline({ mode: "radial" }).responseCurve(
       "cubic",
     );
-
     expect(pipeline.process(input)).toBe(input);
   });
 
@@ -198,7 +181,6 @@ describe("GamepadStickPipeline.responseCurve", () => {
     const pipeline = gamepadStickPipeline({ mode: "radial" }).responseCurve(
       "cubic",
     );
-
     expect(pipeline.process(input)).toBe(input);
   });
 
@@ -206,7 +188,6 @@ describe("GamepadStickPipeline.responseCurve", () => {
     const input = Object.freeze({ x: 0.5, y: -0.5 });
     const source = gamepadStickPipeline();
     const pipeline = source.responseCurve("quadratic");
-
     expect(Object.isFrozen(pipeline)).toBe(true);
     expect(source.process(input)).toBe(input);
     expect(pipeline.process(input)).toEqual({ x: 0.25, y: -0.25 });
@@ -218,7 +199,6 @@ describe("GamepadStickPipeline.invert", () => {
     const input = Object.freeze({ x: 0.25, y: -0.5 });
     const source = gamepadStickPipeline();
     const pipeline = source.invert("y");
-
     expect(source.process(input)).toBe(input);
     expect(pipeline.process(input)).toEqual({ x: 0.25, y: 0.5 });
   });
@@ -240,7 +220,6 @@ describe("GamepadStickPipeline.invert", () => {
     "supports independent component inversion",
     ({ axis, expected }) => {
       const pipeline = gamepadStickPipeline().invert(axis);
-
       expect(pipeline.process({ x: 0.25, y: -0.5 })).toEqual(expected);
     },
   );
@@ -249,7 +228,6 @@ describe("GamepadStickPipeline.invert", () => {
     const input = Object.freeze({ x: -0, y: -0 });
     const pipeline = gamepadStickPipeline().invert("both");
     const result = pipeline.process(input);
-
     expect(Object.is(result.x, -0)).toBe(false);
     expect(Object.is(result.y, -0)).toBe(false);
   });
@@ -280,7 +258,6 @@ describe("resolveGamepadStickBinding", () => {
 
   test("returns all defaults when options are omitted", () => {
     const result = resolveGamepadStickBinding(defaults);
-
     expect(result).toEqual(defaults);
     expect(result).not.toBe(defaults);
   });
@@ -292,7 +269,6 @@ describe("resolveGamepadStickBinding", () => {
         y: value.x,
       }),
     );
-
     expect(
       resolveGamepadStickBinding(defaults, {
         xAxis: 0,

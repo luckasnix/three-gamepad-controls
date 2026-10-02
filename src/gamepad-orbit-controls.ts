@@ -163,7 +163,9 @@ export class GamepadOrbitControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   public override update(deltaTime: number): void {
-    if (this.#updating || this.#ending) return;
+    if (this.#updating || this.#ending) {
+      return;
+    }
     this.#updating = true;
     try {
       super.update(deltaTime);
@@ -208,12 +210,16 @@ export class GamepadOrbitControls extends GamepadControls {
       dollyOut: triggerOut > buttonDeadzone ? triggerOut : 0,
     };
     let actions = this.#acceptActions(frame, deltaTime);
-    if (actions === null) return;
+    if (actions === null) {
+      return;
+    }
     if (!this.#interacting) {
       this.#interacting = true;
       this.#controls.dispatchEvent({ type: "start" });
       actions = this.#acceptActions(frame, deltaTime);
-      if (actions === null) return;
+      if (actions === null) {
+        return;
+      }
     }
 
     // Public operations update synchronously; accept the remaining actions
@@ -223,27 +229,31 @@ export class GamepadOrbitControls extends GamepadControls {
     if (actions.rotateX !== 0) {
       controls.rotateLeft(actions.rotateX);
       actions = this.#acceptActions(frame, deltaTime);
-      if (actions === null) return;
+      if (actions === null) {
+        return;
+      }
     }
-
     if (actions.rotateY !== 0) {
       controls.rotateUp(actions.rotateY);
       actions = this.#acceptActions(frame, deltaTime);
-      if (actions === null) return;
+      if (actions === null) {
+        return;
+      }
     }
-
     if (actions.panX !== 0 || actions.panY !== 0) {
       controls.pan(actions.panX, actions.panY);
       actions = this.#acceptActions(frame, deltaTime);
-      if (actions === null) return;
+      if (actions === null) {
+        return;
+      }
     }
-
     if (actions.dollyIn !== 0) {
       controls.dollyIn(1 / (1 + actions.dollyIn));
       actions = this.#acceptActions(frame, deltaTime);
-      if (actions === null) return;
+      if (actions === null) {
+        return;
+      }
     }
-
     if (actions.dollyOut !== 0) {
       controls.dollyOut(1 / (1 + actions.dollyOut));
       this.#acceptActions(frame, deltaTime);
@@ -280,14 +290,13 @@ export class GamepadOrbitControls extends GamepadControls {
    */
   #acceptActions(input: OrbitInput, delta: number): OrbitActions | null {
     const controls = this.#controls;
-
     if (!controls.enabled) {
       this.#endInteraction();
       return null;
     }
-
-    if (!this.enabled || this.gamepad === null) return null;
-
+    if (!this.enabled || this.gamepad === null) {
+      return null;
+    }
     const rotate = controls.enableRotate
       ? controls.rotateSpeed * this.#options.rotateSpeed * delta * Math.PI
       : 0;
@@ -305,12 +314,10 @@ export class GamepadOrbitControls extends GamepadControls {
       dollyIn: input.dollyIn * zoom,
       dollyOut: input.dollyOut * zoom,
     };
-
     if (!Object.values(actions).some((value) => value !== 0)) {
       this.#endInteraction();
       return null;
     }
-
     return actions;
   }
 
@@ -319,7 +326,9 @@ export class GamepadOrbitControls extends GamepadControls {
    * Blocks recursive updates during finalization without clearing native input or damping.
    */
   #endInteraction(): void {
-    if (!this.#interacting) return;
+    if (!this.#interacting) {
+      return;
+    }
     this.#interacting = false;
     this.#ending = true;
     try {

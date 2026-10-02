@@ -23,13 +23,11 @@ const createRuntimeGamepad = (
 
 const createGamepadWithThrowingActuatorGetter = (): Gamepad => {
   const gamepad = { ...createGamepad(0) };
-
   Object.defineProperty(gamepad, "vibrationActuator", {
     get: () => {
       throw new Error("Access to the actuator is blocked.");
     },
   });
-
   return gamepad;
 };
 
@@ -90,7 +88,6 @@ describe("playGamepadVibrationEffect", () => {
     const gamepad = createGamepad(0, {
       vibrationActuator: createGamepadHapticActuator({ playEffect }),
     });
-
     await expect(
       playGamepadVibrationEffect(gamepad, "dual-rumble", parameters),
     ).resolves.toBe("complete");
@@ -105,7 +102,6 @@ describe("playGamepadVibrationEffect", () => {
     const gamepad = createGamepad(0, {
       vibrationActuator: createGamepadHapticActuator({ playEffect }),
     });
-
     await expect(
       playGamepadVibrationEffect(gamepad, "dual-rumble"),
     ).resolves.toBe("preempted");
@@ -121,7 +117,6 @@ describe("playGamepadVibrationEffect", () => {
       const gamepad = createGamepad(0, {
         vibrationActuator: createGamepadHapticActuator({ playEffect }),
       });
-
       await expect(
         playGamepadVibrationEffect(gamepad, "dual-rumble"),
       ).resolves.toBeNull();
@@ -140,7 +135,6 @@ describe("playGamepadVibrationEffect", () => {
     const gamepad = createGamepad(0, {
       vibrationActuator: createGamepadHapticActuator({ playEffect }),
     });
-
     await expect(
       playGamepadVibrationEffect(gamepad, "dual-rumble"),
     ).rejects.toBe(error);
@@ -168,7 +162,6 @@ describe("resetGamepadVibration", () => {
     const gamepad = createGamepad(0, {
       vibrationActuator: createGamepadHapticActuator({ reset }),
     });
-
     await expect(resetGamepadVibration(gamepad)).resolves.toBe("preempted");
     expect(reset).toHaveBeenCalledOnce();
     expect(reset).toHaveBeenCalledWith();
@@ -183,7 +176,6 @@ describe("resetGamepadVibration", () => {
     const gamepad = createGamepad(0, {
       vibrationActuator: createGamepadHapticActuator({ reset }),
     });
-
     await expect(resetGamepadVibration(gamepad)).resolves.toBeNull();
   });
 
@@ -195,7 +187,6 @@ describe("resetGamepadVibration", () => {
     const gamepad = createGamepad(0, {
       vibrationActuator: createGamepadHapticActuator({ reset }),
     });
-
     await expect(resetGamepadVibration(gamepad)).rejects.toBe(error);
   });
 });

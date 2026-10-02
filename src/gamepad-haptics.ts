@@ -25,7 +25,6 @@ const getGamepadVibrationActuator = (
   if (gamepad === null) {
     return null;
   }
-
   try {
     return (gamepad as RuntimeGamepad).vibrationActuator ?? null;
   } catch {
@@ -47,9 +46,7 @@ const isIgnorableHapticsError = (error: unknown): boolean => {
   if (typeof error !== "object" || error === null || !("name" in error)) {
     return false;
   }
-
   const { name } = error;
-
   return name === "NotSupportedError" || name === "InvalidStateError";
 };
 
@@ -66,7 +63,6 @@ export const isGamepadVibrationSupported = (
   gamepad: Gamepad | null,
 ): boolean => {
   const actuator = getGamepadVibrationActuator(gamepad);
-
   return typeof actuator?.playEffect === "function";
 };
 
@@ -87,11 +83,9 @@ export const playGamepadVibrationEffect = async (
   parameters?: GamepadEffectParameters,
 ): Promise<GamepadHapticsResult | null> => {
   const actuator = getGamepadVibrationActuator(gamepad);
-
   if (typeof actuator?.playEffect !== "function") {
     return null;
   }
-
   try {
     return await actuator.playEffect(type, parameters);
   } catch (error) {
@@ -115,11 +109,9 @@ export const resetGamepadVibration = async (
   gamepad: Gamepad | null,
 ): Promise<GamepadHapticsResult | null> => {
   const actuator = getGamepadVibrationActuator(gamepad);
-
   if (typeof actuator?.reset !== "function") {
     return null;
   }
-
   try {
     return await actuator.reset();
   } catch (error) {

@@ -40,9 +40,7 @@ const createControls = (
   options?: Partial<GamepadTrackballControlsOptions>,
 ): GamepadTrackballControls => {
   const controls = new GamepadTrackballControls(trackballControls, options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -60,7 +58,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadTrackballControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const trackballControls = createTrackballControls();
-
     expect(() =>
       createControls(trackballControls, { gamepadIndex: -1 }),
     ).toThrow("gamepadIndex must be an integer");
@@ -91,9 +88,7 @@ describe("GamepadTrackballControls construction", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, -0.2, 0.3, 0, 0.4, -0.5],
       });
-
       controls.update(0.1);
-
       expect(rotateTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.4,
         y: -0.2,
@@ -114,9 +109,7 @@ describe("GamepadTrackballControls input gating", () => {
       axes: [0.05, -0.05, 0.05, -0.05],
       buttons: createGamepadButtons([6, false, 0.1], [7, false, 0.1]),
     });
-
     controls.update(0.2);
-
     expect(trackballControls._moveCurr).toEqual(new Vector2());
     expect(trackballControls._panEnd).toEqual(new Vector2());
     expect(trackballControls._zoomEnd).toEqual(new Vector2());
@@ -139,9 +132,7 @@ describe("GamepadTrackballControls input gating", () => {
       axes: [0.5, -0.5, 0.5, -0.5],
       buttons: createGamepadButtons([6, false, 0.8], [7, false, 0.6]),
     });
-
     controls.update(0.2);
-
     expect(trackballControls._movePrev).toEqual(new Vector2(-0.1, -0.2));
     expect(trackballControls._lastAngle).toBe(0.7);
     expect(trackballControls._panStart).toEqual(new Vector2(-0.2, -0.3));
@@ -157,9 +148,7 @@ describe("GamepadTrackballControls queued input", () => {
       axes: [0.5, -0.25, 0.4, -0.2],
       buttons: createGamepadButtons([6, false, 0.2], [7, false, 0.6]),
     });
-
     controls.update(0.2);
-
     expect(trackballControls._moveCurr.x).toBeCloseTo(0.1 * Math.PI);
     expect(trackballControls._moveCurr.y).toBeCloseTo(0.05 * Math.PI);
     expect(trackballControls._panEnd.x).toBeCloseTo(0.016);
@@ -173,9 +162,7 @@ describe("GamepadTrackballControls queued input", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0.5, 0, -0.5],
     });
-
     controls.update(0.2);
-
     expect(trackballControls._moveCurr.x).toBe(0);
     expect(trackballControls._moveCurr.y).toBeCloseTo(-0.1 * Math.PI);
     expect(trackballControls._panEnd.x).toBe(0);
@@ -201,9 +188,7 @@ describe("GamepadTrackballControls options", () => {
         axes: [0.3, -0.5, 0.4, -0.2],
         buttons: createGamepadButtons([2, false, 0.6]),
       });
-
       controls.update(0.25);
-
       expect(trackballControls._moveCurr.x).toBeCloseTo(0.15 * Math.PI);
       expect(trackballControls._moveCurr.y).toBeCloseTo(0.25 * Math.PI);
       expect(trackballControls._panEnd.x).toBeCloseTo(0.15);
@@ -223,9 +208,7 @@ describe("GamepadTrackballControls options", () => {
       polling.gamepads[0] = createGamepad(0, {
         buttons: createGamepadButtons([1, false, 0.4]),
       });
-
       controls.update(0.25);
-
       expect(trackballControls._zoomEnd).toEqual(new Vector2());
     },
   );

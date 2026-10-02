@@ -32,7 +32,6 @@ const cleanupOrder: CleanupPhase[] = [
 /** Register dispose with Vitest onCleanup BEFORE constructing test resources. */
 export const createCleanup = () => {
   const callbacks = new Map<CleanupPhase, (() => void)[]>();
-
   return {
     add(phase: CleanupPhase, callback: () => void): void {
       const group = callbacks.get(phase) ?? [];
@@ -53,8 +52,9 @@ export const createCleanup = () => {
           }
         }
       }
-      if (errors.length)
+      if (errors.length) {
         throw new AggregateError(errors, "Fixture cleanup failed");
+      }
     },
   };
 };
@@ -79,8 +79,12 @@ export const disposeObjectResources = (root: Object3D): void => {
       }
     }
   });
-  for (const geometry of geometries) geometry.dispose();
-  for (const material of materials) material.dispose();
+  for (const geometry of geometries) {
+    geometry.dispose();
+  }
+  for (const material of materials) {
+    material.dispose();
+  }
   root.removeFromParent();
 };
 
@@ -114,7 +118,6 @@ export const createThreeEnvironment = (
     scene.updateMatrixWorld(true);
   };
   syncMatrices();
-
   return {
     element,
     scene,
@@ -150,7 +153,6 @@ export const collectEvents = <
       dispatcher.removeEventListener(type, listener),
     );
   }
-
   return records;
 };
 

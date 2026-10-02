@@ -28,10 +28,8 @@ const createFirstPersonControls = (): FirstPersonControlsWithOrientation => {
   const controls = new FirstPersonControls(
     new PerspectiveCamera(),
   ) as FirstPersonControlsWithOrientation;
-
   controls.movementSpeed = 4;
   controls.lookSpeed = 0.005;
-
   return controls;
 };
 
@@ -56,9 +54,7 @@ const createControls = (
   options?: Partial<GamepadFirstPersonControlsOptions>,
 ): GamepadFirstPersonControls => {
   const controls = new GamepadFirstPersonControls(firstPersonControls, options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -76,7 +72,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadFirstPersonControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const firstPersonControls = createFirstPersonControls();
-
     expect(() =>
       createControls(firstPersonControls, { gamepadIndex: -1 }),
     ).toThrow("gamepadIndex must be an integer");
@@ -107,9 +102,7 @@ describe("GamepadFirstPersonControls construction", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, -0.2, 0.3, 0, 0.4, -0.5],
       });
-
       controls.update(0.1);
-
       expect(moveTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.4,
         y: -0.2,
@@ -134,9 +127,7 @@ describe("GamepadFirstPersonControls input gating", () => {
       axes: [0.05, -0.05, 0.05, -0.05],
       buttons: createGamepadButtons([6, false, 0.1], [7, false, 0.1]),
     });
-
     controls.update(0.25);
-
     expect(translateX).not.toHaveBeenCalled();
     expect(translateY).not.toHaveBeenCalled();
     expect(translateZ).not.toHaveBeenCalled();
@@ -156,9 +147,7 @@ describe("GamepadFirstPersonControls movement", () => {
         axes: [0.5, -0.75, 0, 0],
         buttons: createGamepadButtons([6, false, 0.6], [7, false, 0.2]),
       });
-
       controls.update(0.25);
-
       expect(firstPersonControls.object.position.x).toBeCloseTo(0.75);
       expect(firstPersonControls.object.position.y).toBeCloseTo(0.6);
       expect(firstPersonControls.object.position.z).toBeCloseTo(-1.125);
@@ -177,9 +166,7 @@ describe("GamepadFirstPersonControls movement", () => {
       polling.gamepads[0] = createGamepad(0, {
         buttons: createGamepadButtons([1, false, 0.4], [2, false, 0.6]),
       });
-
       controls.update(0.5);
-
       expect(firstPersonControls.object.position.y).toBeCloseTo(-1.2);
     },
   );
@@ -206,9 +193,7 @@ describe("GamepadFirstPersonControls movement", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, axis, 0, 0],
     });
-
     controls.update(0.25);
-
     expect(firstPersonControls.object.position.z).toBeCloseTo(expectedZ);
   });
 });
@@ -223,20 +208,15 @@ describe("GamepadFirstPersonControls look", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, 0, 0.25, -0.25],
       });
-
       controls.update(0.25);
-
       expect(firstPersonControls._lat).toBeCloseTo(45);
       expect(firstPersonControls._lon).toBeCloseTo(135);
       expectVectorToBeCloseTo(
         firstPersonControls.object.getWorldDirection(new Vector3()),
         directionFromOrientation(45, 135),
       );
-
       const gamepadQuaternion = firstPersonControls.object.quaternion.clone();
-
       firstPersonControls.update(0.25);
-
       expect(
         firstPersonControls.object.quaternion.angleTo(gamepadQuaternion),
       ).toBeCloseTo(0);
@@ -251,9 +231,7 @@ describe("GamepadFirstPersonControls look", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, 0.5, -0.5],
     });
-
     controls.update(0.1);
-
     expect(firstPersonControls._lat).toBe(20);
     expect(firstPersonControls._lon).toBeCloseTo(171);
     expectVectorToBeCloseTo(
@@ -274,9 +252,7 @@ describe("GamepadFirstPersonControls look", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, 0, 0, lookY],
       });
-
       controls.update(0.5);
-
       expect(firstPersonControls._lat).toBe(expectedLat);
     },
   );
@@ -290,9 +266,7 @@ describe("GamepadFirstPersonControls look", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, 0, 0.5],
     });
-
     controls.update(0.1);
-
     expect(firstPersonControls._lat).toBeCloseTo(-18);
     expectVectorToBeCloseTo(
       firstPersonControls.object.getWorldDirection(new Vector3()),
@@ -309,9 +283,7 @@ describe("GamepadFirstPersonControls look", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, 0, 0.5],
     });
-
     controls.update(0.1);
-
     expect(firstPersonControls._lat).toBeCloseTo(-9);
     expectVectorToBeCloseTo(
       firstPersonControls.object.getWorldDirection(new Vector3()),
@@ -336,9 +308,7 @@ describe("GamepadFirstPersonControls look", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, 0, 0.25, -0.25],
       });
-
       controls.update(0.1);
-
       const expectedLat = initialLat + 4.5;
       const expectedLon = initialLon - 4.5;
       expect(firstPersonControls._lat).toBeCloseTo(expectedLat);

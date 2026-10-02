@@ -24,8 +24,12 @@ export const createGamepadPollingFixture = () => {
       if (!Number.isInteger(index) || index < 0 || index > 2 ** 31 - 1) {
         throw new RangeError("Invalid gamepad fixture index");
       }
-      if (next[index]) throw new Error("Duplicate gamepad fixture index");
-      while (next.length <= index) next.push(null);
+      if (next[index]) {
+        throw new Error("Duplicate gamepad fixture index");
+      }
+      while (next.length <= index) {
+        next.push(null);
+      }
       next[index] = createGamepad(index, {
         ...options,
         timestamp: options?.timestamp ?? frame,
@@ -37,7 +41,6 @@ export const createGamepadPollingFixture = () => {
     }
     setGamepads(next);
   };
-
   return {
     gamepads,
     getGamepads,
@@ -57,11 +60,9 @@ export const gamepadTest = test.extend(
   "gamepadPolling",
   ({ task: _task }, { onCleanup }) => {
     const polling = createGamepadPollingFixture();
-
     onCleanup(() => {
       polling.getGamepads.mockRestore();
     });
-
     return polling;
   },
 );
@@ -74,7 +75,6 @@ export const dispatchGamepadEvent = (
   gamepad: Gamepad,
 ): void => {
   const event = new Event(type);
-
   Object.defineProperty(event, "gamepad", {
     value: gamepad,
   });

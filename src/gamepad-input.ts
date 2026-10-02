@@ -128,15 +128,12 @@ const getGamepadButtonPressed = (gamepad: Gamepad, button: number): boolean => {
  */
 const getGamepadButtonValue = (gamepad: Gamepad, button: number): number => {
   const gamepadButton = gamepad.buttons[button];
-
   if (gamepadButton === undefined) {
     return 0;
   }
-
   if (gamepadButton.value !== 0) {
     return gamepadButton.value;
   }
-
   return gamepadButton.pressed ? 1 : 0;
 };
 
@@ -181,7 +178,6 @@ export class GamepadInput extends EventTarget {
    */
   constructor(options?: Partial<GamepadInputOptions>) {
     super();
-
     this.#options = {
       ...DEFAULT_GAMEPAD_INPUT_OPTIONS,
       ...options,
@@ -191,11 +187,9 @@ export class GamepadInput extends EventTarget {
     });
     this.#pressedButtons = new Set();
     this.#previousPressedButtons = new Set();
-
     this.#onGamepadConnected = this.#handleGamepadConnectedEvent.bind(this);
     this.#onGamepadDisconnected =
       this.#handleGamepadDisconnectedEvent.bind(this);
-
     window.addEventListener("gamepadconnected", this.#onGamepadConnected);
     window.addEventListener("gamepaddisconnected", this.#onGamepadDisconnected);
   }
@@ -382,9 +376,7 @@ export class GamepadInput extends EventTarget {
     if (!this.enabled) {
       return;
     }
-
     const { gamepad, connected, disconnected } = this.#manager.update();
-
     if (connected !== null) {
       this.#gamepad = gamepad;
       this.#syncButtonState({ seedPrevious: true });
@@ -393,7 +385,6 @@ export class GamepadInput extends EventTarget {
       );
       return;
     }
-
     if (disconnected !== null) {
       this.#gamepad = null;
       this.#clearButtonState();
@@ -402,7 +393,6 @@ export class GamepadInput extends EventTarget {
       );
       return;
     }
-
     this.#gamepad = gamepad;
     this.#syncButtonState({ seedPrevious: false });
   }
@@ -472,7 +462,6 @@ export class GamepadInput extends EventTarget {
     if (this.#gamepad === null) {
       return 0;
     }
-
     return getGamepadButtonValue(this.#gamepad, button);
   }
 
@@ -485,7 +474,6 @@ export class GamepadInput extends EventTarget {
    */
   public axis(axis: number, options?: GamepadAxisOptions): number {
     const value = this.#gamepad?.axes[axis] ?? 0;
-
     return applyGamepadAxisDeadzone(value, this.#getAxisDeadzone(options));
   }
 
@@ -504,7 +492,6 @@ export class GamepadInput extends EventTarget {
   ): GamepadStick {
     const x = this.#gamepad?.axes[xAxis] ?? 0;
     const y = this.#gamepad?.axes[yAxis] ?? 0;
-
     return (pipeline ?? this.#options.stickPipeline).process({
       x,
       y,
@@ -551,11 +538,9 @@ export class GamepadInput extends EventTarget {
    */
   #handleGamepadConnected(gamepad: Gamepad): void {
     const connectedGamepad = this.#manager.connect(gamepad);
-
     if (connectedGamepad === null) {
       return;
     }
-
     this.#gamepad = connectedGamepad;
     this.#syncButtonState({ seedPrevious: true });
     this.dispatchEvent(
@@ -573,11 +558,9 @@ export class GamepadInput extends EventTarget {
    */
   #handleGamepadDisconnected(gamepad: Gamepad): void {
     const disconnectedGamepad = this.#manager.disconnect(gamepad);
-
     if (disconnectedGamepad === null) {
       return;
     }
-
     this.#gamepad = null;
     this.#clearButtonState();
     this.dispatchEvent(
@@ -599,13 +582,10 @@ export class GamepadInput extends EventTarget {
    */
   #syncButtonState({ seedPrevious }: SyncButtonStateOptions): void {
     this.#previousPressedButtons.clear();
-
     for (const button of this.#pressedButtons) {
       this.#previousPressedButtons.add(button);
     }
-
     this.#pressedButtons.clear();
-
     if (this.#gamepad !== null) {
       for (let index = 0; index < this.#gamepad.buttons.length; index += 1) {
         if (getGamepadButtonPressed(this.#gamepad, index)) {
@@ -613,13 +593,10 @@ export class GamepadInput extends EventTarget {
         }
       }
     }
-
     if (!seedPrevious) {
       return;
     }
-
     this.#previousPressedButtons.clear();
-
     for (const button of this.#pressedButtons) {
       this.#previousPressedButtons.add(button);
     }

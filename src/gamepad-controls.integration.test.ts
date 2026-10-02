@@ -171,8 +171,9 @@ const createScenario = (
       // Arcball removes its gizmos but does not dispose their geometry/material.
       // Capture the added roots through the scene, without private-field access.
       const gizmos = scene.children.filter((child) => child !== mesh);
-      for (const root of gizmos)
+      for (const root of gizmos) {
         cleanup.add("resource", () => disposeObjectResources(root));
+      }
       controls.enableAnimations = false;
       controls.rotateSpeed = 1;
       wrapper = new GamepadArcballControls(controls, options);
@@ -259,9 +260,12 @@ const createScenario = (
   const object = kind === "drag" || kind === "transform" ? mesh : camera;
   const initial = pose(object);
   const prepareAction = (): void => {
-    if (kind === "drag") step({ buttons: createGamepadButtons([0, true]) });
-    if (kind === "transform")
+    if (kind === "drag") {
+      step({ buttons: createGamepadButtons([0, true]) });
+    }
+    if (kind === "transform") {
       step({ buttons: createGamepadButtons([15, true]) });
+    }
   };
   const active = {
     axes: kind === "map" ? [0, 0, strength, 0] : [strength, 0, 0, 0],
@@ -284,7 +288,9 @@ const createScenario = (
     expected.position.x += strength * delta * 4;
   }
 
-  if (nativeControls === undefined) throw new Error("Missing native control");
+  if (nativeControls === undefined) {
+    throw new Error("Missing native control");
+  }
 
   return {
     ...environment,
@@ -375,8 +381,11 @@ describe("native input permissions", () => {
       let changes = 0;
       const listener = () => {
         changes++;
-        if (action === "pause") scenario.wrapper.enabled = false;
-        else scenario.wrapper.dispose();
+        if (action === "pause") {
+          scenario.wrapper.enabled = false;
+        } else {
+          scenario.wrapper.dispose();
+        }
       };
       controls.addEventListener("change", listener);
       cleanup.add("listener", () =>
@@ -471,7 +480,9 @@ describe("native input permissions", () => {
         });
       } else if (action === "disconnect") {
         dispatchGamepadEvent("gamepaddisconnected", createGamepad(3));
-      } else scenario.wrapper.dispose();
+      } else {
+        scenario.wrapper.dispose();
+      }
       expect(controls.axis).toBe("Y");
       expect(controls.mode).toBe("translate");
       expect(controls.space).toBe("world");
@@ -494,9 +505,13 @@ describe("native input permissions", () => {
       const events: string[] = [];
       const down = () => {
         events.push("down");
-        if (action === "disable") controls.enabled = false;
-        else if (action === "pause") scenario.wrapper.enabled = false;
-        else scenario.wrapper.dispose();
+        if (action === "disable") {
+          controls.enabled = false;
+        } else if (action === "pause") {
+          scenario.wrapper.enabled = false;
+        } else {
+          scenario.wrapper.dispose();
+        }
       };
       const up = () => events.push("up");
       controls.addEventListener("mouseDown", down);
@@ -531,7 +546,7 @@ describe("native input permissions", () => {
       controls.enabled = true;
       observed.mockClear();
       scenario.step(input);
-      if (kind === "drag")
+      if (kind === "drag") {
         expect(
           observed.mock.calls.some(
             ([event]) =>
@@ -541,7 +556,9 @@ describe("native input permissions", () => {
               event.type === "dragstart",
           ),
         ).toBe(false);
-      else expect(observed).not.toHaveBeenCalled();
+      } else {
+        expect(observed).not.toHaveBeenCalled();
+      }
       scenario.step();
       observed.mockClear();
       scenario.step(input);
@@ -557,9 +574,13 @@ describe("native input permissions", () => {
       const events: string[] = [];
       const start = () => {
         events.push("start");
-        if (action === "disable") controls.enabled = false;
-        else if (action === "pause") scenario.wrapper.enabled = false;
-        else scenario.wrapper.dispose();
+        if (action === "disable") {
+          controls.enabled = false;
+        } else if (action === "pause") {
+          scenario.wrapper.enabled = false;
+        } else {
+          scenario.wrapper.dispose();
+        }
       };
       const end = () => events.push("end");
       controls.addEventListener("start", start);
@@ -601,7 +622,9 @@ describe("native input permissions", () => {
       } else if (action === "polling") {
         gamepadPolling.publishFrame();
         scenario.wrapper.update(delta);
-      } else scenario.wrapper.dispose();
+      } else {
+        scenario.wrapper.dispose();
+      }
       scenario.wrapper.dispose();
       expect(events).toEqual(["start", "end"]);
     },
@@ -617,9 +640,13 @@ describe("native input permissions", () => {
       scenario.step();
       scenario.mesh.position.x = 0;
       const stop = () => {
-        if (action === "disable") controls.enabled = false;
-        else if (action === "pause") scenario.wrapper.enabled = false;
-        else scenario.wrapper.dispose();
+        if (action === "disable") {
+          controls.enabled = false;
+        } else if (action === "pause") {
+          scenario.wrapper.enabled = false;
+        } else {
+          scenario.wrapper.dispose();
+        }
       };
       const start = vi.fn();
       controls.addEventListener("hoveron", stop);
@@ -649,7 +676,9 @@ describe("permission transitions and native state", () => {
       scenario.step(scenario.active);
       const takeOver = () => {
         controls.removeEventListener(event, takeOver);
-        if (trigger === "reentrant-dispose") scenario.wrapper.dispose();
+        if (trigger === "reentrant-dispose") {
+          scenario.wrapper.dispose();
+        }
         controls.dragging = false;
         controls.axis = "Y";
         scenario.syncMatrices();
@@ -1099,7 +1128,9 @@ describe("permission transitions and native state", () => {
         buttons: createGamepadButtons([0, true], [4, true], [7, true, 0.6]),
       });
       expect(operation).not.toHaveBeenCalled();
-      if (flag === "enableRotate") expect(roll).not.toHaveBeenCalled();
+      if (flag === "enableRotate") {
+        expect(roll).not.toHaveBeenCalled();
+      }
     },
   );
 });
@@ -1138,7 +1169,9 @@ for (const kind of kinds) {
         ({ cleanup, gamepadPolling }) => {
           const scenario = createScenario(kind, cleanup, gamepadPolling);
           scenario.nativeControls.enabled = false;
-          for (let i = 0; i < 3; i++) scenario.step(scenario.active);
+          for (let i = 0; i < 3; i++) {
+            scenario.step(scenario.active);
+          }
           expectPose(scenario.object, scenario.initial);
           scenario.nativeControls.enabled = true;
           scenario.step(scenario.active);
@@ -1328,8 +1361,9 @@ describe("real raycasts and native event snapshots", () => {
       `Arcball focus uses a real center ray (${hit ? "hit" : "miss"})`,
       ({ cleanup, gamepadPolling }) => {
         const scenario = createScenario("arcball", cleanup, gamepadPolling);
-        if (!scenario.focusRaycaster)
+        if (!scenario.focusRaycaster) {
           throw new Error("Missing Arcball raycaster");
+        }
         const intersect = vi.spyOn(scenario.focusRaycaster, "intersectObjects");
         const controls = scenario.nativeControls as ArcballControls;
         const events: string[] = [];
@@ -1340,12 +1374,16 @@ describe("real raycasts and native event snapshots", () => {
             controls.removeEventListener(type, listener),
           );
         }
-        if (!hit) scenario.mesh.position.x = 20;
+        if (!hit) {
+          scenario.mesh.position.x = 20;
+        }
         scenario.step({ buttons: createGamepadButtons([0, true]) });
         expect(events).toEqual(hit ? ["start", "change", "end"] : []);
         expect(intersect).toHaveBeenCalledOnce();
         const result = intersect.mock.results[0];
-        if (result.type !== "return") throw new Error("Raycast did not return");
+        if (result.type !== "return") {
+          throw new Error("Raycast did not return");
+        }
         const meshHit = result.value.find(
           (intersection) => intersection.object === scenario.mesh,
         );

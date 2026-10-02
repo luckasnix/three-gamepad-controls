@@ -34,9 +34,7 @@ const createControls = (
   options?: Partial<GamepadPointerLockControlsOptions>,
 ): GamepadPointerLockControls => {
   const controls = new GamepadPointerLockControls(pointerLockControls, options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -54,7 +52,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadPointerLockControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const pointerLockControls = createPointerLockControls();
-
     expect(() =>
       createControls(pointerLockControls, { gamepadIndex: -1 }),
     ).toThrow("gamepadIndex must be an integer");
@@ -85,9 +82,7 @@ describe("GamepadPointerLockControls construction", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, -0.2, 0.3, 0, 0.4, -0.5],
       });
-
       controls.update(0.1);
-
       expect(moveTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.4,
         y: -0.2,
@@ -115,9 +110,7 @@ describe("GamepadPointerLockControls input gating", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0.05, -0.05, 0.05, -0.05],
       });
-
       controls.update(0.25);
-
       expect(moveForward).not.toHaveBeenCalled();
       expect(moveRight).not.toHaveBeenCalled();
       expect(setFromEuler).not.toHaveBeenCalled();
@@ -134,9 +127,7 @@ describe("GamepadPointerLockControls movement", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0.5, -0.75, 0, 0],
     });
-
     controls.update(0.2);
-
     expect(moveForward).toHaveBeenCalledOnce();
     expect(moveForward.mock.calls[0][0]).toBeCloseTo(0.75);
     expect(moveRight).toHaveBeenCalledOnce();
@@ -151,9 +142,7 @@ describe("GamepadPointerLockControls movement", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, -0.5, 0, 0],
     });
-
     controls.update(0.25);
-
     expect(pointerLockControls.object.position.z).toBeCloseTo(-0.25);
   });
 });
@@ -170,9 +159,7 @@ describe("GamepadPointerLockControls look", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, 0, 0.25, -0.5],
       });
-
       controls.update(0.2);
-
       const scale = 0.2 * Math.PI;
       const expectedEuler = new Euler(
         initialEuler.x + 0.5 * scale,
@@ -207,9 +194,7 @@ describe("GamepadPointerLockControls look", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, 0, lookY],
     });
-
     controls.update(1);
-
     expectQuaternionToBeCloseTo(
       pointerLockControls.object.quaternion,
       new Quaternion().setFromEuler(new Euler(expectedPitch, 0, 0, "YXZ")),

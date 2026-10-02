@@ -150,7 +150,6 @@ export class GamepadFlyControls extends GamepadControls {
     if (!this.#controls.enabled) {
       return;
     }
-
     const {
       moveSpeed,
       rotateSpeed,

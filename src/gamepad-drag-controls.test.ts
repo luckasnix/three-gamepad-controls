@@ -27,11 +27,9 @@ import { gamepadStickPipeline } from "./gamepad-stick-processing.ts";
 
 const createPerspectiveCamera = (): PerspectiveCamera => {
   const camera = new PerspectiveCamera(60, 2, 0.1, 100);
-
   camera.position.set(0, 0, 10);
   camera.lookAt(0, 0, 0);
   camera.updateMatrixWorld();
-
   return camera;
 };
 
@@ -56,10 +54,8 @@ const createDragControls = (camera: Camera = createPerspectiveCamera()) => {
   >((_objects, _recursive, target) => {
     targetLengths.push(target.length);
     target.push(...hits);
-
     return target;
   });
-
   return {
     controls: {
       dispatchEvent:
@@ -97,9 +93,7 @@ const createControls = (
     dragControls as unknown as DragControls,
     options,
   );
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -136,7 +130,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadDragControls construction and options", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const { controls: dragControls } = createDragControls();
-
     expect(() => createControls(dragControls, { gamepadIndex: -1 })).toThrow(
       "gamepadIndex must be an integer",
     );
@@ -167,9 +160,7 @@ describe("GamepadDragControls construction and options", () => {
         axes: [0, -0.3, 0.4, 0, 0.6, -0.5],
         timestamp: 3,
       });
-
       controls.update(0.1);
-
       expect(dragTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.6,
         y: -0.3,
@@ -193,14 +184,12 @@ describe("GamepadDragControls hover and selection", () => {
     const controls = createControls(dragFixture.controls);
     polling.gamepads[0] = createGamepad(0);
     dragFixture.setHits(firstObject);
-
     controls.update(0.1);
     controls.update(0.1);
     dragFixture.setHits(secondObject);
     controls.update(0.1);
     dragFixture.setHits();
     controls.update(0.1);
-
     expect(dragFixture.setFromCamera).toHaveBeenCalledWith(
       new Vector2(0, 0),
       dragFixture.controls.object,
@@ -228,9 +217,7 @@ describe("GamepadDragControls hover and selection", () => {
       buttons: createGamepadButtons([0, true]),
       timestamp: 2,
     });
-
     controls.update(0.1);
-
     expect(eventTypes(dragFixture.controls)).toEqual([]);
   });
 
@@ -241,7 +228,6 @@ describe("GamepadDragControls hover and selection", () => {
     grabObject(controls, dragFixture, object);
     const raycastCallsAfterGrab =
       dragFixture.intersectObjects.mock.calls.length;
-
     polling.gamepads[0] = createGamepad(0, { timestamp: 3 });
     controls.update(0.1);
     polling.gamepads[0] = createGamepad(0, {
@@ -249,7 +235,6 @@ describe("GamepadDragControls hover and selection", () => {
       timestamp: 4,
     });
     controls.update(0.1);
-
     expect(eventTypes(dragFixture.controls)).toEqual([
       "hoveron",
       "dragstart",
@@ -269,9 +254,7 @@ describe("GamepadDragControls hover and selection", () => {
     innerGroup.add(object);
     dragFixture.controls.transformGroup = true;
     const controls = createControls(dragFixture.controls);
-
     grabObject(controls, dragFixture, object);
-
     expect(dragFixture.controls.dispatchEvent).toHaveBeenLastCalledWith({
       type: "dragstart",
       object: outerGroup,
@@ -285,9 +268,7 @@ describe("GamepadDragControls hover and selection", () => {
     parent.add(object);
     dragFixture.controls.transformGroup = true;
     const controls = createControls(dragFixture.controls);
-
     grabObject(controls, dragFixture, object);
-
     expect(dragFixture.controls.dispatchEvent).toHaveBeenLastCalledWith({
       type: "dragstart",
       object,
@@ -307,9 +288,7 @@ describe("GamepadDragControls dragging", () => {
       axes: [0.5, -0.25, 0, 0],
       timestamp: 3,
     });
-
     controls.update(0.5);
-
     const height = 2 * Math.tan((camera.fov * Math.PI) / 360) * 10;
     expect(object.position.x).toBeCloseTo(0.5 * height * camera.aspect);
     expect(object.position.y).toBeCloseTo(0.25 * height);
@@ -342,9 +321,7 @@ describe("GamepadDragControls dragging", () => {
         axes: [0.5, 0.5, 0, 0],
         timestamp: 3,
       });
-
       controls.update(0.5);
-
       expect(object.position.x).toBeCloseTo(2);
       expect(object.position.y).toBeCloseTo(-0.5);
       expect(object.position.z).toBeCloseTo(0);
@@ -366,9 +343,7 @@ describe("GamepadDragControls dragging", () => {
       axes: [1, -1, 0, 0],
       timestamp: 3,
     });
-
     controls.update(0.5);
-
     expect(object.position).toEqual(new Vector3(0.5, 0.5, 0));
     expect(eventTypes(dragFixture.controls)).toEqual(["drag"]);
   });
@@ -382,9 +357,7 @@ describe("GamepadDragControls dragging", () => {
       grabObject(controls, dragFixture, object);
       dragFixture.controls.dispatchEvent.mockClear();
       polling.gamepads[0] = createGamepad(0, { timestamp: 3 });
-
       controls.update(0.1);
-
       expect(eventTypes(dragFixture.controls)).toEqual([]);
     },
   );
@@ -402,14 +375,12 @@ describe("GamepadDragControls rotation", () => {
       axes: [0, 0, 0.5, 0],
       timestamp: 3,
     });
-
     controls.update(0.1);
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, 0, -0.25],
       timestamp: 4,
     });
     controls.update(0.1);
-
     const [horizontalAxis, horizontalAngle] = rotateOnWorldAxis.mock.calls[0];
     const [verticalAxis, verticalAngle] = rotateOnWorldAxis.mock.calls[1];
     expect(horizontalAxis).toEqual(new Vector3(0, 1, 0));
@@ -428,10 +399,8 @@ describe("GamepadDragControls cleanup", () => {
     grabObject(controls, dragFixture, object);
     dragFixture.controls.dispatchEvent.mockClear();
     dragFixture.controls.enabled = false;
-
     controls.update(0.1);
     controls.update(0.1);
-
     expect(dragFixture.controls.dispatchEvent.mock.calls).toEqual([
       [{ type: "dragend", object }],
       [{ type: "hoveroff", object }],
@@ -445,9 +414,7 @@ describe("GamepadDragControls cleanup", () => {
     grabObject(controls, dragFixture, object);
     dragFixture.controls.dispatchEvent.mockClear();
     polling.gamepads[0] = null;
-
     controls.update(0.1);
-
     expect(dragFixture.controls.dispatchEvent.mock.calls).toEqual([
       [{ type: "dragend", object }],
       [{ type: "hoveroff", object }],
@@ -460,9 +427,7 @@ describe("GamepadDragControls cleanup", () => {
     const controls = createControls(dragFixture.controls);
     grabObject(controls, dragFixture, object);
     dragFixture.controls.dispatchEvent.mockClear();
-
     controls.dispose();
-
     expect(dragFixture.controls.dispatchEvent.mock.calls).toEqual([
       [{ type: "dragend", object }],
       [{ type: "hoveroff", object }],

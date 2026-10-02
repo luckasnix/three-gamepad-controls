@@ -43,11 +43,9 @@ export const createGamepadButtons = (
   ...entries: GamepadButtonFixtureEntry[]
 ): GamepadButton[] => {
   const buttons: GamepadButton[] = [];
-
   for (const [index, pressed, value] of entries) {
     buttons[index] = createGamepadButton(pressed, value);
   }
-
   return buttons;
 };
 
@@ -84,6 +82,5 @@ export const createGamepad = (
     vibrationActuator:
       options?.vibrationActuator ?? createGamepadHapticActuator(),
   };
-
   return Object.freeze(gamepad);
 };

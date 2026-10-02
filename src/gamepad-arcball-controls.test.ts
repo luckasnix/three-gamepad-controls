@@ -35,12 +35,10 @@ const createArcballControls = () => {
   };
   const object = new PerspectiveCamera();
   const gizmos = new Object3D();
-
   object.position.set(0, 0, 10);
   object.lookAt(0, 0, 0);
   object.updateMatrixWorld();
   gizmos.position.set(1, 2, 3);
-
   return {
     transformation,
     controls: {
@@ -98,9 +96,7 @@ const createControls = (
     arcball as unknown as ArcballControls,
     options,
   );
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -121,7 +117,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadArcballControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const { controls: arcball } = createArcballControls();
-
     expect(() => createControls(arcball, { gamepadIndex: -1 })).toThrow(
       "gamepadIndex must be an integer",
     );
@@ -146,9 +141,7 @@ describe("GamepadArcballControls construction", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, -0.3, 0.6, 0, 0.4, -0.5],
       });
-
       controls.update(0.25);
-
       expect(rotateTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.4,
         y: -0.3,
@@ -185,9 +178,7 @@ describe("GamepadArcballControls construction", () => {
       ),
       timestamp: 2,
     });
-
     controls.update(0.1);
-
     expect(arcball.scale).toHaveBeenCalledOnce();
     expect(arcball.zRotate).toHaveBeenCalledOnce();
     expect(arcball.focus).toHaveBeenCalledExactlyOnceWith(
@@ -204,9 +195,7 @@ describe("GamepadArcballControls input gating", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, 0, 0],
     });
-
     controls.update(0.1);
-
     expect(arcball.rotate).not.toHaveBeenCalled();
     expect(arcball.pan).not.toHaveBeenCalled();
     expect(arcball.scale).not.toHaveBeenCalled();
@@ -229,9 +218,7 @@ describe("GamepadArcballControls input gating", () => {
         [7, false, 0.75],
       ),
     });
-
     controls.update(0.1);
-
     expect(arcball.rotate).not.toHaveBeenCalled();
     expect(arcball.pan).not.toHaveBeenCalled();
     expect(arcball.scale).not.toHaveBeenCalled();
@@ -249,12 +236,9 @@ describe("GamepadArcballControls rotation", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0.5, -0.25, 0, 0],
       });
-
       controls.update(0.1);
-
       const [horizontalAxis, horizontalAngle] = arcball.rotate.mock.calls[0];
       const [verticalAxis, verticalAngle] = arcball.rotate.mock.calls[1];
-
       expect(horizontalAxis).toEqual(new Vector3(0, 1, 0));
       expect(horizontalAngle).toBeCloseTo(0.3 * Math.PI);
       expect(verticalAxis).toEqual(new Vector3(1, 0, 0));
@@ -275,12 +259,9 @@ describe("GamepadArcballControls rotation", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0.5, 0, 0],
     });
-
     degenerateControls.update(0.1);
-
     expect(degenerateFixture.controls.rotate).not.toHaveBeenCalled();
     expect(degenerateFixture.controls.update).not.toHaveBeenCalled();
-
     const zeroSpeedFixture = createArcballControls();
     const zeroSpeedControls = createControls(zeroSpeedFixture.controls, {
       rotateSpeed: 0,
@@ -289,9 +270,7 @@ describe("GamepadArcballControls rotation", () => {
       axes: [0.5, 0, 0, 0],
       timestamp: 1,
     });
-
     zeroSpeedControls.update(0.1);
-
     expect(zeroSpeedFixture.controls.rotate).not.toHaveBeenCalled();
     expect(zeroSpeedFixture.controls.update).not.toHaveBeenCalled();
   });
@@ -307,27 +286,22 @@ describe("GamepadArcballControls pan and interaction events", () => {
         axes: [0, 0, 0.4, -0.5],
         timestamp: 1,
       });
-
       controls.update(0.25);
-
       const [panStart, panEnd] = arcball.pan.mock.calls[0];
       expect(panStart).toEqual(new Vector3(0, 0, 0));
       expect(panEnd.x).toBeCloseTo(0.6);
       expect(panEnd.y).toBeCloseTo(-0.75);
       expect(panEnd.z).toBe(0);
-
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, 0, 0.25, 0],
         timestamp: 2,
       });
       controls.update(0.25);
-
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, 0, 0, 0],
         timestamp: 3,
       });
       controls.update(0.25);
-
       expect(arcball.pan).toHaveBeenCalledTimes(2);
       expect(arcball.update).toHaveBeenCalledTimes(2);
       expect(eventTypes(arcball)).toEqual(["start", "change", "change", "end"]);
@@ -343,9 +317,7 @@ describe("GamepadArcballControls pan and interaction events", () => {
     controls.update(0.1);
     arcball.rotate.mockClear();
     arcball.enabled = false;
-
     controls.update(0.1);
-
     expect(arcball.rotate).not.toHaveBeenCalled();
     expect(eventTypes(arcball)).toEqual(["start", "change", "end"]);
   });
@@ -358,9 +330,7 @@ describe("GamepadArcballControls zoom", () => {
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([6, false, 0.25], [7, false, 0.75]),
     });
-
     controls.update(0.25);
-
     const [size, point] = arcball.scale.mock.calls[0];
     expect(size).toBeCloseTo(2 ** 1.5);
     expect(point).toBe(arcball._gizmos.position);
@@ -376,9 +346,7 @@ describe("GamepadArcballControls zoom", () => {
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([7, false, 0.2]),
     });
-
     controls.update(0.1);
-
     expect(arcball.scale).not.toHaveBeenCalled();
     expect(eventTypes(arcball)).toEqual([]);
   });
@@ -390,26 +358,18 @@ describe("GamepadArcballControls zoom", () => {
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([7, false, 0.5]),
     });
-
     invalidFactorControls.update(0.1);
-
     expect(invalidFactorFixture.controls.scale).not.toHaveBeenCalled();
-
     const neutralSizeFixture = createArcballControls();
     const neutralSizeControls = createControls(neutralSizeFixture.controls, {
       zoomSpeed: 0,
     });
-
     neutralSizeControls.update(0.1);
-
     expect(neutralSizeFixture.controls.scale).not.toHaveBeenCalled();
-
     const nonFiniteFixture = createArcballControls();
     nonFiniteFixture.controls.scaleFactor = Number.POSITIVE_INFINITY;
     const nonFiniteControls = createControls(nonFiniteFixture.controls);
-
     nonFiniteControls.update(0.1);
-
     expect(nonFiniteFixture.controls.scale).not.toHaveBeenCalled();
   });
 
@@ -420,9 +380,7 @@ describe("GamepadArcballControls zoom", () => {
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([7, false, 0.5]),
     });
-
     controls.update(0.1);
-
     expect(arcball.scale).toHaveBeenCalledOnce();
     expect(arcball.applyTransformMatrix).not.toHaveBeenCalled();
     expect(arcball.update).not.toHaveBeenCalled();
@@ -437,9 +395,7 @@ describe("GamepadArcballControls z-rotation", () => {
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([4, false, 0.8], [5, false, 0.3]),
     });
-
     controls.update(0.25);
-
     const [point, angle] = arcball.zRotate.mock.calls[0];
     expect(point).toBe(arcball._gizmos.position);
     expect(angle).toBeCloseTo(0.25 * Math.PI);
@@ -464,9 +420,7 @@ describe("GamepadArcballControls focus", () => {
       buttons: createGamepadButtons([0, true]),
       timestamp: 2,
     });
-
     controls.update(0.1);
-
     expect(arcball.unprojectOnObj).toHaveBeenCalledExactlyOnceWith(
       new Vector2(0, 0),
       arcball.object,
@@ -488,9 +442,7 @@ describe("GamepadArcballControls focus", () => {
       buttons: createGamepadButtons([0, true]),
       timestamp: 2,
     });
-
     controls.update(0.1);
-
     expect(arcball.unprojectOnObj).toHaveBeenCalledOnce();
     expect(arcball.focus).not.toHaveBeenCalled();
     expect(eventTypes(arcball)).toEqual([]);
@@ -512,7 +464,6 @@ describe("GamepadArcballControls focus", () => {
           arcball.scene = null;
         },
       ];
-
     for (const configure of cases) {
       const { controls: arcball } = createArcballControls();
       configure(arcball);
@@ -523,9 +474,7 @@ describe("GamepadArcballControls focus", () => {
         buttons: createGamepadButtons([0, true]),
         timestamp: 2,
       });
-
       controls.update(0.1);
-
       expect(arcball.unprojectOnObj).not.toHaveBeenCalled();
       expect(arcball.focus).not.toHaveBeenCalled();
     }

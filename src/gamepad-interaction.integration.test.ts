@@ -87,12 +87,15 @@ const createScenario = (
     native.enableDamping = false;
     native.autoRotate = false;
   }
-  if (native instanceof TrackballControls) native.staticMoving = true;
+  if (native instanceof TrackballControls) {
+    native.staticMoving = true;
+  }
   if (native instanceof ArcballControls) {
     native.enableAnimations = false;
     for (const child of [...scene.children]) {
-      if (child !== environment.mesh)
+      if (child !== environment.mesh) {
         cleanup.add("resource", () => disposeObjectResources(child));
+      }
     }
   }
   const configured = { ...options, gamepadIndex: index };
@@ -118,8 +121,12 @@ const createScenario = (
   const update = (delta = 0.1) => {
     syncMatrices();
     wrapper.update(delta);
-    if (native instanceof OrbitControls) native.update(delta);
-    if (native instanceof TrackballControls) native.update();
+    if (native instanceof OrbitControls) {
+      native.update(delta);
+    }
+    if (native instanceof TrackballControls) {
+      native.update();
+    }
     syncMatrices();
   };
   const active =
@@ -235,10 +242,11 @@ interactionTest(
  * @param scenario - Orbit, Map, Trackball, or Arcball scenario to restrict.
  */
 const forbidRotation = (scenario: ReturnType<typeof createScenario>) => {
-  if (scenario.native instanceof TrackballControls)
+  if (scenario.native instanceof TrackballControls) {
     scenario.native.noRotate = true;
-  else
+  } else {
     (scenario.native as OrbitControls | ArcballControls).enableRotate = false;
+  }
 };
 
 for (const kind of sessionKinds) {
@@ -264,14 +272,23 @@ for (const kind of sessionKinds) {
         );
         gamepadPolling.publishFrame();
       }
-      if (reason === "poll") gamepadPolling.publishFrame();
-      if (reason === "disable") scenario.native.enabled = false;
-      if (reason === "forbid") forbidRotation(scenario);
-      if (reason === "zero")
+      if (reason === "poll") {
+        gamepadPolling.publishFrame();
+      }
+      if (reason === "disable") {
+        scenario.native.enabled = false;
+      }
+      if (reason === "forbid") {
+        forbidRotation(scenario);
+      }
+      if (reason === "zero") {
         (
           scenario.native as OrbitControls | TrackballControls | ArcballControls
         ).rotateSpeed = 0;
-      if (reason === "dispose") scenario.wrapper.dispose();
+      }
+      if (reason === "dispose") {
+        scenario.wrapper.dispose();
+      }
       scenario.update();
       scenario.wrapper.dispose();
       scenario.wrapper.dispose();
@@ -328,23 +345,35 @@ for (const kind of sessionKinds) {
       const scenario = createScenario(kind, cleanup);
       const before = scenario.camera.position.clone();
       const nested = vi.fn(() => {
-        if (action === "disable") scenario.native.enabled = false;
-        if (action === "forbid") forbidRotation(scenario);
-        if (action === "zero")
+        if (action === "disable") {
+          scenario.native.enabled = false;
+        }
+        if (action === "forbid") {
+          forbidRotation(scenario);
+        }
+        if (action === "zero") {
           (
             scenario.native as
               | OrbitControls
               | TrackballControls
               | ArcballControls
           ).rotateSpeed = 0;
-        if (action === "pause") scenario.wrapper.enabled = false;
-        if (action === "dispose") scenario.wrapper.dispose();
-        if (action === "disconnect")
+        }
+        if (action === "pause") {
+          scenario.wrapper.enabled = false;
+        }
+        if (action === "dispose") {
+          scenario.wrapper.dispose();
+        }
+        if (action === "disconnect") {
           dispatchGamepadEvent(
             "gamepaddisconnected",
             scenario.wrapper.gamepad as Gamepad,
           );
-        if (action === "reenter") scenario.wrapper.update(0.1);
+        }
+        if (action === "reenter") {
+          scenario.wrapper.update(0.1);
+        }
       });
       scenario.dispatcher.addEventListener("start", nested);
       gamepadPolling.publishFrame([3, scenario.active]);
@@ -420,7 +449,9 @@ interactionTest.for(["orbit", "map", "trackball"] as const)(
     if (scenario.native instanceof OrbitControls) {
       scenario.native.enableDamping = true;
       scenario.native.dampingFactor = 0.2;
-    } else (scenario.native as TrackballControls).staticMoving = false;
+    } else {
+      (scenario.native as TrackballControls).staticMoving = false;
+    }
     gamepadPolling.publishFrame([3, scenario.active]);
     scenario.update();
     const before = scenario.camera.position.clone();
@@ -548,9 +579,15 @@ interactionTest.for([
         caseName === "lower" ? -0.5 : 0.5,
       ];
     }
-    if (caseName === "zeroNative") native.pointerSpeed = 0;
-    if (caseName === "translation") axes = [0.5, -0.5, 0, 0];
-    if (caseName === "tiny") axes = [0, 0, 0.5, 0];
+    if (caseName === "zeroNative") {
+      native.pointerSpeed = 0;
+    }
+    if (caseName === "translation") {
+      axes = [0.5, -0.5, 0, 0];
+    }
+    if (caseName === "tiny") {
+      axes = [0, 0, 0.5, 0];
+    }
     if (caseName === "sign") {
       scenario.camera.quaternion.set(0, 0, 0, -1);
       axes = [0, 0, 0.5, 0];
@@ -579,11 +616,12 @@ for (const kind of sessionKinds) {
       const scenario = createScenario(kind, cleanup);
       gamepadPolling.publishFrame([3, scenario.active]);
       scenario.update();
-      if (loss === "event")
+      if (loss === "event") {
         dispatchGamepadEvent(
           "gamepaddisconnected",
           scenario.wrapper.gamepad as Gamepad,
         );
+      }
       gamepadPolling.publishFrame();
       scenario.update();
       gamepadPolling.publishFrame([3, scenario.active]);
@@ -710,17 +748,20 @@ interactionTest.for([
     );
     native.enableAnimations = false;
     cleanup.add("native", () => native.dispose());
-    for (const child of [...environment.scene.children])
-      if (child !== environment.mesh)
+    for (const child of [...environment.scene.children]) {
+      if (child !== environment.mesh) {
         cleanup.add("resource", () => disposeObjectResources(child));
+      }
+    }
     const wrapper = new GamepadArcballControls(native, {
       gamepadIndex: 3,
       [property]: 0,
     });
     cleanup.add("wrapper", () => wrapper.dispose());
     const types: string[] = [];
-    for (const type of ["start", "change", "end"] as const)
+    for (const type of ["start", "change", "end"] as const) {
       native.addEventListener(type, () => types.push(type));
+    }
     const input =
       property === "rotateSpeed"
         ? { axes: [0.5, 0.5, 0, 0] }

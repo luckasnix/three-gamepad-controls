@@ -171,7 +171,9 @@ export class GamepadTrackballControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   public override update(deltaTime: number): void {
-    if (this.#updating || this.#ending) return;
+    if (this.#updating || this.#ending) {
+      return;
+    }
     this.#updating = true;
     try {
       super.update(deltaTime);
@@ -218,12 +220,16 @@ export class GamepadTrackballControls extends GamepadControls {
       zoom,
     };
     let actions = this.#acceptActions(frame, deltaTime);
-    if (actions === null) return;
+    if (actions === null) {
+      return;
+    }
     if (!this.#interacting) {
       this.#interacting = true;
       this.#controls.dispatchEvent({ type: "start" });
       actions = this.#acceptActions(frame, deltaTime);
-      if (actions === null) return;
+      if (actions === null) {
+        return;
+      }
     }
     // Native speeds are consumed by Trackball itself. Only gate on them here;
     // scaling the queued deltas by those speeds would apply them twice.
@@ -266,14 +272,13 @@ export class GamepadTrackballControls extends GamepadControls {
    */
   #acceptActions(input: TrackballInput, delta: number): TrackballInput | null {
     const controls = this.#controls;
-
     if (!controls.enabled) {
       this.#endInteraction();
       return null;
     }
-
-    if (!this.enabled || this.gamepad === null) return null;
-
+    if (!this.enabled || this.gamepad === null) {
+      return null;
+    }
     const damping = controls.staticMoving ? 1 : controls.dynamicDampingFactor;
     const rotate =
       !controls.noRotate && controls.rotateSpeed !== 0
@@ -294,12 +299,10 @@ export class GamepadTrackballControls extends GamepadControls {
       panY: input.panY * pan,
       zoom: input.zoom * zoom,
     };
-
     if (!Object.values(actions).some((value) => value !== 0)) {
       this.#endInteraction();
       return null;
     }
-
     return actions;
   }
 
@@ -308,7 +311,9 @@ export class GamepadTrackballControls extends GamepadControls {
    * Blocks recursive updates during finalization without clearing native pointer vectors.
    */
   #endInteraction(): void {
-    if (!this.#interacting) return;
+    if (!this.#interacting) {
+      return;
+    }
     this.#interacting = false;
     this.#ending = true;
     try {

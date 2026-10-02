@@ -21,10 +21,8 @@ import {
 
 const createFlyControls = (): FlyControls => {
   const controls = new FlyControls(new PerspectiveCamera());
-
   controls.movementSpeed = 4;
   controls.rollSpeed = 2;
-
   return controls;
 };
 
@@ -43,9 +41,7 @@ const createControls = (
   options?: Partial<GamepadFlyControlsOptions>,
 ): GamepadFlyControls => {
   const controls = new GamepadFlyControls(flyControls, options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -63,7 +59,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadFlyControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const flyControls = createFlyControls();
-
     expect(() => createControls(flyControls, { gamepadIndex: -1 })).toThrow(
       "gamepadIndex must be an integer",
     );
@@ -94,9 +89,7 @@ describe("GamepadFlyControls construction", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, -0.2, 0.3, 0, 0.4, -0.5],
       });
-
       controls.update(0.1);
-
       expect(moveTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.4,
         y: -0.2,
@@ -121,9 +114,7 @@ describe("GamepadFlyControls input gating", () => {
       axes: [0.05, -0.05, 0.05, -0.05],
       buttons: createGamepadButtons([6, false, 0.1], [7, false, 0.1]),
     });
-
     controls.update(0.25);
-
     expect(translateX).not.toHaveBeenCalled();
     expect(translateY).not.toHaveBeenCalled();
     expect(translateZ).not.toHaveBeenCalled();
@@ -141,9 +132,7 @@ describe("GamepadFlyControls movement", () => {
         axes: [0.5, -0.75, 0, 0],
         buttons: createGamepadButtons([6, false, 0.6], [7, false, 0.2]),
       });
-
       controls.update(0.25);
-
       expect(flyControls.object.position.x).toBeCloseTo(0.75);
       expect(flyControls.object.position.y).toBeCloseTo(0.6);
       expect(flyControls.object.position.z).toBeCloseTo(-1.125);
@@ -162,9 +151,7 @@ describe("GamepadFlyControls movement", () => {
       polling.gamepads[0] = createGamepad(0, {
         buttons: createGamepadButtons([1, false, 0.4], [2, false, 0.6]),
       });
-
       controls.update(0.5);
-
       expect(flyControls.object.position.y).toBeCloseTo(-1.2);
     },
   );
@@ -207,9 +194,7 @@ describe("GamepadFlyControls rotation", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, lookX, lookY],
     });
-
     controls.update(0.2);
-
     expectQuaternionToBeCloseTo(
       flyControls.object.quaternion,
       new Quaternion(expectedPitch * 0.2, expectedYaw * 0.2, 0, 1).normalize(),
@@ -230,9 +215,7 @@ describe("GamepadFlyControls rotation", () => {
         axes: [0, 0, 0.25, -0.5],
         buttons: createGamepadButtons([4, true]),
       });
-
       controls.update(0.2);
-
       const expectedDelta = new Quaternion(0.15, -0.075, 0.3, 1).normalize();
       expectQuaternionToBeCloseTo(
         flyControls.object.quaternion,
@@ -251,9 +234,7 @@ describe("GamepadFlyControls rotation", () => {
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([2, true]),
     });
-
     controls.update(0.25);
-
     expectQuaternionToBeCloseTo(
       flyControls.object.quaternion,
       new Quaternion(0, 0, -0.25, 1).normalize(),
@@ -267,9 +248,7 @@ describe("GamepadFlyControls rotation", () => {
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([4, true], [5, true]),
     });
-
     controls.update(0.25);
-
     expect(multiply).not.toHaveBeenCalled();
     expectQuaternionToBeCloseTo(
       flyControls.object.quaternion,

@@ -195,7 +195,6 @@ const createGamepadStickResult = (
 ): GamepadStick => {
   const canonicalX = x === 0 ? 0 : x;
   const canonicalY = y === 0 ? 0 : y;
-
   if (
     canonicalX === source.x &&
     canonicalY === source.y &&
@@ -204,7 +203,6 @@ const createGamepadStickResult = (
   ) {
     return source as GamepadStick;
   }
-
   return {
     x: canonicalX,
     y: canonicalY,
@@ -225,7 +223,6 @@ const mapGamepadSignedMagnitude = (
   if (value === 0) {
     return 0;
   }
-
   return Math.sign(value) * mapMagnitude(Math.abs(value));
 };
 
@@ -241,23 +238,17 @@ const mapGamepadStickMagnitude = (
   mapMagnitude: (magnitude: number) => number,
 ): GamepadStick => {
   const magnitude = Math.hypot(value.x, value.y);
-
   if (magnitude === 0) {
     return createGamepadStickResult(value, 0, 0);
   }
-
   const mappedMagnitude = mapMagnitude(magnitude);
-
   if (mappedMagnitude === magnitude) {
     return createGamepadStickResult(value, value.x, value.y);
   }
-
   if (mappedMagnitude === 0) {
     return createGamepadStickResult(value, 0, 0);
   }
-
   const scale = mappedMagnitude / magnitude;
-
   return createGamepadStickResult(value, value.x * scale, value.y * scale);
 };
 
@@ -275,7 +266,6 @@ const rescaleGamepadDeadzoneMagnitude = (
   if (magnitude <= threshold || threshold >= 1) {
     return 0;
   }
-
   return Math.min((magnitude - threshold) / (1 - threshold), 1);
 };
 
@@ -296,7 +286,6 @@ const applyGamepadResponseCurve = (
   if (magnitude > 1) {
     return magnitude;
   }
-
   switch (curve) {
     case "linear":
       return magnitude;
@@ -324,12 +313,10 @@ const createDeadzoneProcessor = (
     if (magnitude < threshold) {
       return 0;
     }
-
     return rescale
       ? rescaleGamepadDeadzoneMagnitude(magnitude, threshold)
       : magnitude;
   };
-
   return Object.freeze({
     process(value: Readonly<GamepadStick>): GamepadStick {
       if (mode === "axial") {
@@ -339,7 +326,6 @@ const createDeadzoneProcessor = (
           mapGamepadSignedMagnitude(value.y, mapMagnitude),
         );
       }
-
       return mapGamepadStickMagnitude(value, mapMagnitude);
     },
   });
@@ -358,7 +344,6 @@ const createResponseCurveProcessor = (
 ): GamepadStickProcessor => {
   const mapMagnitude = (magnitude: number): number =>
     applyGamepadResponseCurve(magnitude, curve);
-
   return Object.freeze({
     process(value: Readonly<GamepadStick>): GamepadStick {
       if (mode === "axial") {
@@ -368,7 +353,6 @@ const createResponseCurveProcessor = (
           mapGamepadSignedMagnitude(value.y, mapMagnitude),
         );
       }
-
       return mapGamepadStickMagnitude(value, mapMagnitude);
     },
   });
@@ -385,7 +369,6 @@ const createInversionProcessor = (
 ): GamepadStickProcessor => {
   const invertX = axis === "x" || axis === "both";
   const invertY = axis === "y" || axis === "both";
-
   return Object.freeze({
     process(value: Readonly<GamepadStick>): GamepadStick {
       const x = value.x === 0 ? 0 : invertX ? -value.x : value.x;
@@ -422,15 +405,12 @@ const createPipeline = (
   const pipelineProcessors = Object.freeze([...processors]);
   const append = (processor: GamepadStickProcessor): GamepadStickPipeline =>
     createPipeline(mode, [...pipelineProcessors, processor]);
-
   return Object.freeze({
     process(value: Readonly<GamepadStick>): GamepadStick {
       let processed: Readonly<GamepadStick> = value;
-
       for (const processor of pipelineProcessors) {
         processed = processor.process(processed);
       }
-
       return processed as GamepadStick;
     },
     deadzone(

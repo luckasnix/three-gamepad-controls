@@ -70,9 +70,7 @@ const createControls = (
   options?: GamepadControlsOptions,
 ): TestGamepadControls => {
   const controls = new TestGamepadControls(options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -92,7 +90,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadControls construction", () => {
   gamepadTest("starts enabled with neutral gamepad state", () => {
     const controls = createControls();
-
     expect(controls.enabled).toBe(true);
     expect(controls.gamepad).toBeNull();
     expect(controls.vibrationSupported).toBe(false);
@@ -121,8 +118,11 @@ describe("GamepadControls.update", () => {
     (action) => {
       const controls = createControls();
       controls.addEventListener("connected", () => {
-        if (action === "pause") controls.enabled = false;
-        else controls.dispose();
+        if (action === "pause") {
+          controls.enabled = false;
+        } else {
+          controls.dispose();
+        }
       });
       polling.publishFrame([0, { axes: [1, 0, 0, 0] }]);
       controls.update(0.1);
@@ -141,7 +141,6 @@ describe("GamepadControls.update", () => {
     polling.gamepads[0] = createGamepad(0);
     controls.enabled = false;
     controls.update(0.25);
-
     expect(polling.getGamepads).not.toHaveBeenCalled();
     expect(controls.gamepad).toBeNull();
     expect(controls.updateDeltas).toEqual([]);
@@ -150,7 +149,6 @@ describe("GamepadControls.update", () => {
   gamepadTest("polls without updating the subclass when disconnected", () => {
     const controls = createControls();
     controls.update(0.25);
-
     expect(polling.getGamepads).toHaveBeenCalledOnce();
     expect(controls.gamepad).toBeNull();
     expect(controls.updateDeltas).toEqual([]);
@@ -166,7 +164,6 @@ describe("GamepadControls.update", () => {
       controls.update(0.1);
       polling.gamepads[0] = refreshedGamepad;
       controls.update(0.2);
-
       expect(controls.gamepad).toBe(refreshedGamepad);
       expect(controls.updateDeltas).toEqual([0.1, 0.2]);
       expect(controls.connectedGamepads).toEqual([initialGamepad]);
@@ -179,13 +176,10 @@ describe("GamepadControls.update", () => {
     const controls = createControls({ gamepadIndex: 2 });
     polling.gamepads[0] = otherGamepad;
     controls.update(0.1);
-
     expect(controls.gamepad).toBeNull();
     expect(controls.updateDeltas).toEqual([]);
-
     polling.gamepads[2] = selectedGamepad;
     controls.update(0.2);
-
     expect(controls.gamepad).toBe(selectedGamepad);
     expect(controls.updateDeltas).toEqual([0.2]);
   });
@@ -215,7 +209,6 @@ describe("GamepadControls lifecycle events", () => {
     controls.update(0.1);
     polling.gamepads[0] = null;
     controls.update(0.1);
-
     expect(wrapperEvents).toEqual(["connected", "disconnected"]);
     expect(inputEvents.map((event) => event.type)).toEqual(wrapperEvents);
   });
@@ -243,7 +236,6 @@ describe("GamepadControls lifecycle events", () => {
       controls.update(0.1);
       polling.gamepads[1] = null;
       controls.update(0.2);
-
       expect(controls.connectedGamepads).toEqual([gamepad]);
       expect(controls.disconnectedGamepads).toEqual([gamepad]);
       expect(connectedEvents).toEqual([gamepad]);
@@ -273,7 +265,6 @@ describe("GamepadControls haptics", () => {
     const controls = createControls();
     polling.gamepads[0] = gamepad;
     controls.update(0.1);
-
     expect(controls.vibrationSupported).toBe(true);
     await expect(
       controls.playVibrationEffect("dual-rumble", parameters),
@@ -288,7 +279,6 @@ describe("GamepadControls haptics", () => {
 
   gamepadTest("treats vibration without a gamepad as a no-op", async () => {
     const controls = createControls();
-
     await expect(
       controls.playVibrationEffect("dual-rumble"),
     ).resolves.toBeNull();
@@ -307,15 +297,12 @@ describe("GamepadControls.dispose", () => {
       controls.update(0.1);
       polling.getGamepads.mockClear();
       controls.dispose();
-
       expect(controls.enabled).toBe(false);
       expect(controls.gamepad).toBeNull();
-
       polling.setGamepads([null, replacementGamepad]);
       dispatchGamepadEvent("gamepadconnected", replacementGamepad);
       controls.enabled = true;
       controls.update(0.2);
-
       expect(controls.gamepad).toBeNull();
       expect(controls.connectedGamepads).toEqual([activeGamepad]);
       expect(controls.updateDeltas).toEqual([0.1]);
@@ -337,19 +324,15 @@ describe("GamepadControls pause contract", () => {
       polling.publishFrame([0, { buttons: [createGamepadButton(true)] }]);
       polling.getGamepads.mockClear();
       controls.update(0.2);
-
       expect(polling.getGamepads).not.toHaveBeenCalled();
       expect(controls.gamepad).toBe(active);
       expect(controls.input.isPressed(0)).toBe(true);
       expect(controls.updateDeltas).toEqual([0.1]);
-
       dispatchGamepadEvent(
         "gamepaddisconnected",
         createGamepad(2, { connected: false }),
       );
-
       expect(controls.gamepad).toBe(active);
-
       dispatchGamepadEvent(
         "gamepaddisconnected",
         createGamepad(3, { connected: false }),
@@ -360,7 +343,6 @@ describe("GamepadControls pause contract", () => {
       );
       dispatchGamepadEvent("gamepadconnected", createGamepad(0));
       controls.update(0.3);
-
       expect(polling.getGamepads).not.toHaveBeenCalled();
       expect(controls.gamepad).toBeNull();
       expect(controls.input.isPressed(0)).toBe(false);
@@ -370,10 +352,8 @@ describe("GamepadControls pause contract", () => {
         controlEvent("connected", 3),
         controlEvent("disconnected", 3),
       ]);
-
       controls.enabled = true;
       controls.update(0.4);
-
       expect(controls.gamepad?.index).toBe(0);
       expect(controls.input.isPressed(0)).toBe(true);
       expect(controls.input.wasPressed(0)).toBe(false);
@@ -395,16 +375,13 @@ describe("GamepadControls pause contract", () => {
       polling.publishFrame([3], [0, { buttons: [createGamepadButton(true)] }]);
       dispatchGamepadEvent("gamepadconnected", createGamepad(3));
       controls.update(0.1);
-
       expect(polling.getGamepads).toHaveBeenCalledOnce();
       expect(controls.gamepad?.index).toBe(0);
       expect(controls.input.wasPressed(0)).toBe(false);
       expect(controls.updateDeltas).toEqual([]);
       expect(events).toEqual([controlEvent("connected", 0)]);
-
       controls.enabled = true;
       controls.update(0.2);
-
       expect(controls.updateDeltas).toEqual([0.2]);
       expect(controls.input.wasPressed(0)).toBe(false);
       expect(events).toHaveLength(1);
@@ -423,16 +400,13 @@ describe("GamepadControls pause contract", () => {
       controls.update(0.2);
       controls.enabled = true;
       controls.update(0.3);
-
       expect(controls.gamepad).toBeNull();
       expect(controls.updateDeltas).toEqual([0.1]);
       expect(events).toEqual([
         controlEvent("connected", 3),
         controlEvent("disconnected", 3),
       ]);
-
       controls.update(0.4);
-
       expect(controls.updateDeltas).toEqual([0.1, 0.4]);
       expect(events).toEqual([
         controlEvent("connected", 3),
@@ -458,12 +432,9 @@ describe("GamepadControls pause contract", () => {
         ]);
         controls.enabled = true;
         controls.update(0.3);
-
         expect(controls.input.wasPressed(0)).toBe(heldOnResume);
         expect(controls.updateDeltas).toEqual([0.1, 0.3]);
-
         controls.update(0.4);
-
         expect(controls.input.wasPressed(0)).toBe(false);
       },
     );
@@ -492,11 +463,8 @@ describe("GamepadControls pause contract", () => {
       dispatchGamepadEvent("gamepadconnected", createGamepad(0));
       polling.getGamepads.mockClear();
       first.update(0.2);
-
       expect(polling.getGamepads).not.toHaveBeenCalled();
-
       second.update(0.2);
-
       expect(second.input.wasPressed(0)).toBe(true);
       expect(second.updateDeltas).toEqual([0.1, 0.2]);
       expect(first.gamepad).toBeNull();

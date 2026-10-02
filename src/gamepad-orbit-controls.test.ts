@@ -21,7 +21,6 @@ import {
 
 const createOrbitControls = () => {
   const controls = new OrbitControls(new PerspectiveCamera());
-
   return {
     controls,
     dollyIn: vi.spyOn(controls, "dollyIn").mockImplementation(() => {}),
@@ -42,9 +41,7 @@ const createControls = (
   options?: Partial<GamepadOrbitControlsOptions>,
 ): GamepadOrbitControls => {
   const controls = new GamepadOrbitControls(orbitControls, options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -72,7 +69,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadOrbitControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const orbitFixture = createOrbitControls();
-
     expect(() =>
       createControls(orbitFixture.controls, { gamepadIndex: -1 }),
     ).toThrow("gamepadIndex must be an integer");
@@ -103,9 +99,7 @@ describe("GamepadOrbitControls construction", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, -0.2, 0.3, 0, 0.4, -0.5],
       });
-
       controls.update(0.1);
-
       expect(rotateTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.4,
         y: -0.2,
@@ -129,9 +123,7 @@ describe("GamepadOrbitControls default bindings", () => {
         axes: [0.3, -0.5, 0.4, -0.2],
         buttons: createGamepadButtons([6, false, 0.2], [7, false, 0.6]),
       });
-
       controls.update(0.2);
-
       expect(orbitFixture.rotateLeft).toHaveBeenCalledOnce();
       expect(orbitFixture.rotateLeft.mock.calls[0][0]).toBeCloseTo(
         0.06 * Math.PI,
@@ -156,9 +148,7 @@ describe("GamepadOrbitControls default bindings", () => {
     polling.gamepads[0] = createGamepad(0, {
       axes: [0, 0, 0, 0.5],
     });
-
     controls.update(0.2);
-
     expect(orbitFixture.pan).toHaveBeenCalledOnce();
     expect(orbitFixture.pan.mock.calls[0][0]).toBe(0);
     expect(orbitFixture.pan.mock.calls[0][1]).toBeCloseTo(50);
@@ -173,9 +163,7 @@ describe("GamepadOrbitControls default bindings", () => {
       axes: [0.05, -0.05, 0.05, -0.05],
       buttons: createGamepadButtons([6, false, 0.1], [7, false, 0.1]),
     });
-
     controls.update(0.2);
-
     expectOrbitActionsNotToHaveBeenCalled(orbitFixture);
   });
 });
@@ -195,9 +183,7 @@ describe("GamepadOrbitControls options", () => {
       axes: [0.3, -0.5, 0.4, -0.2],
       buttons: createGamepadButtons([1, false, 0.4], [2, false, 0.6]),
     });
-
     controls.update(0.25);
-
     expect(orbitFixture.rotateLeft).toHaveBeenCalledOnce();
     expect(orbitFixture.rotateLeft.mock.calls[0][0]).toBeCloseTo(
       0.15 * Math.PI,

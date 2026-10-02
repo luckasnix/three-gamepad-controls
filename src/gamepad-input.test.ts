@@ -53,9 +53,7 @@ const inputEvent = (type: keyof GamepadInputEventMap, index: number) => ({
 
 const createInput = (options?: Partial<GamepadInputOptions>): GamepadInput => {
   const input = new GamepadInput(options);
-
   inputs.push(input);
-
   return input;
 };
 
@@ -75,7 +73,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadInput construction", () => {
   gamepadTest("starts enabled with neutral disconnected state", () => {
     const input = createInput();
-
     expect(input.enabled).toBe(true);
     expect(input.gamepad).toBeNull();
     expect(input.rawGamepad).toBeNull();
@@ -125,7 +122,6 @@ describe("GamepadInput polling lifecycle", () => {
       );
       polling.gamepads[0] = gamepad;
       input.update();
-
       expect(connectedGamepads).toEqual([gamepad]);
       expect(input.gamepad).toBe(gamepad);
       expect(input.rawGamepad).toBe(gamepad);
@@ -153,14 +149,11 @@ describe("GamepadInput polling lifecycle", () => {
       input.update();
       polling.gamepads[0] = refreshedGamepad;
       input.update();
-
       expect(input.isPressed(0)).toBe(true);
       expect(input.isPressed(1)).toBe(false);
       expect(input.wasPressed(0)).toBe(true);
       expect(input.wasReleased(1)).toBe(true);
-
       input.update();
-
       expect(input.wasPressed(0)).toBe(false);
       expect(input.wasReleased(1)).toBe(false);
     },
@@ -184,7 +177,6 @@ describe("GamepadInput polling lifecycle", () => {
       input.update();
       polling.gamepads[0] = null;
       input.update();
-
       expect(disconnectedGamepads).toEqual([gamepad]);
       expect(input.gamepad).toBeNull();
       expect(input.connected).toBe(false);
@@ -201,13 +193,10 @@ describe("GamepadInput polling lifecycle", () => {
       polling.gamepads[0] = gamepad;
       input.enabled = false;
       input.update();
-
       expect(polling.getGamepads).not.toHaveBeenCalled();
       expect(input.gamepad).toBeNull();
-
       input.enabled = true;
       input.update();
-
       expect(polling.getGamepads).toHaveBeenCalledOnce();
       expect(input.gamepad).toBe(gamepad);
     },
@@ -216,7 +205,6 @@ describe("GamepadInput polling lifecycle", () => {
   gamepadTest("keeps neutral state when polling finds no gamepad", () => {
     const input = createInput();
     input.update();
-
     expect(polling.getGamepads).toHaveBeenCalledOnce();
     expect(input.gamepad).toBeNull();
     expect(input.stick(0, 1)).toEqual({ x: 0, y: 0 });
@@ -240,7 +228,6 @@ describe("GamepadInput browser events", () => {
       polling.gamepads[2] = selectedGamepad;
       dispatchGamepadEvent("gamepadconnected", createGamepad(1));
       dispatchGamepadEvent("gamepadconnected", eventGamepad);
-
       expect(connectedGamepads).toEqual([selectedGamepad]);
       expect(input.gamepad).toBe(selectedGamepad);
       expect(input.isPressed(0)).toBe(true);
@@ -269,7 +256,6 @@ describe("GamepadInput browser events", () => {
         "gamepaddisconnected",
         createGamepad(1, { connected: false }),
       );
-
       expect(disconnectedGamepads).toEqual([activeGamepad]);
       expect(input.gamepad).toBeNull();
       expect(input.isPressed(0)).toBe(false);
@@ -292,7 +278,6 @@ describe("GamepadInput native event contract", () => {
           expectTypeOf(event).toEqualTypeOf<
             GamepadInputEventMap["connected"]
           >();
-
           expectTypeOf(this).toEqualTypeOf<GamepadInput>();
           expect(this).toBe(input);
           expect(event).toBeInstanceOf(CustomEvent);
@@ -304,7 +289,6 @@ describe("GamepadInput native event contract", () => {
           expect(input.gamepad).toBe(gamepad);
           expect(input.isPressed(0)).toBe(true);
           expect(input.wasPressed(0)).toBe(false);
-
           observed.push(event);
         });
         input.addEventListener("disconnected", (event) => {
@@ -318,17 +302,22 @@ describe("GamepadInput native event contract", () => {
           expect(input.connected).toBe(false);
           expect(input.isPressed(0)).toBe(false);
           expect(input.wasReleased(0)).toBe(false);
-
           observed.push(event);
         });
         expect(input).toBeInstanceOf(EventTarget);
         polling.gamepads[0] = gamepad;
-        if (source === "polling") input.update();
-        else dispatchGamepadEvent("gamepadconnected", gamepad);
+        if (source === "polling") {
+          input.update();
+        } else {
+          dispatchGamepadEvent("gamepadconnected", gamepad);
+        }
         expect(observed.map((event) => event.type)).toEqual(["connected"]);
         polling.gamepads[0] = null;
-        if (source === "polling") input.update();
-        else dispatchGamepadEvent("gamepaddisconnected", gamepad);
+        if (source === "polling") {
+          input.update();
+        } else {
+          dispatchGamepadEvent("gamepaddisconnected", gamepad);
+        }
         expect(observed.map((event) => event.type)).toEqual([
           "connected",
           "disconnected",
@@ -461,7 +450,9 @@ describe("GamepadInput native event contract", () => {
       const failure = new Error("GamepadInput listener failure");
       const errors: unknown[] = [];
       const reportError = (event: ErrorEvent): void => {
-        if (event.error !== failure) return;
+        if (event.error !== failure) {
+          return;
+        }
         errors.push(event.error);
         // This expected browser error must not become an unhandled test error.
         event.preventDefault();
@@ -510,7 +501,6 @@ describe("GamepadInput value reads", () => {
     const input = createInput();
     polling.gamepads[0] = createGamepad(0, { buttons });
     input.update();
-
     expect(input.isPressed(0)).toBe(false);
     expect(input.buttonValue(0)).toBe(0);
     expect(input.isPressed(1)).toBe(true);
@@ -528,7 +518,6 @@ describe("GamepadInput value reads", () => {
     const input = createInput();
     polling.gamepads[0] = gamepad;
     input.update();
-
     expect(input.buttonValue(0)).toBe(0);
     expect(input.buttonValue(1)).toBe(1);
     expect(input.buttonValue(2)).toBe(0.6);
@@ -545,7 +534,6 @@ describe("GamepadInput value reads", () => {
     polling.gamepads[0] = gamepad;
     defaultInput.update();
     configuredInput.update();
-
     expect(defaultInput.axis(0)).toBe(0);
     expect(defaultInput.axis(1)).toBe(-0.1);
     expect(defaultInput.axis(2, { deadzone: 0.4 })).toBe(0);
@@ -573,13 +561,11 @@ describe("GamepadInput value reads", () => {
       const input = createInput({ stickPipeline: configuredPipeline });
       polling.gamepads[0] = createGamepad(0, { axes: [0.25, -0.5] });
       input.update();
-
       expect(input.stick(0, 1)).toEqual({ x: 0.5, y: -1 });
       expect(configuredTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.25,
         y: -0.5,
       });
-
       expect(input.stick(0, 1, overridePipeline)).toEqual({
         x: -0.5,
         y: 0.25,
@@ -613,7 +599,6 @@ describe("GamepadInput haptics", () => {
       const input = createInput();
       polling.gamepads[0] = gamepad;
       input.update();
-
       await expect(
         input.playVibrationEffect("dual-rumble", parameters),
       ).resolves.toBe("complete");
@@ -630,7 +615,6 @@ describe("GamepadInput haptics", () => {
     "treats vibration without an active gamepad as a no-op",
     async () => {
       const input = createInput();
-
       await expect(
         input.playVibrationEffect("dual-rumble"),
       ).resolves.toBeNull();
@@ -656,7 +640,6 @@ describe("GamepadInput.dispose", () => {
       polling.gamepads[1] = replacementGamepad;
       dispatchGamepadEvent("gamepadconnected", replacementGamepad);
       input.update();
-
       expect(input.enabled).toBe(false);
       expect(input.gamepad).toBeNull();
       expect(input.connected).toBe(false);
@@ -682,10 +665,8 @@ describe("GamepadInput slot lifecycle contract", () => {
         );
         dispatchGamepadEvent("gamepadconnected", createGamepad(0));
         input.update();
-
         expect(input.gamepad?.index).toBe(3);
         expect(events).toEqual([inputEvent("connected", 3)]);
-
         polling.publishFrame([0, { buttons: [createGamepadButton(true)] }]);
         const lost = createGamepad(3, { connected: false });
         if (order === "event-first") {
@@ -695,7 +676,6 @@ describe("GamepadInput slot lifecycle contract", () => {
         }
         dispatchGamepadEvent("gamepaddisconnected", lost);
         dispatchGamepadEvent("gamepadconnected", createGamepad(0));
-
         expect(input.gamepad).toBeNull();
         expect(input.isPressed(0)).toBe(false);
         expect(input.wasReleased(0)).toBe(false);
@@ -703,9 +683,7 @@ describe("GamepadInput slot lifecycle contract", () => {
           inputEvent("connected", 3),
           inputEvent("disconnected", 3),
         ]);
-
         input.update();
-
         expect(input.gamepad?.index).toBe(0);
         expect(input.isPressed(0)).toBe(true);
         expect(input.wasPressed(0)).toBe(false);
@@ -714,9 +692,7 @@ describe("GamepadInput slot lifecycle contract", () => {
           inputEvent("disconnected", 3),
           inputEvent("connected", 0),
         ]);
-
         input.update();
-
         expect(events).toHaveLength(3);
       },
     );
@@ -747,7 +723,6 @@ describe("GamepadInput slot lifecycle contract", () => {
       );
       dispatchGamepadEvent("gamepadconnected", createGamepad(3));
       input.update();
-
       expect(input.gamepad).not.toBe(previous);
       expect(input.gamepad).toBe(polling.gamepads[3]);
       expect(input.gamepad?.id).toBe("after");
@@ -768,12 +743,9 @@ describe("GamepadInput slot lifecycle contract", () => {
       polling.publishFrame([0], [3, { connected: false }]);
       input.update();
       input.update();
-
       expect(input.gamepad).toBeNull();
-
       polling.publishFrame([0], [3, { buttons: [createGamepadButton(true)] }]);
       input.update();
-
       expect(input.isPressed(0)).toBe(true);
       expect(input.wasPressed(0)).toBe(false);
       expect(events).toEqual([
@@ -834,21 +806,16 @@ describe("GamepadInput pause and resume contract", () => {
           { buttons: [createGamepadButton(scenario.after)] },
         ]);
         input.update();
-
         expect(polling.getGamepads).not.toHaveBeenCalled();
         expect(input.gamepad).toBe(previous);
         expect(input.axis(0)).toBe(0.5);
         expect(input.isPressed(0)).toBe(scenario.before);
-
         input.enabled = true;
         input.update();
-
         expect(input.isPressed(0)).toBe(scenario.after);
         expect(input.wasPressed(0)).toBe(scenario.pressed);
         expect(input.wasReleased(0)).toBe(scenario.released);
-
         input.update();
-
         expect(input.wasPressed(0)).toBe(false);
         expect(input.wasReleased(0)).toBe(false);
       },
@@ -865,12 +832,9 @@ describe("GamepadInput pause and resume contract", () => {
       input.update();
       input.enabled = false;
       input.update();
-
       expect(input.wasPressed(0)).toBe(true);
-
       input.enabled = true;
       input.update();
-
       expect(input.isPressed(0)).toBe(true);
       expect(input.wasPressed(0)).toBe(false);
     },
@@ -887,23 +851,18 @@ describe("GamepadInput pause and resume contract", () => {
       polling.publishFrame([0]);
       polling.getGamepads.mockClear();
       input.update();
-
       expect(polling.getGamepads).not.toHaveBeenCalled();
       expect(input.connected).toBe(true);
       expect(events).toEqual([inputEvent("connected", 3)]);
-
       input.enabled = true;
       input.update();
-
       expect(input.gamepad).toBeNull();
       expect(input.wasReleased(0)).toBe(false);
       expect(events).toEqual([
         inputEvent("connected", 3),
         inputEvent("disconnected", 3),
       ]);
-
       input.update();
-
       expect(events).toEqual([
         inputEvent("connected", 3),
         inputEvent("disconnected", 3),
@@ -920,10 +879,8 @@ describe("GamepadInput pause and resume contract", () => {
       input.enabled = false;
       polling.publishFrame([3, { buttons: [createGamepadButton(true)] }], [0]);
       dispatchGamepadEvent("gamepadconnected", createGamepad(3));
-
       expect(input.gamepad?.index).toBe(0);
       expect(polling.getGamepads).toHaveBeenCalledOnce();
-
       polling.publishFrame([3, { buttons: [createGamepadButton(true)] }]);
       dispatchGamepadEvent(
         "gamepaddisconnected",
@@ -931,13 +888,10 @@ describe("GamepadInput pause and resume contract", () => {
       );
       dispatchGamepadEvent("gamepadconnected", createGamepad(3));
       input.update();
-
       expect(input.gamepad).toBeNull();
       expect(polling.getGamepads).toHaveBeenCalledOnce();
-
       input.enabled = true;
       input.update();
-
       expect(input.isPressed(0)).toBe(true);
       expect(input.wasPressed(0)).toBe(false);
       expect(events).toEqual([
@@ -966,14 +920,11 @@ describe("GamepadInput instance isolation", () => {
         "gamepaddisconnected",
         createGamepad(3, { connected: false }),
       );
-
       expect(first.gamepad).toBeNull();
       expect(second.gamepad).toBeNull();
-
       first.update();
       dispatchGamepadEvent("gamepadconnected", createGamepad(0));
       second.update();
-
       expect(first.gamepad?.index).toBe(0);
       expect(second.gamepad).toBeNull();
       expect(firstEvents).toEqual([
@@ -985,10 +936,8 @@ describe("GamepadInput instance isolation", () => {
         inputEvent("connected", 3),
         inputEvent("disconnected", 3),
       ]);
-
       second.enabled = true;
       second.update();
-
       expect(second.isPressed(0)).toBe(true);
       expect(second.wasPressed(0)).toBe(false);
       expect(secondEvents).toEqual(firstEvents);
@@ -1007,57 +956,44 @@ describe("GamepadInput instance isolation", () => {
         polling.publishFrame([3], [0]);
         dispatchGamepadEvent("gamepadconnected", createGamepad(3));
         dispatchGamepadEvent("gamepadconnected", createGamepad(0));
-
         expect(first.gamepad?.index).toBe(0);
         expect(second.gamepad?.index).toBe(secondSlot);
-
         polling.publishFrame(
           [0, { buttons: [createGamepadButton(true)] }],
           [3, { buttons: [createGamepadButton(true)] }],
         );
         first.update();
-
         expect(first.wasPressed(0)).toBe(true);
         expect(second.isPressed(0)).toBe(false);
-
         second.update();
         first.update();
-
         expect(first.wasPressed(0)).toBe(false);
         expect(second.wasPressed(0)).toBe(true);
-
         dispatchGamepadEvent(
           "gamepaddisconnected",
           createGamepad(2, { connected: false }),
         );
-
         expect(second.isPressed(0)).toBe(true);
-
         first.dispose();
         first.dispose();
-
         expect(first.enabled).toBe(false);
         expect(first.gamepad).toBeNull();
         expect(first.isPressed(0)).toBe(false);
         expect(first.wasReleased(0)).toBe(false);
         expect(firstEvents).toEqual([inputEvent("connected", 0)]);
         expect(second.isPressed(0)).toBe(true);
-
         polling.publishFrame();
         const lost = createGamepad(secondSlot, { connected: false });
         dispatchGamepadEvent("gamepaddisconnected", lost);
         dispatchGamepadEvent("gamepaddisconnected", lost);
         second.update();
-
         expect(second.wasReleased(0)).toBe(false);
         polling.publishFrame([
           secondSlot,
           { buttons: [createGamepadButton(true)] },
         ]);
-
         dispatchGamepadEvent("gamepadconnected", createGamepad(secondSlot));
         second.update();
-
         expect(second.isPressed(0)).toBe(true);
         expect(second.wasPressed(0)).toBe(false);
         expect(secondEvents).toEqual([
@@ -1066,10 +1002,8 @@ describe("GamepadInput instance isolation", () => {
           inputEvent("connected", secondSlot),
         ]);
         expect(firstEvents).toEqual([inputEvent("connected", 0)]);
-
         polling.getGamepads.mockClear();
         first.update();
-
         expect(polling.getGamepads).not.toHaveBeenCalled();
       },
     );
@@ -1092,7 +1026,6 @@ describe("GamepadInput instance isolation", () => {
         createGamepad(3, { connected: false }),
       );
       second.update();
-
       expect(second.gamepad).toBeNull();
       expect(first.gamepad).toBe(active);
       expect(first.wasPressed(0)).toBe(true);
@@ -1115,15 +1048,12 @@ describe("GamepadInput instance isolation", () => {
       );
       first.update();
       second.update();
-
       expect(first.stick(0, 1)).toEqual({ x: 0.125, y: 0.125 });
       expect(second.stick(0, 1)).toEqual({ x: 0, y: -1 });
       expect(first.stick(0, 1)).toEqual({ x: 0.125, y: 0.125 });
-
       second.dispose();
       polling.publishFrame([0, { axes: [-0.5, 0.5] }]);
       first.update();
-
       expect(first.stick(0, 1)).toEqual({ x: -0.125, y: -0.125 });
     },
   );

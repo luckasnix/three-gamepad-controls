@@ -19,7 +19,6 @@ import {
 
 const createMapControls = () => {
   const controls = new MapControls(new PerspectiveCamera());
-
   return {
     controls,
     dollyIn: vi.spyOn(controls, "dollyIn").mockImplementation(() => {}),
@@ -40,9 +39,7 @@ const createControls = (
   options?: Partial<GamepadOrbitControlsOptions>,
 ): GamepadMapControls => {
   const controls = new GamepadMapControls(mapControls, options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -70,7 +67,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadMapControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const mapFixture = createMapControls();
-
     expect(() =>
       createControls(mapFixture.controls, { gamepadIndex: -1 }),
     ).toThrow("gamepadIndex must be an integer");
@@ -101,9 +97,7 @@ describe("GamepadMapControls construction", () => {
       polling.gamepads[0] = createGamepad(0, {
         axes: [0, -0.2, 0.3, 0, 0.4, -0.5],
       });
-
       controls.update(0.1);
-
       expect(panTransform).toHaveBeenCalledExactlyOnceWith({
         x: 0.4,
         y: -0.2,
@@ -127,9 +121,7 @@ describe("GamepadMapControls default bindings", () => {
         axes: [0.4, -0.2, 0.3, -0.5],
         buttons: createGamepadButtons([6, false, 0.2], [7, false, 0.6]),
       });
-
       controls.update(0.2);
-
       expect(mapFixture.rotateLeft).toHaveBeenCalledOnce();
       expect(mapFixture.rotateLeft.mock.calls[0][0]).toBeCloseTo(
         0.06 * Math.PI,
@@ -153,9 +145,7 @@ describe("GamepadMapControls default bindings", () => {
       axes: [0.05, -0.05, 0.05, -0.05],
       buttons: createGamepadButtons([6, false, 0.1], [7, false, 0.1]),
     });
-
     controls.update(0.2);
-
     expectMapActionsNotToHaveBeenCalled(mapFixture);
   });
 });
@@ -175,9 +165,7 @@ describe("GamepadMapControls options", () => {
       axes: [0.4, -0.2, 0.3, -0.5],
       buttons: createGamepadButtons([1, false, 0.4], [2, false, 0.6]),
     });
-
     controls.update(0.25);
-
     expect(mapFixture.rotateLeft).toHaveBeenCalledOnce();
     expect(mapFixture.rotateLeft.mock.calls[0][0]).toBeCloseTo(0.15 * Math.PI);
     expect(mapFixture.rotateUp).toHaveBeenCalledOnce();

@@ -242,12 +242,10 @@ const PROJECTED_AXIS_EPSILON = 0.001;
 export class GamepadTransformControls extends GamepadControls {
   readonly #controls: RuntimeTransformControls;
   readonly #options: ResolvedGamepadTransformControlsOptions;
-
   readonly #activeAxisByMode: Record<
     TransformControlsMode,
     TransformAxis | null
   >;
-
   readonly #viewSize: Vector2;
   readonly #parentInverse: Matrix4;
   readonly #cameraWorldPosition: Vector3;
@@ -277,7 +275,6 @@ export class GamepadTransformControls extends GamepadControls {
   readonly #rotationQuaternion: Quaternion;
   readonly #rotationQuaternion2: Quaternion;
   readonly #tempQuaternion: Quaternion;
-
   #segment: TransformSegment | null = null;
   #updating = false;
   #ending = false;
@@ -316,13 +313,11 @@ export class GamepadTransformControls extends GamepadControls {
         options?.transformStick,
       ),
     };
-
     this.#activeAxisByMode = {
       translate: "X",
       rotate: "X",
       scale: "X",
     };
-
     this.#viewSize = new Vector2();
     this.#parentInverse = new Matrix4();
     this.#cameraWorldPosition = new Vector3();
@@ -353,7 +348,9 @@ export class GamepadTransformControls extends GamepadControls {
     this.#rotationQuaternion2 = new Quaternion();
     this.#tempQuaternion = new Quaternion();
     this.#onNativeMouseDown = (event) => {
-      if (event !== this.#mouseDownEvent) this.#pointerRevision += 1;
+      if (event !== this.#mouseDownEvent) {
+        this.#pointerRevision += 1;
+      }
     };
     controls.addEventListener("mouseDown", this.#onNativeMouseDown);
   }
@@ -365,7 +362,9 @@ export class GamepadTransformControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   protected override onUpdate(deltaTime: number): void {
-    if (this.#updating || this.#ending) return;
+    if (this.#updating || this.#ending) {
+      return;
+    }
     this.#updating = true;
     this.#interrupted = false;
     try {
@@ -390,10 +389,13 @@ export class GamepadTransformControls extends GamepadControls {
       transformStick.pipeline,
     );
     const neutral = transform.x === 0 && transform.y === 0;
-
     this.#reconcileSegment();
-    if (neutral) this.#needsNeutral = false;
-    if (!this.#canApplyInput()) return;
+    if (neutral) {
+      this.#needsNeutral = false;
+    }
+    if (!this.#canApplyInput()) {
+      return;
+    }
 
     // A native pointer drag is not a gamepad session.
     if (controls.dragging && this.#segment === null) {
@@ -402,40 +404,42 @@ export class GamepadTransformControls extends GamepadControls {
     }
 
     const startedButtons = this.#getStartedButtons();
-
     this.#handleModeAndAxisButtons(startedButtons);
-    if (!this.#canApplyInput()) return;
-
+    if (!this.#canApplyInput()) {
+      return;
+    }
     if (startedButtons.has(this.#options.buttonReset)) {
       this.#resetActiveTransform();
     }
-
-    if (!this.#canApplyInput()) return;
-
-    const object = controls.object;
-
-    if (object === undefined) {
-      this.#endTransform(true);
-
+    if (!this.#canApplyInput()) {
       return;
     }
-
+    const object = controls.object;
+    if (object === undefined) {
+      this.#endTransform(true);
+      return;
+    }
     if (neutral) {
       this.#endTransform(false);
       return;
     }
-
-    if (this.#needsNeutral) return;
-
+    if (this.#needsNeutral) {
+      return;
+    }
     const axis = this.#resolveAxis();
     this.#setActiveAxis(axis);
-    if (!this.#canApplyInput()) return;
-    if (axis === null) return;
-
-    if (this.#segment === null) this.#startTransform(object, axis);
-
-    if (!this.#canApplyInput()) return;
-
+    if (!this.#canApplyInput()) {
+      return;
+    }
+    if (axis === null) {
+      return;
+    }
+    if (this.#segment === null) {
+      this.#startTransform(object, axis);
+    }
+    if (!this.#canApplyInput()) {
+      return;
+    }
     const segment = this.#segment as TransformSegment;
     if (!segment.started) {
       segment.started = true;
@@ -444,9 +448,9 @@ export class GamepadTransformControls extends GamepadControls {
       controls.dispatchEvent(this.#mouseDownEvent);
       this.#afterCallback(context);
     }
-
-    if (!this.#canApplyInput()) return;
-
+    if (!this.#canApplyInput()) {
+      return;
+    }
     if (
       this.#applyCurrentTransform(
         object,
@@ -458,7 +462,9 @@ export class GamepadTransformControls extends GamepadControls {
     ) {
       const context = this.#readContext();
       controls.dispatchEvent({ type: "change" });
-      if (!this.#afterCallback(context)) return;
+      if (!this.#afterCallback(context)) {
+        return;
+      }
       controls.dispatchEvent({ type: "objectChange" });
       this.#afterCallback(context);
     }
@@ -472,7 +478,9 @@ export class GamepadTransformControls extends GamepadControls {
     this.#disposed = true;
     // A reentrant disposal must keep observing pointer starts until the outer
     // cleanup has finished all of its callbacks and conditional writes.
-    if (this.#ending) return;
+    if (this.#ending) {
+      return;
+    }
     try {
       this.#endTransform(true);
     } finally {
@@ -500,10 +508,8 @@ export class GamepadTransformControls extends GamepadControls {
   #canApplyInput(): boolean {
     if (!this.#controls.enabled) {
       this.#endTransform(true);
-
       return false;
     }
-
     return !this.#interrupted && this.enabled && this.gamepad !== null;
   }
 
@@ -515,7 +521,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #readContext(): TransformContext {
     const { object, mode, space, axis, dragging } = this.#controls;
-
     return {
       object,
       mode,
@@ -534,7 +539,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #matchesContext(context: TransformContext): boolean {
     const controls = this.#controls;
-
     return (
       controls.object === context.object &&
       controls.mode === context.mode &&
@@ -551,12 +555,16 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #reconcileSegment(): void {
     const segment = this.#segment;
-    if (segment === null) return;
+    if (segment === null) {
+      return;
+    }
     if (
       !this.#matchesContext(segment) ||
       !this.#isAxisAllowed(segment.mode, segment.axis)
     ) {
-      if (this.#controls.object !== segment.object) this.#needsNeutral = true;
+      if (this.#controls.object !== segment.object) {
+        this.#needsNeutral = true;
+      }
       this.#endTransform(false);
     }
   }
@@ -572,11 +580,14 @@ export class GamepadTransformControls extends GamepadControls {
     const segment = this.#segment;
     if (!this.#matchesContext(context)) {
       this.#interrupted = true;
-      if (this.#controls.object !== context.object) this.#needsNeutral = true;
+      if (this.#controls.object !== context.object) {
+        this.#needsNeutral = true;
+      }
     }
     this.#reconcileSegment();
-    if (segment !== null && this.#segment !== segment) this.#interrupted = true;
-
+    if (segment !== null && this.#segment !== segment) {
+      this.#interrupted = true;
+    }
     return this.#canApplyInput();
   }
 
@@ -616,43 +627,33 @@ export class GamepadTransformControls extends GamepadControls {
       buttonAxisPrevious,
       buttonAxisNext,
     } = this.#options;
-
     if (startedButtons.has(buttonTranslate) && this.#canApplyInput()) {
       this.#setMode("translate");
     }
-
     if (startedButtons.has(buttonRotate) && this.#canApplyInput()) {
       this.#setMode("rotate");
     }
-
     if (startedButtons.has(buttonScale) && this.#canApplyInput()) {
       this.#setMode("scale");
     }
-
     if (startedButtons.has(buttonToggleSpace) && this.#canApplyInput()) {
       this.#toggleSpace();
     }
-
     if (startedButtons.has(buttonAxisX) && this.#canApplyInput()) {
       this.#selectAxis("X");
     }
-
     if (startedButtons.has(buttonAxisY) && this.#canApplyInput()) {
       this.#selectAxis("Y");
     }
-
     if (startedButtons.has(buttonAxisZ) && this.#canApplyInput()) {
       this.#selectAxis("Z");
     }
-
     if (startedButtons.has(buttonAxisComposite) && this.#canApplyInput()) {
       this.#cycleCompositeAxis();
     }
-
     if (startedButtons.has(buttonAxisPrevious) && this.#canApplyInput()) {
       this.#cycleAxis(-1);
     }
-
     if (startedButtons.has(buttonAxisNext) && this.#canApplyInput()) {
       this.#cycleAxis(1);
     }
@@ -667,9 +668,10 @@ export class GamepadTransformControls extends GamepadControls {
     if (this.#controls.mode === mode) {
       return;
     }
-
     this.#endTransform(false);
-    if (!this.#canApplyInput()) return;
+    if (!this.#canApplyInput()) {
+      return;
+    }
     const context = { ...this.#readContext(), mode };
     this.#controls.setMode(mode);
     if (this.#afterCallback(context)) {
@@ -685,7 +687,9 @@ export class GamepadTransformControls extends GamepadControls {
   #toggleSpace(): void {
     const nextSpace = this.#controls.space === "world" ? "local" : "world";
     this.#endTransform(false);
-    if (!this.#canApplyInput()) return;
+    if (!this.#canApplyInput()) {
+      return;
+    }
     const context: TransformContext = {
       ...this.#readContext(),
       space: nextSpace,
@@ -703,9 +707,10 @@ export class GamepadTransformControls extends GamepadControls {
     if (!this.#isAxisAllowed(this.#controls.mode, axis)) {
       return;
     }
-
     this.#endTransform(false);
-    if (!this.#canApplyInput()) return;
+    if (!this.#canApplyInput()) {
+      return;
+    }
     this.#setActiveAxis(axis);
   }
 
@@ -714,7 +719,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #cycleCompositeAxis(): void {
     const validAxes = this.#getVisibleAxes(COMPOSITE_AXES[this.#controls.mode]);
-
     this.#cycleThroughAxes(validAxes, 1);
   }
 
@@ -735,14 +739,15 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #cycleThroughAxes(axes: readonly TransformAxis[], direction: -1 | 1): void {
     this.#endTransform(false);
-    if (!this.#canApplyInput()) return;
-    if (axes.length === 0) {
-      this.#setActiveAxis(null);
-
+    if (!this.#canApplyInput()) {
       return;
     }
-
+    if (axes.length === 0) {
+      this.#setActiveAxis(null);
+      return;
+    }
     const current = this.#resolveAxis();
+
     // A nonempty candidate list guarantees a valid fallback in this mode.
     const currentIndex = axes.indexOf(current as TransformAxis);
     const nextIndex =
@@ -771,7 +776,6 @@ export class GamepadTransformControls extends GamepadControls {
       current !== null && validAxes.includes(current)
         ? current
         : (validAxes[0] ?? null);
-
     return nextAxis;
   }
 
@@ -782,7 +786,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #setActiveAxis(axis: TransformAxis | null): void {
     this.#activeAxisByMode[this.#controls.mode] = axis;
-
     if (this.#controls.axis !== axis) {
       this.#writeProperty("axis", axis);
     }
@@ -806,13 +809,11 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #getVisibleAxes(axes: readonly TransformAxis[]): readonly TransformAxis[] {
     const visibleAxes: TransformAxis[] = [];
-
     for (const axis of axes) {
       if (this.#isAxisVisible(axis)) {
         visibleAxes.push(axis);
       }
     }
-
     return visibleAxes;
   }
 
@@ -835,7 +836,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #isAxisVisible(axis: TransformAxis): boolean {
     const controls = this.#controls;
-
     switch (axis) {
       case "X":
         return controls.showX;
@@ -886,7 +886,9 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #endTransform(clearAxis: boolean): void {
     const segment = this.#segment;
-    if (segment === null) return;
+    if (segment === null) {
+      return;
+    }
     const controls = this.#controls;
     const context = this.#readContext();
     this.#segment = null;
@@ -899,7 +901,9 @@ export class GamepadTransformControls extends GamepadControls {
       const unchanged = this.#matchesContext(context);
       if (!unchanged) {
         this.#interrupted = true;
-        if (controls.object !== context.object) this.#needsNeutral = true;
+        if (controls.object !== context.object) {
+          this.#needsNeutral = true;
+        }
       }
       // Object/mode changes do not transfer our dragging flag. A listener that
       // already released it owns any subsequent changes from that setter.
@@ -930,11 +934,15 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #resetActiveTransform(): void {
     const segment = this.#segment;
-    if (segment === null) return;
+    if (segment === null) {
+      return;
+    }
     const context = this.#readContext();
     this.#controls.reset();
     this.#afterCallback(context);
-    if (this.#segment !== segment) return;
+    if (this.#segment !== segment) {
+      return;
+    }
     this.#accumulatedPosition.copy(segment.object.position);
     this.#accumulatedScale.copy(segment.object.scale);
     this.#rotationAmount = 0;
@@ -950,27 +958,22 @@ export class GamepadTransformControls extends GamepadControls {
   #captureTransformStart(object: Object3D): void {
     object.updateWorldMatrix(true, false);
     object.parent?.updateWorldMatrix(true, false);
-
     this.#positionStart.copy(object.position);
     this.#quaternionStart.copy(object.quaternion);
     this.#scaleStart.copy(object.scale);
     this.#accumulatedPosition.copy(object.position);
     this.#accumulatedScale.copy(object.scale);
-
     object.matrixWorld.decompose(
       this.#worldPositionStart,
       this.#worldQuaternionStart,
       this.#snappedScale,
     );
-
     this.#captureParentTransform(object);
-
     this.#controls._positionStart.copy(this.#positionStart);
     this.#controls._quaternionStart.copy(this.#quaternionStart);
     this.#controls._scaleStart.copy(this.#scaleStart);
     this.#controls.pointStart.set(0, 0, 0);
     this.#controls.pointEnd.set(0, 0, 0);
-
     this.#rotationAmount = 0;
     this.#freeRotationX = 0;
     this.#freeRotationY = 0;
@@ -987,10 +990,8 @@ export class GamepadTransformControls extends GamepadControls {
       this.#parentQuaternion.identity();
       this.#parentQuaternionInv.identity();
       this.#parentScale.set(1, 1, 1);
-
       return;
     }
-
     object.parent.updateWorldMatrix(true, false);
     object.parent.matrixWorld.decompose(
       this.#parentPosition,
@@ -1063,10 +1064,8 @@ export class GamepadTransformControls extends GamepadControls {
     transformY: number,
   ): boolean {
     const controls = this.#controls;
-
     this.#updateCameraState(object);
     this.#worldDelta.set(0, 0, 0);
-
     const scale = axis === "XYZ" ? "world" : controls.space;
     const speed =
       axis === "XYZ"
@@ -1074,7 +1073,6 @@ export class GamepadTransformControls extends GamepadControls {
         : ((this.#viewSize.x + this.#viewSize.y) / 2) *
           this.#options.translateSpeed *
           deltaTime;
-
     if (axis === "XYZ") {
       this.#worldDelta.addScaledVector(
         this.#cameraRight,
@@ -1087,15 +1085,12 @@ export class GamepadTransformControls extends GamepadControls {
     } else {
       this.#addAxisTranslation(axis, scale, transformX, transformY, speed);
     }
-
     if (this.#worldDelta.lengthSq() === 0) {
       return false;
     }
-
     this.#worldDeltaToLocalDelta(this.#worldDelta, this.#localDelta);
     this.#accumulatedPosition.add(this.#localDelta);
     this.#applyAccumulatedPosition(object, axis, scale);
-
     return true;
   }
 
@@ -1119,7 +1114,6 @@ export class GamepadTransformControls extends GamepadControls {
       if (!axis.includes(letter)) {
         continue;
       }
-
       this.#getTransformAxisWorld(letter, space, this.#axisWorld);
       this.#worldDelta.addScaledVector(
         this.#axisWorld,
@@ -1146,11 +1140,9 @@ export class GamepadTransformControls extends GamepadControls {
     space: TransformSpace,
   ): void {
     this.#snappedPosition.copy(this.#accumulatedPosition);
-
     if (this.#controls.translationSnap !== null) {
       this.#snapPosition(object, axis, space, this.#controls.translationSnap);
     }
-
     this.#snappedPosition.x = Math.max(
       this.#controls.minX,
       Math.min(this.#controls.maxX, this.#snappedPosition.x),
@@ -1163,7 +1155,6 @@ export class GamepadTransformControls extends GamepadControls {
       this.#controls.minZ,
       Math.min(this.#controls.maxZ, this.#snappedPosition.z),
     );
-
     object.position.copy(this.#snappedPosition);
     object.updateMatrixWorld();
   }
@@ -1185,10 +1176,8 @@ export class GamepadTransformControls extends GamepadControls {
     if (snap <= 0) {
       return;
     }
-
     if (space === "world") {
       this.#localPositionToWorld(object, this.#snappedPosition);
-
       for (const letter of ["X", "Y", "Z"] as const) {
         if (axis.includes(letter)) {
           this.#setVectorComponent(
@@ -1201,14 +1190,11 @@ export class GamepadTransformControls extends GamepadControls {
           );
         }
       }
-
       this.#worldPositionToLocal(object, this.#worldPosition);
       return;
     }
-
     this.#tempQuaternion.copy(this.#quaternionStart).invert();
     this.#snappedPosition.applyQuaternion(this.#tempQuaternion);
-
     for (const letter of ["X", "Y", "Z"] as const) {
       if (axis.includes(letter)) {
         this.#setVectorComponent(
@@ -1221,7 +1207,6 @@ export class GamepadTransformControls extends GamepadControls {
         );
       }
     }
-
     this.#snappedPosition.applyQuaternion(this.#quaternionStart);
   }
 
@@ -1243,21 +1228,15 @@ export class GamepadTransformControls extends GamepadControls {
     transformY: number,
   ): boolean {
     const controls = this.#controls;
-
     this.#updateCameraState(object);
-
     const angleScale = this.#options.rotateSpeed * deltaTime * Math.PI;
-
     if (axis === "XYZE") {
       this.#freeRotationX += transformX * angleScale;
       this.#freeRotationY += -transformY * angleScale;
       this.#applyFreeRotation(object);
-
       return true;
     }
-
     let input: number;
-
     if (axis === "E") {
       this.#axisWorld.copy(this.#cameraForward).normalize();
       input = this.#getDominantInput(transformX, -transformY);
@@ -1270,10 +1249,8 @@ export class GamepadTransformControls extends GamepadControls {
         transformY,
       );
     }
-
     this.#rotationAmount += input * angleScale;
     const angle = this.#snapRotation(this.#rotationAmount);
-
     if (axis !== "E" && controls.space === "local") {
       this.#setUnitAxis(axis, this.#axisLocal);
       this.#rotationQuaternion.setFromAxisAngle(this.#axisLocal, angle);
@@ -1284,9 +1261,7 @@ export class GamepadTransformControls extends GamepadControls {
     } else {
       this.#applyWorldRotation(object, this.#axisWorld, angle);
     }
-
     object.updateMatrixWorld();
-
     return true;
   }
 
@@ -1321,22 +1296,18 @@ export class GamepadTransformControls extends GamepadControls {
   #applyFreeRotation(object: Object3D): void {
     const angleX = this.#snapRotation(this.#freeRotationX);
     const angleY = this.#snapRotation(this.#freeRotationY);
-
     this.#axisWorld.copy(this.#cameraUp).normalize();
     this.#axisWorld2.copy(this.#cameraRight).normalize();
-
     this.#axisLocal
       .copy(this.#axisWorld)
       .applyQuaternion(this.#parentQuaternionInv)
       .normalize();
     this.#rotationQuaternion.setFromAxisAngle(this.#axisLocal, angleX);
-
     this.#axisLocal
       .copy(this.#axisWorld2)
       .applyQuaternion(this.#parentQuaternionInv)
       .normalize();
     this.#rotationQuaternion2.setFromAxisAngle(this.#axisLocal, angleY);
-
     object.quaternion
       .copy(this.#rotationQuaternion2)
       .multiply(this.#rotationQuaternion)
@@ -1363,33 +1334,25 @@ export class GamepadTransformControls extends GamepadControls {
     transformY: number,
   ): boolean {
     const controls = this.#controls;
-
     this.#updateCameraState(object);
-
     const input =
       axis === "XYZ"
         ? this.#getDominantInput(transformX, -transformY)
         : this.#getProjectedScaleInput(axis, transformX, transformY);
     const factor = Math.exp(input * this.#options.scaleSpeed * deltaTime);
-
     if (!Number.isFinite(factor) || factor === 1) {
       return false;
     }
-
     if (axis.includes("X")) {
       this.#accumulatedScale.x *= factor;
     }
-
     if (axis.includes("Y")) {
       this.#accumulatedScale.y *= factor;
     }
-
     if (axis.includes("Z")) {
       this.#accumulatedScale.z *= factor;
     }
-
     this.#snappedScale.copy(this.#accumulatedScale);
-
     if (controls.scaleSnap !== null && controls.scaleSnap > 0) {
       if (axis.includes("X")) {
         this.#snappedScale.x = this.#snapScale(
@@ -1397,14 +1360,12 @@ export class GamepadTransformControls extends GamepadControls {
           controls.scaleSnap,
         );
       }
-
       if (axis.includes("Y")) {
         this.#snappedScale.y = this.#snapScale(
           this.#snappedScale.y,
           controls.scaleSnap,
         );
       }
-
       if (axis.includes("Z")) {
         this.#snappedScale.z = this.#snapScale(
           this.#snappedScale.z,
@@ -1412,10 +1373,8 @@ export class GamepadTransformControls extends GamepadControls {
         );
       }
     }
-
     object.scale.copy(this.#snappedScale);
     object.updateMatrixWorld();
-
     return true;
   }
 
@@ -1433,7 +1392,6 @@ export class GamepadTransformControls extends GamepadControls {
     transformY: number,
   ): number {
     this.#getTransformAxisWorld(axis, "local", this.#axisWorld);
-
     return this.#getProjectedAxisInput(
       this.#axisWorld,
       transformX,
@@ -1449,10 +1407,8 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #updateCameraState(object: Object3D): void {
     const camera = this.#controls.camera;
-
     camera.updateMatrixWorld();
     object.updateWorldMatrix(true, false);
-
     this.#cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
     this.#cameraUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
     camera.getWorldDirection(this.#cameraForward).normalize();
@@ -1462,7 +1418,6 @@ export class GamepadTransformControls extends GamepadControls {
       .copy(this.#cameraWorldPosition)
       .sub(this.#worldPosition)
       .normalize();
-
     this.#updateViewSizeAtObjectDepth(camera);
   }
 
@@ -1479,7 +1434,6 @@ export class GamepadTransformControls extends GamepadControls {
       );
       return;
     }
-
     if (this.#isPerspectiveCamera(camera)) {
       const depth = Math.max(
         Number.EPSILON,
@@ -1491,7 +1445,6 @@ export class GamepadTransformControls extends GamepadControls {
       this.#viewSize.set(height * camera.aspect, height);
       return;
     }
-
     this.#viewSize.set(1, 1);
   }
 
@@ -1509,11 +1462,9 @@ export class GamepadTransformControls extends GamepadControls {
     target: Vector3,
   ): Vector3 {
     this.#setUnitAxis(axis, target);
-
     if (space === "local") {
       target.applyQuaternion(this.#worldQuaternionStart);
     }
-
     return target.normalize();
   }
 
@@ -1531,11 +1482,9 @@ export class GamepadTransformControls extends GamepadControls {
     transformY: number,
   ): number {
     this.#axisWorld2.crossVectors(axisWorld, this.#eye);
-
     if (this.#axisWorld2.lengthSq() < PROJECTED_AXIS_EPSILON) {
       return this.#getDominantInput(transformX, -transformY);
     }
-
     return this.#getProjectedAxisInput(
       this.#axisWorld2.normalize(),
       transformX,
@@ -1562,11 +1511,9 @@ export class GamepadTransformControls extends GamepadControls {
     const screenX = axisWorld.dot(this.#cameraRight);
     const screenY = -axisWorld.dot(this.#cameraUp);
     const length = Math.hypot(screenX, screenY);
-
     if (length < PROJECTED_AXIS_EPSILON) {
       return fallback;
     }
-
     return (transformX * screenX + transformY * screenY) / length;
   }
 
@@ -1580,7 +1527,6 @@ export class GamepadTransformControls extends GamepadControls {
   #worldDeltaToLocalDelta(worldDelta: Vector3, target: Vector3): Vector3 {
     target.copy(worldDelta).applyQuaternion(this.#parentQuaternionInv);
     this.#divideByParentScale(target);
-
     return target;
   }
 
@@ -1595,7 +1541,6 @@ export class GamepadTransformControls extends GamepadControls {
       this.#worldPosition.copy(localPosition);
       return;
     }
-
     object.parent.updateWorldMatrix(true, false);
     this.#worldPosition
       .copy(localPosition)
@@ -1613,7 +1558,6 @@ export class GamepadTransformControls extends GamepadControls {
       this.#snappedPosition.copy(worldPosition);
       return;
     }
-
     object.parent.updateWorldMatrix(true, false);
     this.#parentInverse.copy(object.parent.matrixWorld).invert();
     this.#snappedPosition.copy(worldPosition).applyMatrix4(this.#parentInverse);
@@ -1693,7 +1637,6 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #snapRotation(value: number): number {
     const snap = this.#controls.rotationSnap;
-
     return snap === null || snap <= 0 ? value : this.#snapValue(value, snap);
   }
 
@@ -1751,13 +1694,11 @@ export class GamepadTransformControls extends GamepadControls {
       this.#options.buttonAxisNext,
       this.#options.buttonReset,
     ];
-
     for (const button of buttons) {
       if (input.wasPressed(button)) {
         startedButtons.add(button);
       }
     }
-
     return startedButtons;
   }
 

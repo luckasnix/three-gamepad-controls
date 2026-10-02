@@ -103,7 +103,6 @@ type GroupLikeObject = Object3D & {
 export class GamepadDragControls extends GamepadControls {
   readonly #controls: DragControlsWithCamera;
   readonly #options: ResolvedGamepadDragControlsOptions;
-
   readonly #centerNdc: Vector2;
   readonly #intersections: Intersection[];
   readonly #parentInverse: Matrix4;
@@ -115,7 +114,6 @@ export class GamepadDragControls extends GamepadControls {
   readonly #cameraUp: Vector3;
   readonly #cameraToSelected: Vector3;
   readonly #viewSize: Vector2;
-
   #hovered: Object3D | null = null;
   #selected: Object3D | null = null;
 
@@ -142,7 +140,6 @@ export class GamepadDragControls extends GamepadControls {
         options?.rotateStick,
       ),
     };
-
     this.#centerNdc = new Vector2(0, 0);
     this.#intersections = [];
     this.#parentInverse = new Matrix4();
@@ -166,25 +163,23 @@ export class GamepadDragControls extends GamepadControls {
     const selectStarted = this.gamepadInput.wasPressed(
       this.#options.buttonSelect,
     );
-
-    if (!this.#canApplyInput()) return;
-
+    if (!this.#canApplyInput()) {
+      return;
+    }
     const selected = this.#selected;
-
     if (selected !== null) {
       if (selectStarted) {
         this.#releaseSelected();
         return;
       }
-
       this.#updateSelected(selected, deltaTime);
       return;
     }
-
     const hit = this.#intersectCenter();
     this.#updateHover(hit?.object ?? null);
-    if (!this.#canApplyInput()) return;
-
+    if (!this.#canApplyInput()) {
+      return;
+    }
     if (selectStarted && hit !== undefined) {
       this.#grabObject(hit.object);
       // A dragstart listener may have disabled the native control.
@@ -216,10 +211,8 @@ export class GamepadDragControls extends GamepadControls {
     if (!this.#controls.enabled) {
       this.#releaseSelected();
       this.#clearHover();
-
       return false;
     }
-
     return this.enabled && this.gamepad !== null;
   }
 
@@ -232,7 +225,6 @@ export class GamepadDragControls extends GamepadControls {
   #updateSelected(selected: Object3D, deltaTime: number): void {
     const { dragSpeed, rotateSpeed, dragStick, rotateStick } = this.#options;
     const input = this.gamepadInput;
-
     const drag = input.stick(
       dragStick.xAxis,
       dragStick.yAxis,
@@ -243,7 +235,6 @@ export class GamepadDragControls extends GamepadControls {
       rotateStick.yAxis,
       rotateStick.pipeline,
     );
-
     const dragged = this.#applyDrag(
       selected,
       deltaTime,
@@ -258,7 +249,6 @@ export class GamepadDragControls extends GamepadControls {
       rotate.y,
       rotateSpeed,
     );
-
     if (dragged || rotated) {
       this.#controls.dispatchEvent({
         type: "drag",
@@ -288,10 +278,8 @@ export class GamepadDragControls extends GamepadControls {
     if (dragX === 0 && dragY === 0) {
       return false;
     }
-
     this.#updateCameraAxes();
     this.#updateViewSizeAtSelectedDepth();
-
     const scale = dragSpeed * deltaTime;
     this.#selectedWorldPosition.addScaledVector(
       this.#cameraRight,
@@ -301,9 +289,7 @@ export class GamepadDragControls extends GamepadControls {
       this.#cameraUp,
       -dragY * this.#viewSize.y * scale,
     );
-
     this.#applySelectedWorldPosition(selected);
-
     return true;
   }
 
@@ -327,20 +313,15 @@ export class GamepadDragControls extends GamepadControls {
     if (rotateX === 0 && rotateY === 0) {
       return false;
     }
-
     this.#updateCameraAxes();
-
     const scale =
       this.#controls.rotateSpeed * rotateSpeed * deltaTime * Math.PI;
-
     if (rotateX !== 0) {
       selected.rotateOnWorldAxis(this.#cameraUp, rotateX * scale);
     }
-
     if (rotateY !== 0) {
       selected.rotateOnWorldAxis(this.#cameraRight, rotateY * scale);
     }
-
     return true;
   }
 
@@ -351,7 +332,6 @@ export class GamepadDragControls extends GamepadControls {
    */
   #intersectCenter(): Intersection | undefined {
     const controls = this.#controls;
-
     this.#intersections.length = 0;
     controls.raycaster.setFromCamera(this.#centerNdc, controls.object);
     controls.raycaster.intersectObjects(
@@ -359,7 +339,6 @@ export class GamepadDragControls extends GamepadControls {
       controls.recursive,
       this.#intersections,
     );
-
     return this.#intersections[0];
   }
 
@@ -372,13 +351,10 @@ export class GamepadDragControls extends GamepadControls {
     if (this.#hovered === object) {
       return;
     }
-
     this.#clearHover();
-
     if (object === null || !this.#canApplyInput()) {
       return;
     }
-
     this.#hovered = object;
     this.#controls.dispatchEvent({
       type: "hoveron",
@@ -391,7 +367,6 @@ export class GamepadDragControls extends GamepadControls {
     if (this.#hovered === null) {
       return;
     }
-
     const object = this.#hovered;
     this.#hovered = null;
     this.#controls.dispatchEvent({
@@ -407,11 +382,9 @@ export class GamepadDragControls extends GamepadControls {
    */
   #grabObject(object: Object3D): void {
     const selected = this.#getSelectedObject(object);
-
     selected.updateWorldMatrix(true, false);
     this.#selected = selected;
     this.#selectedWorldPosition.setFromMatrixPosition(selected.matrixWorld);
-
     this.#controls.dispatchEvent({
       type: "dragstart",
       object: selected,
@@ -423,7 +396,6 @@ export class GamepadDragControls extends GamepadControls {
     if (this.#selected === null) {
       return;
     }
-
     const selected = this.#selected;
     this.#selected = null;
     this.#controls.dispatchEvent({
@@ -442,7 +414,6 @@ export class GamepadDragControls extends GamepadControls {
     if (!this.#controls.transformGroup) {
       return object;
     }
-
     return this.#findOutermostGroup(object) ?? object;
   }
 
@@ -455,15 +426,12 @@ export class GamepadDragControls extends GamepadControls {
   #findOutermostGroup(object: Object3D): Object3D | null {
     let group: Object3D | null = null;
     let current: Object3D | null = object;
-
     while (current !== null) {
       if ((current as GroupLikeObject).isGroup === true) {
         group = current;
       }
-
       current = current.parent;
     }
-
     return group;
   }
 
@@ -474,7 +442,6 @@ export class GamepadDragControls extends GamepadControls {
       selected.updateMatrixWorld();
       return;
     }
-
     selected.parent.updateWorldMatrix(true, false);
     this.#parentInverse.copy(selected.parent.matrixWorld).invert();
     this.#selectedLocalPosition
@@ -487,7 +454,6 @@ export class GamepadDragControls extends GamepadControls {
   // Refreshes camera-relative axes used for dragging and rotation.
   #updateCameraAxes(): void {
     const camera = this.#controls.object;
-
     this.#cameraRight
       .set(1, 0, 0)
       .applyQuaternion(camera.quaternion)
@@ -499,7 +465,6 @@ export class GamepadDragControls extends GamepadControls {
   // Computes the world-space viewport size at the selected object's depth.
   #updateViewSizeAtSelectedDepth(): void {
     const camera = this.#controls.object;
-
     if (this.#isOrthographicCamera(camera)) {
       this.#viewSize.set(
         Math.abs(camera.right - camera.left) / camera.zoom,
@@ -507,7 +472,6 @@ export class GamepadDragControls extends GamepadControls {
       );
       return;
     }
-
     if (this.#isPerspectiveCamera(camera)) {
       camera.getWorldPosition(this.#cameraWorldPosition);
       const depth = Math.max(
@@ -521,7 +485,6 @@ export class GamepadDragControls extends GamepadControls {
       this.#viewSize.set(height * camera.aspect, height);
       return;
     }
-
     this.#viewSize.set(1, 1);
   }
 

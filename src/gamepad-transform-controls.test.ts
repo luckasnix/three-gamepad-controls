@@ -46,28 +46,22 @@ type TransformControlsFixtureOptions = {
 const createTransformControls = (options?: TransformControlsFixtureOptions) => {
   const camera = options?.camera ?? new PerspectiveCamera(60, 2, 0.1, 1000);
   const object = options?.object ?? new Object3D();
-
   camera.position.set(0, 0, 10);
   camera.lookAt(0, 0, 0);
   camera.updateMatrixWorld();
   object.updateMatrixWorld();
-
   const controls = new TransformControls(camera, null);
-
   if (options?.attach !== false) {
     controls.attach(object);
   }
-
   const change = vi.fn();
   const mouseDown = vi.fn();
   const mouseUp = vi.fn();
   const objectChange = vi.fn();
-
   controls.addEventListener("change", change);
   controls.addEventListener("mouseDown", mouseDown);
   controls.addEventListener("mouseUp", mouseUp);
   controls.addEventListener("objectChange", objectChange);
-
   return {
     camera,
     change,
@@ -105,9 +99,7 @@ const createControls = (
   options?: Partial<GamepadTransformControlsOptions>,
 ): GamepadTransformControls => {
   const controls = new GamepadTransformControls(transformControls, options);
-
   controlsInstances.push(controls);
-
   return controls;
 };
 
@@ -147,7 +139,6 @@ const selectMode = (
     scale: DEFAULT_BUTTONS.scale,
     translate: DEFAULT_BUTTONS.translate,
   }[mode];
-
   pressButton(controls, button);
 };
 
@@ -157,7 +148,6 @@ const selectAxis = (
   axis: TransformAxis,
 ): void => {
   selectMode(controls, mode);
-
   if (axis === "X" || axis === "Y" || axis === "Z") {
     pressButton(
       controls,
@@ -169,7 +159,6 @@ const selectAxis = (
     );
     return;
   }
-
   const compositePresses = {
     E: 1,
     XY: 1,
@@ -178,7 +167,6 @@ const selectAxis = (
     XZ: 3,
     YZ: 2,
   }[axis];
-
   for (let index = 0; index < compositePresses; index += 1) {
     pressButton(controls, DEFAULT_BUTTONS.axisComposite);
   }
@@ -207,7 +195,6 @@ gamepadTest.afterEach(() => {
 describe("GamepadTransformControls construction", () => {
   gamepadTest("forwards gamepad selection options to the base controls", () => {
     const transformFixture = createTransformControls();
-
     expect(() =>
       createControls(transformFixture.controls, { gamepadIndex: -1 }),
     ).toThrow("gamepadIndex must be an integer");
@@ -227,11 +214,9 @@ describe("GamepadTransformControls construction", () => {
           pipeline: gamepadStickPipeline().transform(transform),
         },
       });
-
       updateInput(controls, {
         axes: [0, -0.25, 0, 0, 0.5],
       });
-
       expect(transform).toHaveBeenCalledExactlyOnceWith({
         x: 0.5,
         y: -0.25,
@@ -245,24 +230,19 @@ describe("GamepadTransformControls mode and axis selection", () => {
   gamepadTest("selects each mode and restores its remembered axis", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     pressButton(controls, DEFAULT_BUTTONS.axisY);
     expect(transformFixture.controls.axis).toBe("Y");
-
     selectMode(controls, "rotate");
     pressButton(controls, DEFAULT_BUTTONS.axisZ);
     expect(transformFixture.controls.mode).toBe("rotate");
     expect(transformFixture.controls.axis).toBe("Z");
-
     selectMode(controls, "scale");
     expect(transformFixture.controls.mode).toBe("scale");
     expect(transformFixture.controls.axis).toBe("X");
-
     selectMode(controls, "translate");
     expect(transformFixture.controls.mode).toBe("translate");
     expect(transformFixture.controls.axis).toBe("Y");
-
     selectMode(controls, "rotate");
     expect(transformFixture.controls.axis).toBe("Z");
   });
@@ -270,11 +250,9 @@ describe("GamepadTransformControls mode and axis selection", () => {
   gamepadTest("toggles between world and local transform space", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     pressButton(controls, DEFAULT_BUTTONS.toggleSpace);
     expect(transformFixture.controls.space).toBe("local");
-
     pressButton(controls, DEFAULT_BUTTONS.toggleSpace);
     expect(transformFixture.controls.space).toBe("world");
   });
@@ -282,20 +260,16 @@ describe("GamepadTransformControls mode and axis selection", () => {
   gamepadTest("cycles composite axes independently in every mode", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
-
     for (const axis of ["XY", "YZ", "XZ", "XYZ", "XY"] as const) {
       pressButton(controls, DEFAULT_BUTTONS.axisComposite);
       expect(transformFixture.controls.axis).toBe(axis);
     }
-
     selectMode(controls, "rotate");
     for (const axis of ["E", "XYZE", "E"] as const) {
       pressButton(controls, DEFAULT_BUTTONS.axisComposite);
       expect(transformFixture.controls.axis).toBe(axis);
     }
-
     selectMode(controls, "scale");
     pressButton(controls, DEFAULT_BUTTONS.axisComposite);
     expect(transformFixture.controls.axis).toBe("XYZ");
@@ -308,11 +282,9 @@ describe("GamepadTransformControls mode and axis selection", () => {
     () => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       pressButton(controls, DEFAULT_BUTTONS.axisPrevious);
       expect(transformFixture.controls.axis).toBe("XYZ");
-
       pressButton(controls, DEFAULT_BUTTONS.axisNext);
       expect(transformFixture.controls.axis).toBe("X");
       pressButton(controls, DEFAULT_BUTTONS.axisNext);
@@ -325,23 +297,18 @@ describe("GamepadTransformControls mode and axis selection", () => {
     () => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       transformFixture.controls.showX = false;
       updateInput(controls, { axes: [0, -1] });
       expect(transformFixture.controls.axis).toBe("Y");
-
       pressButton(controls, DEFAULT_BUTTONS.axisX);
       expect(transformFixture.controls.axis).toBe("Y");
-
       transformFixture.controls.showY = false;
       transformFixture.controls.showZ = false;
       updateInput(controls, { axes: [0, -1] });
       expect(transformFixture.controls.axis).toBeNull();
-
       pressButton(controls, DEFAULT_BUTTONS.axisNext);
       expect(transformFixture.controls.axis).toBeNull();
-
       transformFixture.controls.showX = true;
       updateInput(controls, {
         buttons: createGamepadButtons([DEFAULT_BUTTONS.axisPrevious, true]),
@@ -353,16 +320,13 @@ describe("GamepadTransformControls mode and axis selection", () => {
   gamepadTest("skips hidden planes while cycling composite axes", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     transformFixture.controls.showXY = false;
     updateInput(controls);
     pressButton(controls, DEFAULT_BUTTONS.axisComposite);
     expect(transformFixture.controls.axis).toBe("YZ");
-
     transformFixture.controls.showYZ = false;
     pressButton(controls, DEFAULT_BUTTONS.axisComposite);
     expect(transformFixture.controls.axis).toBe("XZ");
-
     transformFixture.controls.showXZ = false;
     pressButton(controls, DEFAULT_BUTTONS.axisComposite);
     expect(transformFixture.controls.axis).toBe("XYZ");
@@ -375,12 +339,10 @@ describe("GamepadTransformControls mode and axis selection", () => {
       buttonRotate: 7,
       buttonToggleSpace: 8,
     });
-
     updateInput(controls);
     pressButton(controls, 7);
     pressButton(controls, 6);
     pressButton(controls, 8);
-
     expect(transformFixture.controls.mode).toBe("rotate");
     expect(transformFixture.controls.axis).toBe("Y");
     expect(transformFixture.controls.space).toBe("local");
@@ -427,7 +389,9 @@ describe("GamepadTransformControls interaction lifecycle", () => {
         const position = fixture.object.position.clone();
         const quaternion = fixture.object.quaternion.clone();
         const scale = fixture.object.scale.clone();
-        if (source === "external") change();
+        if (source === "external") {
+          change();
+        }
         updateInput(wrapper, {
           axes,
           buttons:
@@ -522,11 +486,17 @@ describe("GamepadTransformControls interaction lifecycle", () => {
       const wrapper = createControls(fixture.controls);
       const invalidate = () => {
         fixture.controls.removeEventListener("mouseDown", invalidate);
-        if (change === "mode") fixture.controls.setMode("rotate");
-        else if (change === "space") fixture.controls.setSpace("local");
-        else if (change === "axis") fixture.controls.axis = "Y";
-        else if (change === "detach") fixture.controls.detach();
-        else fixture.controls.dragging = false;
+        if (change === "mode") {
+          fixture.controls.setMode("rotate");
+        } else if (change === "space") {
+          fixture.controls.setSpace("local");
+        } else if (change === "axis") {
+          fixture.controls.axis = "Y";
+        } else if (change === "detach") {
+          fixture.controls.detach();
+        } else {
+          fixture.controls.dragging = false;
+        }
       };
       fixture.controls.addEventListener("mouseDown", invalidate);
       updateInput(wrapper, { axes: [1, -1] });
@@ -596,10 +566,15 @@ describe("GamepadTransformControls interaction lifecycle", () => {
       updateInput(wrapper, { axes: [1, 0] });
       const stop = () => {
         fixture.controls.removeEventListener("objectChange", stop);
-        if (action === "replace") fixture.controls.attach(replacement);
-        else if (action === "mode") fixture.controls.setMode("rotate");
-        else if (action === "pause") wrapper.enabled = false;
-        else wrapper.dispose();
+        if (action === "replace") {
+          fixture.controls.attach(replacement);
+        } else if (action === "mode") {
+          fixture.controls.setMode("rotate");
+        } else if (action === "pause") {
+          wrapper.enabled = false;
+        } else {
+          wrapper.dispose();
+        }
       };
       fixture.controls.addEventListener("objectChange", stop);
       updateInput(wrapper, {
@@ -627,10 +602,15 @@ describe("GamepadTransformControls interaction lifecycle", () => {
       const before = fixture.object.position.clone();
       const stop = () => {
         expect(fixture.controls.dragging).toBe(true);
-        if (action === "replace") fixture.controls.attach(replacement);
-        else if (action === "axis") fixture.controls.axis = "Y";
-        else if (action === "release") fixture.controls.dragging = false;
-        else wrapper.dispose();
+        if (action === "replace") {
+          fixture.controls.attach(replacement);
+        } else if (action === "axis") {
+          fixture.controls.axis = "Y";
+        } else if (action === "release") {
+          fixture.controls.dragging = false;
+        } else {
+          wrapper.dispose();
+        }
         wrapper.update(0.1);
       };
       fixture.controls.addEventListener("mouseUp", stop);
@@ -752,18 +732,14 @@ describe("GamepadTransformControls interaction lifecycle", () => {
     () => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       updateInput(controls, { axes: [1, 0] });
-
       expect(transformFixture.controls.dragging).toBe(true);
       expectTransformEvents(transformFixture);
       expect(transformFixture.mouseDown).toHaveBeenCalledWith(
         expect.objectContaining({ mode: "translate", type: "mouseDown" }),
       );
-
       updateInput(controls);
-
       expect(transformFixture.controls.dragging).toBe(false);
       expect(transformFixture.controls.axis).toBe("X");
       expect(transformFixture.mouseUp).toHaveBeenCalledExactlyOnceWith(
@@ -775,17 +751,14 @@ describe("GamepadTransformControls interaction lifecycle", () => {
   gamepadTest("resets an active transformation to its captured start", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     updateInput(controls, { axes: [1, 0] });
     expect(transformFixture.object.position.x).toBeGreaterThan(0);
-
     updateInput(controls, {
       axes: [1, 0],
       buttons: createGamepadButtons([DEFAULT_BUTTONS.reset, true]),
       deltaTime: 0,
     });
-
     expect(transformFixture.reset).toHaveBeenCalledOnce();
     expect(transformFixture.object.position).toEqual(new Vector3());
     expect(transformFixture.controls.dragging).toBe(true);
@@ -794,10 +767,8 @@ describe("GamepadTransformControls interaction lifecycle", () => {
   gamepadTest("ignores reset while no transformation is active", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     pressButton(controls, DEFAULT_BUTTONS.reset);
-
     expect(transformFixture.reset).not.toHaveBeenCalled();
   });
 
@@ -806,12 +777,10 @@ describe("GamepadTransformControls interaction lifecycle", () => {
     () => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       updateInput(controls, { axes: [1, 0] });
       transformFixture.controls.enabled = false;
       updateInput(controls, { axes: [1, 0] });
-
       expect(transformFixture.controls.dragging).toBe(false);
       expect(transformFixture.controls.axis).toBeNull();
       expect(transformFixture.mouseUp).toHaveBeenCalledOnce();
@@ -823,12 +792,10 @@ describe("GamepadTransformControls interaction lifecycle", () => {
     () => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       updateInput(controls, { axes: [1, 0] });
       transformFixture.controls.detach();
       updateInput(controls, { axes: [1, 0] });
-
       expect(transformFixture.controls.dragging).toBe(false);
       expect(transformFixture.controls.axis).toBeNull();
       expect(transformFixture.mouseUp).toHaveBeenCalledOnce();
@@ -838,12 +805,10 @@ describe("GamepadTransformControls interaction lifecycle", () => {
   gamepadTest("ends an active transformation on gamepad disconnection", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     updateInput(controls, { axes: [1, 0] });
     polling.setGamepads([]);
     controls.update(0.1);
-
     expect(transformFixture.controls.dragging).toBe(false);
     expect(transformFixture.controls.axis).toBeNull();
     expect(transformFixture.mouseUp).toHaveBeenCalledOnce();
@@ -852,11 +817,9 @@ describe("GamepadTransformControls interaction lifecycle", () => {
   gamepadTest("ends an active transformation on disposal", () => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     updateInput(controls, { axes: [1, 0] });
     controls.dispose();
-
     expect(transformFixture.controls.dragging).toBe(false);
     expect(transformFixture.controls.axis).toBeNull();
     expect(transformFixture.mouseUp).toHaveBeenCalledOnce();
@@ -877,11 +840,9 @@ describe("GamepadTransformControls translation", () => {
     (axis, axes, changedComponents) => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       selectAxis(controls, "translate", axis);
       updateInput(controls, { axes });
-
       const position = transformFixture.object.position;
       expect(position.x !== 0).toBe(changedComponents[0]);
       expect(position.y !== 0).toBe(changedComponents[1]);
@@ -896,10 +857,8 @@ describe("GamepadTransformControls translation", () => {
     transformFixture.object.updateMatrixWorld();
     transformFixture.controls.setSpace("local");
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     updateInput(controls, { axes: [0, -1] });
-
     expect(transformFixture.object.position.x).toBeCloseTo(0);
     expect(transformFixture.object.position.y).toBeGreaterThan(0);
   });
@@ -912,10 +871,8 @@ describe("GamepadTransformControls translation", () => {
     const controls = createControls(transformFixture.controls, {
       translateSpeed: 10,
     });
-
     updateInput(controls);
     updateInput(controls, { axes: [1, 0] });
-
     expect(transformFixture.object.position.x).toBe(3);
   });
 
@@ -925,10 +882,8 @@ describe("GamepadTransformControls translation", () => {
     const controls = createControls(transformFixture.controls, {
       translateSpeed: 0.1,
     });
-
     updateInput(controls);
     updateInput(controls, { axes: [1, 0] });
-
     expect(transformFixture.object.position.x).toBeGreaterThan(0);
     expect(transformFixture.object.position.x).not.toBe(
       Math.round(transformFixture.object.position.x),
@@ -945,11 +900,9 @@ describe("GamepadTransformControls translation", () => {
       .clone()
       .invert();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     selectAxis(controls, "translate", "YZ");
     updateInput(controls, { axes: [1, -1] });
-
     const localPosition = transformFixture.object.position
       .clone()
       .applyQuaternion(inverseStartQuaternion);
@@ -962,10 +915,8 @@ describe("GamepadTransformControls translation", () => {
     () => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       updateInput(controls, { axes: [0, 1] });
-
       expect(transformFixture.controls.dragging).toBe(true);
       expect(transformFixture.object.position).toEqual(new Vector3());
       expect(transformFixture.objectChange).not.toHaveBeenCalled();
@@ -983,10 +934,8 @@ describe("GamepadTransformControls translation", () => {
     const transformFixture = createTransformControls({ object });
     transformFixture.controls.translationSnap = 1;
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     updateInput(controls, { axes: [1, 0] });
-
     expect(object.position.length()).toBeGreaterThan(0);
     const worldPosition = object.getWorldPosition(new Vector3());
     expect(worldPosition.x).toBe(Math.round(worldPosition.x));
@@ -1000,11 +949,9 @@ describe("GamepadTransformControls translation", () => {
     parent.updateMatrixWorld(true);
     const transformFixture = createTransformControls({ object });
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     selectAxis(controls, "translate", "XYZ");
     updateInput(controls, { axes: [1, -1] });
-
     expect(object.position.toArray().every(Number.isFinite)).toBe(true);
   });
 
@@ -1014,10 +961,8 @@ describe("GamepadTransformControls translation", () => {
   ])("translates with a %s", (camera) => {
     const transformFixture = createTransformControls({ camera });
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     updateInput(controls, { axes: [1, 0] });
-
     expect(transformFixture.object.position.x).toBeGreaterThan(0);
   });
 });
@@ -1032,11 +977,9 @@ describe("GamepadTransformControls rotation", () => {
   ] as const)("rotates around the %s selection", (axis, axes) => {
     const transformFixture = createTransformControls();
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     selectAxis(controls, "rotate", axis);
     updateInput(controls, { axes });
-
     expect(transformFixture.object.quaternion.equals(new Quaternion())).toBe(
       false,
     );
@@ -1053,11 +996,9 @@ describe("GamepadTransformControls rotation", () => {
     const controls = createControls(transformFixture.controls, {
       rotateSpeed: 2,
     });
-
     updateInput(controls);
     selectAxis(controls, "rotate", "X");
     updateInput(controls, { axes: [0, 1], deltaTime: 0.3 });
-
     expect(transformFixture.object.quaternion.equals(initialQuaternion)).toBe(
       false,
     );
@@ -1071,11 +1012,9 @@ describe("GamepadTransformControls rotation", () => {
     parent.updateMatrixWorld(true);
     const transformFixture = createTransformControls({ object });
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     selectAxis(controls, "rotate", "E");
     updateInput(controls, { axes: [1, 0] });
-
     expect(object.quaternion.equals(new Quaternion())).toBe(false);
   });
 
@@ -1085,11 +1024,9 @@ describe("GamepadTransformControls rotation", () => {
     const controls = createControls(transformFixture.controls, {
       rotateSpeed: 0.1,
     });
-
     updateInput(controls);
     selectAxis(controls, "rotate", "Z");
     updateInput(controls, { axes: [1, 0] });
-
     expect(transformFixture.object.quaternion.z).not.toBe(0);
   });
 });
@@ -1105,11 +1042,9 @@ describe("GamepadTransformControls scale", () => {
     (axis, axes, changedComponents) => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       selectAxis(controls, "scale", axis);
       updateInput(controls, { axes });
-
       const scale = transformFixture.object.scale;
       expect(scale.x !== 1).toBe(changedComponents[0]);
       expect(scale.y !== 1).toBe(changedComponents[1]);
@@ -1126,11 +1061,9 @@ describe("GamepadTransformControls scale", () => {
     const controls = createControls(transformFixture.controls, {
       scaleSpeed: 0.1,
     });
-
     updateInput(controls);
     selectAxis(controls, "scale", "X");
     updateInput(controls, { axes: [-1, 0] });
-
     expect(transformFixture.object.scale.x).toBe(0.5);
   });
 
@@ -1140,11 +1073,9 @@ describe("GamepadTransformControls scale", () => {
     const controls = createControls(transformFixture.controls, {
       scaleSpeed: 0.25,
     });
-
     updateInput(controls);
     selectAxis(controls, "scale", "X");
     updateInput(controls, { axes: [1, 0] });
-
     expect(transformFixture.object.scale.x).toBeCloseTo(Math.exp(0.025));
   });
 
@@ -1154,11 +1085,9 @@ describe("GamepadTransformControls scale", () => {
     transformFixture.object.updateMatrixWorld();
     transformFixture.controls.scaleSnap = 0.5;
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     selectAxis(controls, "scale", "XYZ");
     updateInput(controls, { axes: [1, 0] });
-
     expect(transformFixture.object.scale).toEqual(new Vector3(1, 1, 1));
   });
 
@@ -1168,11 +1097,9 @@ describe("GamepadTransformControls scale", () => {
     transformFixture.object.updateMatrixWorld();
     transformFixture.controls.scaleSnap = 0.5;
     const controls = createControls(transformFixture.controls);
-
     updateInput(controls);
     selectAxis(controls, "scale", "Y");
     updateInput(controls, { axes: [0, -1] });
-
     expect(transformFixture.object.scale).toEqual(new Vector3(1, 1, 1));
   });
 
@@ -1181,11 +1108,9 @@ describe("GamepadTransformControls scale", () => {
     () => {
       const transformFixture = createTransformControls();
       const controls = createControls(transformFixture.controls);
-
       updateInput(controls);
       selectAxis(controls, "scale", "X");
       updateInput(controls, { axes: [0, 1] });
-
       expect(transformFixture.controls.dragging).toBe(true);
       expect(transformFixture.object.scale).toEqual(new Vector3(1, 1, 1));
       expect(transformFixture.objectChange).not.toHaveBeenCalled();
@@ -1197,11 +1122,9 @@ describe("GamepadTransformControls scale", () => {
     const controls = createControls(transformFixture.controls, {
       scaleSpeed: Number.POSITIVE_INFINITY,
     });
-
     updateInput(controls);
     selectAxis(controls, "scale", "XYZ");
     updateInput(controls, { axes: [1, 0] });
-
     expect(transformFixture.object.scale).toEqual(new Vector3(1, 1, 1));
     expect(transformFixture.objectChange).not.toHaveBeenCalled();
   });

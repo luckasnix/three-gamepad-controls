@@ -86,12 +86,9 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
    */
   constructor(options?: GamepadControlsOptions) {
     super();
-
     this.#gamepadInput = new GamepadInput(options);
-
     this.#onGamepadConnected = this.#handleGamepadConnected.bind(this);
     this.#onGamepadDisconnected = this.#handleGamepadDisconnected.bind(this);
-
     this.#gamepadInput.addEventListener("connected", this.#onGamepadConnected);
     this.#gamepadInput.addEventListener(
       "disconnected",
@@ -150,7 +147,6 @@ export abstract class GamepadControls extends EventDispatcher<GamepadControlsEve
     if (!this.enabled) {
       return;
     }
-
     this.#gamepadInput.update();
     this.gamepad = this.#gamepadInput.gamepad;
 

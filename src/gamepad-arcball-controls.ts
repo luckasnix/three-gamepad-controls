@@ -256,7 +256,6 @@ type ArcballActions = Omit<ArcballInput, "zoom"> & { zoomSize: number };
 export class GamepadArcballControls extends GamepadControls {
   readonly #controls: ArcballControlsWithRuntimeHelpers;
   readonly #options: ResolvedGamepadArcballControlsOptions;
-
   readonly #centerNdc: Vector2;
   readonly #panStart: Vector3;
   readonly #panEnd: Vector3;
@@ -295,7 +294,6 @@ export class GamepadArcballControls extends GamepadControls {
         options?.panStick,
       ),
     };
-
     this.#centerNdc = new Vector2(0, 0);
     this.#panStart = new Vector3();
     this.#panEnd = new Vector3();
@@ -313,7 +311,9 @@ export class GamepadArcballControls extends GamepadControls {
    * @param deltaTime - Seconds since the last frame.
    */
   public override update(deltaTime: number): void {
-    if (this.#updating || this.#ending) return;
+    if (this.#updating || this.#ending) {
+      return;
+    }
     this.#updating = true;
     try {
       super.update(deltaTime);
@@ -330,7 +330,9 @@ export class GamepadArcballControls extends GamepadControls {
    * @param deltaTime - Seconds elapsed for this input frame.
    */
   protected override onUpdate(deltaTime: number): void {
-    if (!this.#canApplyInput()) return;
+    if (!this.#canApplyInput()) {
+      return;
+    }
     const {
       rotateStick,
       panStick,
@@ -359,13 +361,17 @@ export class GamepadArcballControls extends GamepadControls {
       focus: this.#consumeFocusPoint(buttonFocus),
     };
     let actions = this.#acceptActions(frame, deltaTime);
-    if (actions === null) return;
+    if (actions === null) {
+      return;
+    }
     const controls = this.#controls;
     if (!this.#wasInteracting) {
       this.#wasInteracting = true;
       controls.dispatchEvent({ type: "start" });
       actions = this.#acceptActions(frame, deltaTime);
-      if (actions === null) return;
+      if (actions === null) {
+        return;
+      }
     }
     let changed = this.#applyRotation(actions.rotateX, actions.rotateY);
     changed = this.#applyPan(actions.panX, actions.panY) || changed;
@@ -395,7 +401,9 @@ export class GamepadArcballControls extends GamepadControls {
    * @returns Accepted deltas and focus, or `null` when input application must stop.
    */
   #acceptActions(frame: ArcballInput, delta: number): ArcballActions | null {
-    if (!this.#canApplyInput()) return null;
+    if (!this.#canApplyInput()) {
+      return null;
+    }
     const controls = this.#controls;
     const options = this.#options;
     const rotate = controls.enableRotate
@@ -418,7 +426,9 @@ export class GamepadArcballControls extends GamepadControls {
       const size =
         controls.scaleFactor **
         (frame.zoom * options.zoomSpeed * delta * ZOOM_NOTCHES_PER_SECOND);
-      if (Number.isFinite(size) && size > 0) zoomSize = size;
+      if (Number.isFinite(size) && size > 0) {
+        zoomSize = size;
+      }
     }
     const actions: ArcballActions = {
       rotateX: frame.rotateX * rotate,
@@ -523,14 +533,11 @@ export class GamepadArcballControls extends GamepadControls {
     if (axis.lengthSq() === 0 || angle === 0) {
       return false;
     }
-
     const controls = this.#controls;
     controls.updateMatrixState();
     this.#previousUp.copy(controls.object.up);
-
     this.#applyTransform(controls.rotate(axis, angle));
     controls.object.up.copy(this.#previousUp).applyAxisAngle(axis, -angle);
-
     return true;
   }
 
@@ -542,7 +549,9 @@ export class GamepadArcballControls extends GamepadControls {
    * @returns `true` when a nonzero pan transform was applied.
    */
   #applyPan(panX: number, panY: number): boolean {
-    if (panX === 0 && panY === 0) return false;
+    if (panX === 0 && panY === 0) {
+      return false;
+    }
     const controls = this.#controls;
     controls.updateMatrixState();
     this.#panStart.set(0, 0, 0);
@@ -558,11 +567,15 @@ export class GamepadArcballControls extends GamepadControls {
    * @returns `true` when the factor is non-neutral and the native helper returns a transform.
    */
   #applyZoom(size: number): boolean {
-    if (size === 1) return false;
+    if (size === 1) {
+      return false;
+    }
     const controls = this.#controls;
     controls.updateMatrixState();
     const transformation = controls.scale(size, controls._gizmos.position);
-    if (transformation === undefined) return false;
+    if (transformation === undefined) {
+      return false;
+    }
     this.#applyTransform(transformation);
     return true;
   }
@@ -574,7 +587,9 @@ export class GamepadArcballControls extends GamepadControls {
    * @returns `true` when a nonzero rotation transform was applied.
    */
   #applyZRotation(angle: number): boolean {
-    if (angle === 0) return false;
+    if (angle === 0) {
+      return false;
+    }
     const controls = this.#controls;
     controls.updateMatrixState();
     controls.object.getWorldDirection(controls._rotationAxis);
@@ -596,12 +611,10 @@ export class GamepadArcballControls extends GamepadControls {
     if (point === null) {
       return false;
     }
-
     const controls = this.#controls;
     controls.updateMatrixState();
     controls.focus(point, controls.scaleFactor);
     controls.updateMatrixState();
-
     return true;
   }
 
@@ -624,7 +637,6 @@ export class GamepadArcballControls extends GamepadControls {
   #consumeFocusPoint(buttonFocus: number): Vector3 | null {
     const controls = this.#controls;
     const shouldFocus = this.gamepadInput.wasPressed(buttonFocus);
-
     if (
       !shouldFocus ||
       !controls.enabled ||
@@ -634,7 +646,6 @@ export class GamepadArcballControls extends GamepadControls {
     ) {
       return null;
     }
-
     return controls.unprojectOnObj(this.#centerNdc, controls.object);
   }
 
@@ -646,7 +657,6 @@ export class GamepadArcballControls extends GamepadControls {
     if (!this.#wasInteracting) {
       return;
     }
-
     this.#wasInteracting = false;
     this.#ending = true;
     try {
