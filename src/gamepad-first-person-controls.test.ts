@@ -118,20 +118,18 @@ describe("GamepadFirstPersonControls construction", () => {
 describe("GamepadFirstPersonControls input gating", () => {
   gamepadTest("ignores stick and button input within their dead zones", () => {
     const firstPersonControls = createFirstPersonControls();
-    const translateX = vi.spyOn(firstPersonControls.object, "translateX");
-    const translateY = vi.spyOn(firstPersonControls.object, "translateY");
-    const translateZ = vi.spyOn(firstPersonControls.object, "translateZ");
-    const lookAt = vi.spyOn(firstPersonControls.object, "lookAt");
+    const position = firstPersonControls.object.position.clone();
+    const quaternion = firstPersonControls.object.quaternion.clone();
     const controls = createControls(firstPersonControls);
     polling.gamepads[0] = createGamepad(0, {
       axes: [0.05, -0.05, 0.05, -0.05],
       buttons: createGamepadButtons([6, false, 0.1], [7, false, 0.1]),
     });
     controls.update(0.25);
-    expect(translateX).not.toHaveBeenCalled();
-    expect(translateY).not.toHaveBeenCalled();
-    expect(translateZ).not.toHaveBeenCalled();
-    expect(lookAt).not.toHaveBeenCalled();
+    expectVectorToBeCloseTo(firstPersonControls.object.position, position);
+    expect(
+      firstPersonControls.object.quaternion.angleTo(quaternion),
+    ).toBeCloseTo(0);
   });
 });
 
@@ -158,6 +156,7 @@ describe("GamepadFirstPersonControls movement", () => {
     "uses remapped vertical movement buttons and the configured dead zone",
     () => {
       const firstPersonControls = createFirstPersonControls();
+      firstPersonControls.lookAt(new Vector3(1, 1, -1));
       const controls = createControls(firstPersonControls, {
         buttonDeadzone: 0.4,
         buttonMoveUp: 1,
@@ -167,9 +166,24 @@ describe("GamepadFirstPersonControls movement", () => {
         buttons: createGamepadButtons([1, false, 0.4], [2, false, 0.6]),
       });
       controls.update(0.5);
-      expect(firstPersonControls.object.position.y).toBeCloseTo(-1.2);
+      expectVectorToBeCloseTo(
+        firstPersonControls.object.position,
+        new Vector3(0, -1.2, 0),
+      );
     },
   );
+
+  gamepadTest("cancels equal opposing triggers with a tilted camera", () => {
+    const firstPersonControls = createFirstPersonControls();
+    firstPersonControls.lookAt(new Vector3(1, 1, -1));
+    const position = firstPersonControls.object.position.clone();
+    const controls = createControls(firstPersonControls);
+    polling.gamepads[0] = createGamepad(0, {
+      buttons: createGamepadButtons([6, false, 0.75], [7, false, 0.75]),
+    });
+    controls.update(0.5);
+    expectVectorToBeCloseTo(firstPersonControls.object.position, position);
+  });
 
   gamepadTest.each([
     {
@@ -306,9 +320,13 @@ describe("GamepadFirstPersonControls look", () => {
       firstPersonControls._lon = Number.NaN;
       const controls = createControls(firstPersonControls);
       polling.gamepads[0] = createGamepad(0, {
-        axes: [0, 0, 0.25, -0.25],
+        axes: [0, -0.5, 0.25, -0.25],
       });
       controls.update(0.1);
+      expectVectorToBeCloseTo(
+        firstPersonControls.object.position,
+        initialDirection.clone().setY(0).normalize().multiplyScalar(0.2),
+      );
       const expectedLat = initialLat + 4.5;
       const expectedLon = initialLon - 4.5;
       expect(firstPersonControls._lat).toBeCloseTo(expectedLat);

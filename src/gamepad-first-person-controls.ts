@@ -32,7 +32,7 @@ export type GamepadFirstPersonControlsOptions = GamepadControlsOptions & {
   lookSpeed: number;
 
   /**
-   * Movement stick axes and processing pipeline.
+   * Axes and processing pipeline for yaw-based movement in the XZ plane.
    */
   moveStick: GamepadStickBindingOptions;
 
@@ -48,13 +48,13 @@ export type GamepadFirstPersonControlsOptions = GamepadControlsOptions & {
   buttonDeadzone: number;
 
   /**
-   * Button index for **moving up** (analog trigger value used for proportional speed).
+   * Button index for **moving up** along Y (analog value used for proportional speed).
    * @default 6 - Left trigger
    */
   buttonMoveUp: number;
 
   /**
-   * Button index for **moving down** (analog trigger value used for proportional speed).
+   * Button index for **moving down** along Y (analog value used for proportional speed).
    * @default 7 - Right trigger
    */
   buttonMoveDown: number;
@@ -113,6 +113,8 @@ type FirstPersonOrientation = {
  *
  * Gamepad input is additive with keyboard/mouse input - call
  * `gamepadControls.update(delta)` before `controls.update(delta)` each frame.
+ * Movement follows the native keyboard frame: yaw-based translation in XZ
+ * and climbing along Y, independent of camera pitch and roll.
  * Bindings and speeds are configurable via {@link GamepadFirstPersonControlsOptions}.
  */
 export class GamepadFirstPersonControls extends GamepadControls {
@@ -182,7 +184,9 @@ export class GamepadFirstPersonControls extends GamepadControls {
   }
 
   /**
-   * Applies local translation input to FirstPersonControls' object.
+   * Applies translation in the native keyboard frame, using yaw before look.
+   * Forward height gain uses the initial Y position; triggers are filtered
+   * independently before combining their proportional Y displacement.
    *
    * @param deltaTime - Seconds since the last frame.
    * @param moveSpeed - User-configured movement speed multiplier.
@@ -207,41 +211,38 @@ export class GamepadFirstPersonControls extends GamepadControls {
       moveStick.yAxis,
       moveStick.pipeline,
     );
-
-    // Forward / backward - left stick Y.
-    // Stick up produces a negative axis value, which maps directly to local -Z.
-    const forward = move.y;
-    if (forward !== 0) {
-      let distance = forward * moveMult;
-      if (forward < 0 && controls.heightSpeed) {
+    if (move.x !== 0 || move.y !== 0) {
+      const yaw = MathUtils.degToRad(this.#getOrientation().lon);
+      const sinYaw = Math.sin(yaw);
+      const cosYaw = Math.cos(yaw);
+      const forward = -move.y;
+      let forwardDistance = forward * moveMult;
+      if (forward > 0 && controls.heightSpeed) {
         const y = MathUtils.clamp(
           controls.object.position.y,
           controls.heightMin,
           controls.heightMax,
         );
         const heightDelta = y - controls.heightMin;
-        distance -=
-          -forward * deltaTime * heightDelta * controls.heightCoef * moveSpeed;
+        forwardDistance +=
+          forward * deltaTime * heightDelta * controls.heightCoef * moveSpeed;
       }
-      controls.object.translateZ(distance);
-    }
-
-    // Strafe left / right - left stick X.
-    // Positive axis value (stick right) -> translateX positive -> move right.
-    const strafe = move.x;
-    if (strafe !== 0) {
-      controls.object.translateX(strafe * moveMult);
+      const strafeDistance = move.x * moveMult;
+      // Use the native yaw basis, rather than the camera's pitched/rolled axes.
+      controls.object.position.x +=
+        sinYaw * forwardDistance - cosYaw * strafeDistance;
+      controls.object.position.z +=
+        cosYaw * forwardDistance + sinYaw * strafeDistance;
     }
 
     // Move up / down - analog triggers (button value in [0, 1]).
     const up = input.buttonValue(buttonMoveUp);
     const down = input.buttonValue(buttonMoveDown);
 
-    if (up > buttonDeadzone) {
-      controls.object.translateY(up * moveMult);
-    }
-    if (down > buttonDeadzone) {
-      controls.object.translateY(-down * moveMult);
+    const climb =
+      (up > buttonDeadzone ? up : 0) - (down > buttonDeadzone ? down : 0);
+    if (climb !== 0) {
+      controls.object.position.y += climb * moveMult;
     }
   }
 

@@ -1,6 +1,7 @@
 import {
   type Controls,
   EventDispatcher,
+  MathUtils,
   type Object3D,
   Quaternion,
   Raycaster,
@@ -61,7 +62,6 @@ const integrationTest = gamepadTest.extend(
   ({ gamepadPolling: _polling }, { onCleanup }) => {
     const cleanup = createCleanup();
     onCleanup(() => cleanup.dispose());
-
     return cleanup;
   },
 );
@@ -287,11 +287,9 @@ const createScenario = (
   } else {
     expected.position.x += strength * delta * 4;
   }
-
   if (nativeControls === undefined) {
     throw new Error("Missing native control");
   }
-
   return {
     ...environment,
     nativeControls,
@@ -308,6 +306,249 @@ const createScenario = (
     prepareAction,
   };
 };
+
+const createFirstPersonMovementScenario = (
+  cleanup: Cleanup,
+  {
+    lat,
+    lon,
+    roll = 0,
+    height = 0,
+  }: {
+    lat: number;
+    lon: number;
+    roll?: number;
+    height?: number;
+  },
+) => {
+  const environment = createThreeEnvironment(cleanup);
+  const { camera, element } = environment;
+  camera.position.y = height;
+  camera.lookAt(
+    new Vector3()
+      .setFromSphericalCoords(
+        1,
+        MathUtils.degToRad(90 - lat),
+        MathUtils.degToRad(lon),
+      )
+      .add(camera.position),
+  );
+  camera.rotateZ(MathUtils.degToRad(roll));
+  const controls = new FirstPersonControls(camera, element);
+  cleanup.add("native", () => controls.dispose());
+  controls.movementSpeed = 4;
+  controls.dampingFactor = 1;
+  controls.autoForward = false;
+  environment.syncMatrices();
+  return {
+    ...environment,
+    controls,
+  };
+};
+
+// Read the native reference before constructing the gamepad control, because
+// FirstPersonControls subscribes to keyboard events on the shared window.
+const readFirstPersonKeyboardMovement = (
+  controls: FirstPersonControls,
+  code: string,
+): Vector3 => {
+  const position = controls.object.position.clone();
+  window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+  try {
+    controls.update(0.25);
+  } finally {
+    window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+  }
+  const displacement = controls.object.position.clone().sub(position);
+  controls.dispose();
+  return displacement;
+};
+
+describe("FirstPerson movement frame", () => {
+  const actions = [
+    {
+      name: "forward",
+      code: "KeyW",
+      input: (strength: number) => ({ axes: [0, -strength, 0, 0] }),
+    },
+    {
+      name: "backward",
+      code: "KeyS",
+      input: (strength: number) => ({ axes: [0, strength, 0, 0] }),
+    },
+    {
+      name: "left",
+      code: "KeyA",
+      input: (strength: number) => ({ axes: [-strength, 0, 0, 0] }),
+    },
+    {
+      name: "right",
+      code: "KeyD",
+      input: (strength: number) => ({ axes: [strength, 0, 0, 0] }),
+    },
+    {
+      name: "up",
+      code: "KeyR",
+      input: (strength: number) => ({
+        buttons: createGamepadButtons([6, false, strength]),
+      }),
+    },
+    {
+      name: "down",
+      code: "KeyF",
+      input: (strength: number) => ({
+        buttons: createGamepadButtons([7, false, strength]),
+      }),
+    },
+  ];
+  const cases = [
+    { lat: 45, lon: 180, roll: 0 },
+    { lat: -45, lon: 90, roll: 30 },
+    { lat: 85, lon: 225, roll: 0 },
+    { lat: -85, lon: -45, roll: -30 },
+  ].flatMap((orientation) =>
+    actions.map((action) => ({ ...orientation, ...action })),
+  );
+
+  integrationTest.for(cases)(
+    "FirstPerson $name at pitch $lat, yaw $lon and roll $roll matches keyboard movement",
+    ({ lat, lon, roll, code, input }, { cleanup, gamepadPolling }) => {
+      const reference = createFirstPersonMovementScenario(cleanup, {
+        lat,
+        lon,
+        roll,
+      });
+      const keyboardMovement = readFirstPersonKeyboardMovement(
+        reference.controls,
+        code,
+      );
+      const actual = createFirstPersonMovementScenario(cleanup, {
+        lat,
+        lon,
+        roll,
+      });
+      const initialQuaternion = actual.camera.quaternion.clone();
+      const wrapper = new GamepadFirstPersonControls(actual.controls);
+      cleanup.add("wrapper", () => wrapper.dispose());
+      const frame = createFrameDriver(
+        gamepadPolling,
+        actual.syncMatrices,
+        wrapper,
+        (dt) => actual.controls.update(dt),
+      );
+      frame([[0]], 0.25);
+      for (const strength of [0.25, 0.5, 1]) {
+        // The native neutral update removes roll; restore the initial pose
+        // before movement to prove that roll cannot tilt the gamepad axes.
+        actual.camera.quaternion.copy(initialQuaternion);
+        const position = actual.camera.position.clone();
+        frame([[0, input(strength)]], 0.25);
+        expect(
+          actual.camera.position
+            .clone()
+            .sub(position)
+            .distanceTo(keyboardMovement.clone().multiplyScalar(strength)),
+        ).toBeLessThan(1e-8);
+        expect(
+          actual.camera.quaternion.angleTo(reference.camera.quaternion),
+        ).toBeLessThan(1e-7);
+      }
+      const final = pose(actual.camera);
+      frame([[0]], 0.25);
+      expectPose(actual.camera, final);
+    },
+  );
+
+  integrationTest.for([-1, 3, 7])(
+    "FirstPerson uses the initial clamped height %i for forward speed before climbing",
+    (height, { cleanup, gamepadPolling }) => {
+      const createScenario = () => {
+        const scenario = createFirstPersonMovementScenario(cleanup, {
+          lat: 45,
+          lon: 135,
+          height,
+        });
+        scenario.controls.heightSpeed = true;
+        scenario.controls.heightMin = 1;
+        scenario.controls.heightMax = 5;
+        scenario.controls.heightCoef = 3;
+        return scenario;
+      };
+      const reference = createScenario();
+      const keyboardMovement = readFirstPersonKeyboardMovement(
+        reference.controls,
+        "KeyW",
+      );
+      const actual = createScenario();
+      const position = actual.camera.position.clone();
+      const wrapper = new GamepadFirstPersonControls(actual.controls, {
+        moveSpeed: 2,
+      });
+      cleanup.add("wrapper", () => wrapper.dispose());
+      const frame = createFrameDriver(
+        gamepadPolling,
+        actual.syncMatrices,
+        wrapper,
+        (dt) => actual.controls.update(dt),
+      );
+      frame([[0]], 0.25);
+      frame(
+        [
+          [
+            0,
+            {
+              axes: [0, -0.5, 0, 0],
+              buttons: createGamepadButtons([6, false, 1]),
+            },
+          ],
+        ],
+        0.25,
+      );
+      expect(
+        actual.camera.position
+          .clone()
+          .sub(position)
+          .distanceTo(keyboardMovement.add(new Vector3(0, 2, 0))),
+      ).toBeLessThan(1e-8);
+    },
+  );
+
+  integrationTest(
+    "FirstPerson movement uses the yaw before look input across frames and then stops",
+    ({ cleanup, gamepadPolling }) => {
+      const actual = createFirstPersonMovementScenario(cleanup, {
+        lat: 45,
+        lon: 180,
+      });
+      const wrapper = new GamepadFirstPersonControls(actual.controls);
+      cleanup.add("wrapper", () => wrapper.dispose());
+      const frame = createFrameDriver(
+        gamepadPolling,
+        actual.syncMatrices,
+        wrapper,
+        (dt) => actual.controls.update(dt),
+      );
+      frame([[0]], 0.1);
+      for (let index = 0; index < 3; index += 1) {
+        const expectedPosition = actual.camera
+          .getWorldDirection(new Vector3())
+          .setY(0)
+          .normalize()
+          .multiplyScalar(0.2)
+          .add(actual.camera.position);
+        const quaternion = actual.camera.quaternion.clone();
+        frame([[0, { axes: [0, -0.5, 0.5, 0.25] }]], 0.1);
+        expect(
+          actual.camera.position.distanceTo(expectedPosition),
+        ).toBeLessThan(1e-8);
+        expect(actual.camera.quaternion.angleTo(quaternion)).toBeGreaterThan(0);
+      }
+      const final = pose(actual.camera);
+      frame([[0]], 0.1);
+      expectPose(actual.camera, final);
+    },
+  );
+});
 
 describe("native input permissions", () => {
   for (const kind of ["orbit", "map"] as const) {
