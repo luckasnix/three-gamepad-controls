@@ -31,7 +31,7 @@ Every binding is remappable via the `options` parameter.
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
-| `moveSpeed` | `number` | `1.0` | Multiplier on `FirstPersonControls.movementSpeed` for translation. |
+| `moveSpeed` | `number` | `1.0` | Multiplier on `FirstPersonControls.movementSpeed` for translation, applied after combined movement normalization. |
 | `lookSpeed` | `number` | `1.0` | Multiplier on `FirstPersonControls.lookSpeed` for camera look. |
 | `moveStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for yaw-based movement in XZ. |
 | `lookStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for camera look. |
@@ -47,11 +47,15 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields. The
 
 Stick movement follows the native W/S/A/D keyboard frame: forward, backward, and strafe use the yaw stored by `FirstPersonControls` in the XZ plane. Triggers follow its R/F climb direction along Y. With an untransformed camera parent, these are world XZ and world Y. Camera pitch and roll do not tilt the movement axes. Like the native keyboard implementation, the wrapper adds these deltas directly to `controls.object.position`; it does not convert them through a transformed camera parent.
 
-Partial stick and trigger values retain proportional speed. Each trigger must be strictly above `buttonDeadzone` before the filtered values are subtracted, so equal active triggers cancel. Forward movement applies `heightSpeed` using the frame's initial Y position, clamped between `heightMin` and `heightMax`, before any trigger climb. This height gain also uses `moveSpeed` and does not apply to backward movement, strafe, or climb.
+Each trigger must be strictly above `buttonDeadzone` before the filtered values are subtracted, so equal active triggers cancel. The wrapper then combines the processed stick's strafe and forward/backward values with the resulting climb value. When this three-component intention has magnitude greater than `1`, all components are divided by that magnitude, preserving direction. Intentions with magnitude at or below `1` retain their partial analog intensity. This normalization also applies to custom movement pipeline output and leaves the pipeline's result unchanged.
 
-Movement is applied before gamepad look, using the yaw at the start of the frame. Keep calling `gamepadControls.update(delta)` before `controls.update(delta)`: native keyboard and pointer input remain additive, with pointer movement retaining its own direction along the full camera look vector.
+For example, full forward movement combined with full climb uses `1 / Math.sqrt(2)` for each component; full strafe, forward and climb use `1 / Math.sqrt(3)` each. With unit speeds, `heightSpeed` disabled and a one-second delta, both combinations move a total distance of `1`. Combining three values of `0.5` leaves each value at `0.5`.
 
-Gamepad translation and look are applied immediately. The native `dampingFactor` and keyboard diagonal normalization do not currently apply to the gamepad contribution. Native `autoForward` remains a separate contribution; analog gamepad retreat does not suppress it. Configure the movement stick pipeline when a different stick response is needed.
+`delta`, `movementSpeed`, and `moveSpeed` are applied after normalization. Forward movement also applies `heightSpeed` using the frame's initial Y position, clamped between `heightMin` and `heightMax`, before any trigger climb. This height gain uses the normalized forward value and `moveSpeed` and does not apply to backward movement, strafe, or climb. Speed and height gains can increase the final displacement beyond unit length; the unit limit applies to the input intention.
+
+Movement is applied before gamepad look, using the yaw at the start of the frame. Keep calling `gamepadControls.update(delta)` before `controls.update(delta)`: native keyboard and pointer input remain additive, with pointer movement retaining its own direction along the full camera look vector. The wrapper normalizes only gamepad movement; it does not normalize the sum with native input or change native movement state.
+
+Gamepad translation and look are applied immediately. The native `dampingFactor` does not currently apply to the gamepad contribution. Native `autoForward` remains a separate contribution; analog gamepad retreat does not suppress it. Configure the movement stick pipeline when a different stick response is needed; its output is still subject to the combined movement normalization above.
 
 ## Properties
 

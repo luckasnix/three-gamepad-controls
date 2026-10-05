@@ -21,6 +21,7 @@ import {
 export type GamepadFirstPersonControlsOptions = GamepadControlsOptions & {
   /**
    * Multiplier on `FirstPersonControls.movementSpeed` for translation.
+   * Applied after normalizing combined stick and trigger movement.
    * @default 1.0
    */
   moveSpeed: number;
@@ -115,6 +116,8 @@ type FirstPersonOrientation = {
  * `gamepadControls.update(delta)` before `controls.update(delta)` each frame.
  * Movement follows the native keyboard frame: yaw-based translation in XZ
  * and climbing along Y, independent of camera pitch and roll.
+ * Combined gamepad movement is limited to unit magnitude before speed and
+ * forward height gains, preserving smaller analog intentions unchanged.
  * Bindings and speeds are configurable via {@link GamepadFirstPersonControlsOptions}.
  */
 export class GamepadFirstPersonControls extends GamepadControls {
@@ -185,8 +188,9 @@ export class GamepadFirstPersonControls extends GamepadControls {
 
   /**
    * Applies translation in the native keyboard frame, using yaw before look.
-   * Forward height gain uses the initial Y position; triggers are filtered
-   * independently before combining their proportional Y displacement.
+   * Triggers are filtered independently before the combined movement intent
+   * is limited to unit magnitude. Speed and forward height gains follow this
+   * normalization; height gain uses the initial Y position before climbing.
    *
    * @param deltaTime - Seconds since the last frame.
    * @param moveSpeed - User-configured movement speed multiplier.
@@ -205,17 +209,28 @@ export class GamepadFirstPersonControls extends GamepadControls {
   ): void {
     const controls = this.#controls;
     const input = this.gamepadInput;
-    const moveMult = deltaTime * controls.movementSpeed * moveSpeed;
     const move = input.stick(
       moveStick.xAxis,
       moveStick.yAxis,
       moveStick.pipeline,
     );
-    if (move.x !== 0 || move.y !== 0) {
+    const up = input.buttonValue(buttonMoveUp);
+    const down = input.buttonValue(buttonMoveDown);
+    let strafe = move.x;
+    let forward = -move.y;
+    let climb =
+      (up > buttonDeadzone ? up : 0) - (down > buttonDeadzone ? down : 0);
+    const magnitude = Math.hypot(strafe, forward, climb);
+    if (magnitude > 1) {
+      strafe /= magnitude;
+      forward /= magnitude;
+      climb /= magnitude;
+    }
+    const moveMult = deltaTime * controls.movementSpeed * moveSpeed;
+    if (strafe !== 0 || forward !== 0) {
       const yaw = MathUtils.degToRad(this.#getOrientation().lon);
       const sinYaw = Math.sin(yaw);
       const cosYaw = Math.cos(yaw);
-      const forward = -move.y;
       let forwardDistance = forward * moveMult;
       if (forward > 0 && controls.heightSpeed) {
         const y = MathUtils.clamp(
@@ -227,7 +242,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
         forwardDistance +=
           forward * deltaTime * heightDelta * controls.heightCoef * moveSpeed;
       }
-      const strafeDistance = move.x * moveMult;
+      const strafeDistance = strafe * moveMult;
       // Use the native yaw basis, rather than the camera's pitched/rolled axes.
       controls.object.position.x +=
         sinYaw * forwardDistance - cosYaw * strafeDistance;
@@ -235,12 +250,6 @@ export class GamepadFirstPersonControls extends GamepadControls {
         cosYaw * forwardDistance + sinYaw * strafeDistance;
     }
 
-    // Move up / down - analog triggers (button value in [0, 1]).
-    const up = input.buttonValue(buttonMoveUp);
-    const down = input.buttonValue(buttonMoveDown);
-
-    const climb =
-      (up > buttonDeadzone ? up : 0) - (down > buttonDeadzone ? down : 0);
     if (climb !== 0) {
       controls.object.position.y += climb * moveMult;
     }

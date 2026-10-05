@@ -14,6 +14,7 @@ import {
   GamepadFirstPersonControls,
   type GamepadFirstPersonControlsOptions,
 } from "./gamepad-first-person-controls.ts";
+import { GamepadInput } from "./gamepad-input.ts";
 import {
   type GamepadStick,
   gamepadStickPipeline,
@@ -134,6 +135,148 @@ describe("GamepadFirstPersonControls input gating", () => {
 });
 
 describe("GamepadFirstPersonControls movement", () => {
+  gamepadTest(
+    "limits combined forward and climb movement to unit magnitude",
+    () => {
+      const firstPersonControls = createFirstPersonControls();
+      firstPersonControls.movementSpeed = 1;
+      const controls = createControls(firstPersonControls);
+      polling.gamepads[0] = createGamepad(0, {
+        axes: [0, -1, 0, 0],
+        buttons: createGamepadButtons([6, false, 1]),
+      });
+      controls.update(1);
+      expect(firstPersonControls.object.position.length()).toBeCloseTo(1);
+      expectVectorToBeCloseTo(
+        firstPersonControls.object.position,
+        new Vector3(0, Math.SQRT1_2, -Math.SQRT1_2),
+      );
+    },
+  );
+
+  gamepadTest.each([
+    { x: 1, y: -1, climb: 0, expected: [Math.SQRT1_2, 0, -Math.SQRT1_2] },
+    { x: -1, y: 1, climb: 0, expected: [-Math.SQRT1_2, 0, Math.SQRT1_2] },
+    { x: -1, y: 0, climb: -1, expected: [-Math.SQRT1_2, -Math.SQRT1_2, 0] },
+    {
+      x: 1,
+      y: -1,
+      climb: 1,
+      expected: [1 / Math.sqrt(3), 1 / Math.sqrt(3), -1 / Math.sqrt(3)],
+    },
+    {
+      x: -1,
+      y: 1,
+      climb: -1,
+      expected: [-1 / Math.sqrt(3), -1 / Math.sqrt(3), 1 / Math.sqrt(3)],
+    },
+  ])(
+    "limits movement ($x, $y) with climb $climb while preserving direction",
+    ({ x, y, climb, expected }) => {
+      const firstPersonControls = createFirstPersonControls();
+      firstPersonControls.movementSpeed = 1;
+      const controls = createControls(firstPersonControls);
+      polling.gamepads[0] = createGamepad(0, {
+        axes: [x, y, 0, 0],
+        buttons: createGamepadButtons(
+          [6, false, Math.max(climb, 0)],
+          [7, false, Math.max(-climb, 0)],
+        ),
+      });
+      controls.update(1);
+      expect(firstPersonControls.object.position.length()).toBeCloseTo(1);
+      expectVectorToBeCloseTo(
+        firstPersonControls.object.position,
+        new Vector3().fromArray(expected),
+      );
+    },
+  );
+
+  gamepadTest.each([
+    { x: 0.25, y: -0.25, climb: 0.25 },
+    { x: 0.5, y: -0.5, climb: -0.5 },
+    { x: 0.6, y: -0.8, climb: 0 },
+  ])(
+    "preserves movement ($x, $y) with climb $climb at or below unit magnitude",
+    ({ x, y, climb }) => {
+      const firstPersonControls = createFirstPersonControls();
+      firstPersonControls.movementSpeed = 1;
+      const controls = createControls(firstPersonControls);
+      polling.gamepads[0] = createGamepad(0, {
+        axes: [x, y, 0, 0],
+        buttons: createGamepadButtons(
+          [6, false, Math.max(climb, 0)],
+          [7, false, Math.max(-climb, 0)],
+        ),
+      });
+      controls.update(1);
+      expectVectorToBeCloseTo(
+        firstPersonControls.object.position,
+        new Vector3(x, climb, y),
+      );
+    },
+  );
+
+  gamepadTest.each([
+    { up: 1, down: 1, climb: 0 },
+    { up: 0.6, down: 0.05, climb: 0.6 },
+    { up: 0.05, down: 0.6, climb: -0.6 },
+    { up: 0.6, down: 0.1, climb: 0.6 },
+    { up: 0.1, down: 0.6, climb: -0.6 },
+  ])(
+    "filters triggers $up/$down before combining them with stick movement",
+    ({ up, down, climb }) => {
+      const firstPersonControls = createFirstPersonControls();
+      firstPersonControls.movementSpeed = 1;
+      const controls = createControls(firstPersonControls);
+      polling.gamepads[0] = createGamepad(0, {
+        axes: [0, -0.8, 0, 0],
+        buttons: createGamepadButtons([6, false, up], [7, false, down]),
+      });
+      controls.update(1);
+      expectVectorToBeCloseTo(
+        firstPersonControls.object.position,
+        new Vector3(0, climb, -0.8),
+      );
+    },
+  );
+
+  gamepadTest(
+    "normalizes remapped processed movement without mutating or rereading its inputs",
+    () => {
+      const firstPersonControls = createFirstPersonControls();
+      firstPersonControls.movementSpeed = 2;
+      const processed = Object.freeze({ x: 2, y: -2 });
+      const transform = vi.fn((_value: Readonly<GamepadStick>) => processed);
+      const controls = createControls(firstPersonControls, {
+        moveSpeed: 3,
+        moveStick: {
+          xAxis: 4,
+          yAxis: 5,
+          pipeline: gamepadStickPipeline().transform(transform),
+        },
+        buttonMoveUp: 1,
+        buttonMoveDown: 2,
+      });
+      const buttons = createGamepadButtons([1, false, 1], [2, false, 0]);
+      const buttonValue = vi.spyOn(GamepadInput.prototype, "buttonValue");
+      polling.gamepads[0] = createGamepad(0, {
+        axes: [1, 1, 0, 0, 0.25, -0.5],
+        buttons,
+      });
+      controls.update(0.5);
+      expectVectorToBeCloseTo(
+        firstPersonControls.object.position,
+        new Vector3(2, 1, -2),
+      );
+      expect(transform).toHaveBeenCalledExactlyOnceWith({ x: 0.25, y: -0.5 });
+      expect(buttonValue).toHaveBeenCalledTimes(2);
+      expect(buttonValue).toHaveBeenNthCalledWith(1, 1);
+      expect(buttonValue).toHaveBeenNthCalledWith(2, 2);
+      expect(processed).toEqual({ x: 2, y: -2 });
+    },
+  );
+
   gamepadTest(
     "scales default stick and trigger movement by time and movement speed",
     () => {

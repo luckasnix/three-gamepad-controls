@@ -350,14 +350,19 @@ const createFirstPersonMovementScenario = (
 // FirstPersonControls subscribes to keyboard events on the shared window.
 const readFirstPersonKeyboardMovement = (
   controls: FirstPersonControls,
-  code: string,
+  code: string | readonly string[],
 ): Vector3 => {
   const position = controls.object.position.clone();
-  window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+  const codes = typeof code === "string" ? [code] : code;
+  for (const code of codes) {
+    window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+  }
   try {
     controls.update(0.25);
   } finally {
-    window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+    for (const code of codes) {
+      window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+    }
   }
   const displacement = controls.object.position.clone().sub(position);
   controls.dispose();
@@ -401,12 +406,13 @@ describe("FirstPerson movement frame", () => {
       }),
     },
   ];
-  const cases = [
+  const orientations = [
     { lat: 45, lon: 180, roll: 0 },
     { lat: -45, lon: 90, roll: 30 },
     { lat: 85, lon: 225, roll: 0 },
     { lat: -85, lon: -45, roll: -30 },
-  ].flatMap((orientation) =>
+  ];
+  const cases = orientations.flatMap((orientation) =>
     actions.map((action) => ({ ...orientation, ...action })),
   );
 
@@ -459,6 +465,253 @@ describe("FirstPerson movement frame", () => {
     },
   );
 
+  const combinedActions = [
+    {
+      name: "forward and right",
+      codes: ["KeyW", "KeyD"],
+      x: 1,
+      y: -1,
+      climb: 0,
+    },
+    { name: "forward and up", codes: ["KeyW", "KeyR"], x: 0, y: -1, climb: 1 },
+    {
+      name: "forward, right and up",
+      codes: ["KeyW", "KeyD", "KeyR"],
+      x: 1,
+      y: -1,
+      climb: 1,
+    },
+    {
+      name: "backward, left and down",
+      codes: ["KeyS", "KeyA", "KeyF"],
+      x: -1,
+      y: 1,
+      climb: -1,
+    },
+  ];
+  integrationTest.for(
+    orientations.flatMap((orientation) =>
+      combinedActions.map((action) => ({ ...orientation, ...action })),
+    ),
+  )(
+    "FirstPerson combined $name at pitch $lat, yaw $lon and roll $roll matches normalized keyboard movement",
+    ({ lat, lon, roll, codes, x, y, climb }, { cleanup, gamepadPolling }) => {
+      const reference = createFirstPersonMovementScenario(cleanup, {
+        lat,
+        lon,
+        roll,
+      });
+      const keyboardMovement = readFirstPersonKeyboardMovement(
+        reference.controls,
+        codes,
+      );
+      const actual = createFirstPersonMovementScenario(cleanup, {
+        lat,
+        lon,
+        roll,
+      });
+      const initialQuaternion = actual.camera.quaternion.clone();
+      const wrapper = new GamepadFirstPersonControls(actual.controls);
+      cleanup.add("wrapper", () => wrapper.dispose());
+      const frame = createFrameDriver(
+        gamepadPolling,
+        actual.syncMatrices,
+        wrapper,
+        (dt) => actual.controls.update(dt),
+      );
+      frame([[0]], 0.25);
+      actual.camera.quaternion.copy(initialQuaternion);
+      const position = actual.camera.position.clone();
+      frame(
+        [
+          [
+            0,
+            {
+              axes: [x, y, 0, 0],
+              buttons: createGamepadButtons(
+                [6, false, Math.max(climb, 0)],
+                [7, false, Math.max(-climb, 0)],
+              ),
+            },
+          ],
+        ],
+        0.25,
+      );
+      expect(
+        actual.camera.position
+          .clone()
+          .sub(position)
+          .distanceTo(keyboardMovement),
+      ).toBeLessThan(1e-8);
+      expect(
+        actual.camera.quaternion.angleTo(reference.camera.quaternion),
+      ).toBeLessThan(1e-7);
+      const final = pose(actual.camera);
+      frame([[0]], 0.25);
+      expectPose(actual.camera, final);
+    },
+  );
+
+  integrationTest(
+    "FirstPerson normalizes only gamepad movement and keeps native keyboard input additive",
+    ({ cleanup, gamepadPolling }) => {
+      const orientation = { lat: 45, lon: 135 };
+      const keyboardReference = createFirstPersonMovementScenario(
+        cleanup,
+        orientation,
+      );
+      const keyboardMovement = readFirstPersonKeyboardMovement(
+        keyboardReference.controls,
+        "KeyW",
+      );
+      const gamepadReference = createFirstPersonMovementScenario(
+        cleanup,
+        orientation,
+      );
+      const gamepadMovement = readFirstPersonKeyboardMovement(
+        gamepadReference.controls,
+        ["KeyW", "KeyD", "KeyR"],
+      );
+      const actual = createFirstPersonMovementScenario(cleanup, orientation);
+      const wrapper = new GamepadFirstPersonControls(actual.controls, {
+        moveSpeed: 2,
+      });
+      cleanup.add("wrapper", () => wrapper.dispose());
+      const frame = createFrameDriver(
+        gamepadPolling,
+        actual.syncMatrices,
+        wrapper,
+        (dt) => actual.controls.update(dt),
+      );
+      frame([[0]], 0.25);
+      const expectedPosition = actual.camera.position
+        .clone()
+        .add(gamepadMovement.multiplyScalar(2))
+        .add(keyboardMovement);
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW" }));
+      try {
+        frame(
+          [
+            [
+              0,
+              {
+                axes: [1, -1, 0, 0],
+                buttons: createGamepadButtons([6, false, 1]),
+              },
+            ],
+          ],
+          0.25,
+        );
+        expect(
+          actual.camera.position.distanceTo(expectedPosition),
+        ).toBeLessThan(1e-8);
+        for (const state of ["neutral", "pause", "dispose"] as const) {
+          if (state === "pause") {
+            wrapper.enabled = false;
+          } else if (state === "dispose") {
+            wrapper.dispose();
+          }
+          frame([[0]], 0.25);
+          expectedPosition.add(keyboardMovement);
+          expect(
+            actual.camera.position.distanceTo(expectedPosition),
+          ).toBeLessThan(1e-8);
+        }
+      } finally {
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
+      }
+      const final = pose(actual.camera);
+      frame([[0]], 0.25);
+      expectPose(actual.camera, final);
+    },
+  );
+
+  integrationTest.for([false, true])(
+    "FirstPerson isolates normalized movement and lifecycle with reversed update order %s",
+    (reverse, { cleanup, gamepadPolling }) => {
+      const a = createFirstPersonMovementScenario(cleanup, {
+        lat: 45,
+        lon: 180,
+      });
+      const b = createFirstPersonMovementScenario(cleanup, {
+        lat: -45,
+        lon: 180,
+      });
+      const wrapperA = new GamepadFirstPersonControls(a.controls, {
+        gamepadIndex: 0,
+      });
+      cleanup.add("wrapper", () => wrapperA.dispose());
+      const wrapperB = new GamepadFirstPersonControls(b.controls, {
+        gamepadIndex: 3,
+        moveSpeed: 2,
+      });
+      cleanup.add("wrapper", () => wrapperB.dispose());
+      const order = reverse
+        ? ([
+            [b, wrapperB],
+            [a, wrapperA],
+          ] as const)
+        : ([
+            [a, wrapperA],
+            [b, wrapperB],
+          ] as const);
+      const frame = (
+        inputA: GamepadFixtureOptions = {},
+        inputB: GamepadFixtureOptions = {},
+      ): void => {
+        gamepadPolling.publishFrame([0, inputA], [3, inputB]);
+        a.syncMatrices();
+        b.syncMatrices();
+        for (const [scenario, wrapper] of order) {
+          wrapper.update(0.25);
+          scenario.controls.update(0.25);
+          scenario.syncMatrices();
+        }
+      };
+      frame();
+      const inputA = {
+        axes: [1, -1, 0, 0],
+        buttons: createGamepadButtons([6, false, 1]),
+      };
+      const inputB = {
+        axes: [-1, 1, 0, 0],
+        buttons: createGamepadButtons([7, false, 1]),
+      };
+      const displacementA = new Vector3(1, 1, -1).multiplyScalar(
+        1 / Math.sqrt(3),
+      );
+      const displacementB = new Vector3(-1, -1, 1).multiplyScalar(
+        2 / Math.sqrt(3),
+      );
+      const expectedA = a.camera.position.clone().add(displacementA);
+      const expectedB = b.camera.position.clone().add(displacementB);
+      frame(inputA, inputB);
+      expect(a.camera.position.distanceTo(expectedA)).toBeLessThan(1e-8);
+      expect(b.camera.position.distanceTo(expectedB)).toBeLessThan(1e-8);
+      for (const state of [
+        "pause",
+        "native disabled",
+        "loss",
+        "dispose",
+      ] as const) {
+        if (state === "pause") {
+          wrapperA.enabled = false;
+        } else if (state === "native disabled") {
+          wrapperA.enabled = true;
+          a.controls.enabled = false;
+        } else if (state === "loss") {
+          a.controls.enabled = true;
+        } else {
+          wrapperA.dispose();
+        }
+        frame(state === "loss" ? { connected: false } : inputA, inputB);
+        expectedB.add(displacementB);
+        expect(a.camera.position.distanceTo(expectedA)).toBeLessThan(1e-8);
+        expect(b.camera.position.distanceTo(expectedB)).toBeLessThan(1e-8);
+      }
+    },
+  );
+
   integrationTest.for([-1, 3, 7])(
     "FirstPerson uses the initial clamped height %i for forward speed before climbing",
     (height, { cleanup, gamepadPolling }) => {
@@ -508,7 +761,11 @@ describe("FirstPerson movement frame", () => {
         actual.camera.position
           .clone()
           .sub(position)
-          .distanceTo(keyboardMovement.add(new Vector3(0, 2, 0))),
+          .distanceTo(
+            keyboardMovement
+              .add(new Vector3(0, 2, 0))
+              .multiplyScalar(1 / Math.sqrt(1.25)),
+          ),
       ).toBeLessThan(1e-8);
     },
   );
