@@ -827,6 +827,22 @@ describe("GamepadTransformControls interaction lifecycle", () => {
 });
 
 describe("GamepadTransformControls translation", () => {
+  gamepadTest.each([10, 12])(
+    "keeps translation finite and forward when the object's camera-space depth is nonpositive (z = %s)",
+    (z) => {
+      const transformFixture = createTransformControls();
+      transformFixture.object.position.z = z;
+      const controls = createControls(transformFixture.controls);
+      updateInput(controls);
+      updateInput(controls, { axes: [1, 0] });
+      const position = transformFixture.object.position;
+      expect(position.toArray().every(Number.isFinite)).toBe(true);
+      expect(position.x).toBeGreaterThan(0);
+      expect(position.x).toBeLessThan(1e-10);
+      expect(position.z).toBe(z);
+    },
+  );
+
   gamepadTest.each([
     ["X", [1, 0], [true, false, false]],
     ["Y", [0, -1], [false, true, false]],

@@ -1,13 +1,4 @@
-import {
-  type Camera,
-  Matrix4,
-  type Object3D,
-  type OrthographicCamera,
-  type PerspectiveCamera,
-  Quaternion,
-  Vector2,
-  Vector3,
-} from "three";
+import { Matrix4, type Object3D, Quaternion, Vector2, Vector3 } from "three";
 import type {
   TransformControls,
   TransformControlsMode,
@@ -24,6 +15,7 @@ import {
   type GamepadStickBindingOptions,
   resolveGamepadStickBinding,
 } from "./gamepad-stick-processing.ts";
+import { getCameraViewSize } from "./three-utils.ts";
 
 /**
  * Configuration for {@link GamepadTransformControls}.
@@ -32,7 +24,9 @@ import {
  */
 export type GamepadTransformControlsOptions = GamepadControlsOptions & {
   /**
-   * Screen-relative translation speed multiplier.
+   * Screen-relative translation speed multiplier. `XYZ` uses effective viewport
+   * width and height per second; constrained axes use their mean in world units
+   * per second. Both are multiplied by the processed stick input.
    * @default 1.0
    */
   translateSpeed: number;
@@ -249,6 +243,7 @@ export class GamepadTransformControls extends GamepadControls {
   readonly #viewSize: Vector2;
   readonly #parentInverse: Matrix4;
   readonly #cameraWorldPosition: Vector3;
+  readonly #cameraSpacePosition: Vector3;
   readonly #cameraForward: Vector3;
   readonly #cameraRight: Vector3;
   readonly #cameraUp: Vector3;
@@ -321,6 +316,7 @@ export class GamepadTransformControls extends GamepadControls {
     this.#viewSize = new Vector2();
     this.#parentInverse = new Matrix4();
     this.#cameraWorldPosition = new Vector3();
+    this.#cameraSpacePosition = new Vector3();
     this.#cameraForward = new Vector3();
     this.#cameraRight = new Vector3();
     this.#cameraUp = new Vector3();
@@ -1407,7 +1403,7 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #updateCameraState(object: Object3D): void {
     const camera = this.#controls.camera;
-    camera.updateMatrixWorld();
+    camera.updateWorldMatrix(true, false);
     object.updateWorldMatrix(true, false);
     this.#cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
     this.#cameraUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
@@ -1418,34 +1414,12 @@ export class GamepadTransformControls extends GamepadControls {
       .copy(this.#cameraWorldPosition)
       .sub(this.#worldPosition)
       .normalize();
-    this.#updateViewSizeAtObjectDepth(camera);
-  }
-
-  /**
-   * Computes world-space viewport size at the attached object's depth.
-   *
-   * @param camera - TransformControls camera.
-   */
-  #updateViewSizeAtObjectDepth(camera: Camera): void {
-    if (this.#isOrthographicCamera(camera)) {
-      this.#viewSize.set(
-        Math.abs(camera.right - camera.left) / camera.zoom,
-        Math.abs(camera.top - camera.bottom) / camera.zoom,
-      );
-      return;
-    }
-    if (this.#isPerspectiveCamera(camera)) {
-      const depth = Math.max(
-        Number.EPSILON,
-        this.#worldPosition
-          .subVectors(this.#worldPosition, this.#cameraWorldPosition)
-          .dot(this.#cameraForward),
-      );
-      const height = 2 * Math.tan((camera.fov * Math.PI) / 360) * depth;
-      this.#viewSize.set(height * camera.aspect, height);
-      return;
-    }
-    this.#viewSize.set(1, 1);
+    getCameraViewSize(
+      camera,
+      this.#worldPosition,
+      this.#viewSize,
+      this.#cameraSpacePosition,
+    );
   }
 
   /**
@@ -1700,25 +1674,5 @@ export class GamepadTransformControls extends GamepadControls {
       }
     }
     return startedButtons;
-  }
-
-  /**
-   * Narrows a Three.js camera to `PerspectiveCamera`.
-   *
-   * @param camera - Camera to inspect.
-   * @returns `true` when the camera is perspective.
-   */
-  #isPerspectiveCamera(camera: Camera): camera is PerspectiveCamera {
-    return (camera as PerspectiveCamera).isPerspectiveCamera === true;
-  }
-
-  /**
-   * Narrows a Three.js camera to `OrthographicCamera`.
-   *
-   * @param camera - Camera to inspect.
-   * @returns `true` when the camera is orthographic.
-   */
-  #isOrthographicCamera(camera: Camera): camera is OrthographicCamera {
-    return (camera as OrthographicCamera).isOrthographicCamera === true;
   }
 }

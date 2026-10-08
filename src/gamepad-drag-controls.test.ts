@@ -306,6 +306,7 @@ describe("GamepadDragControls dragging", () => {
       camera.position.set(0, 0, 10);
       camera.lookAt(0, 0, 0);
       camera.zoom = 2;
+      camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
       const dragFixture = createDragControls(camera);
       const parent = new Object3D();

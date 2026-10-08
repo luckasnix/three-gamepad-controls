@@ -3,8 +3,6 @@ import {
   type Intersection,
   Matrix4,
   type Object3D,
-  type OrthographicCamera,
-  type PerspectiveCamera,
   Vector2,
   Vector3,
 } from "three";
@@ -21,6 +19,7 @@ import {
   type GamepadStickBindingOptions,
   resolveGamepadStickBinding,
 } from "./gamepad-stick-processing.ts";
+import { getCameraViewSize } from "./three-utils.ts";
 
 /**
  * Configuration for {@link GamepadDragControls}.
@@ -29,7 +28,8 @@ import {
  */
 export type GamepadDragControlsOptions = GamepadControlsOptions & {
   /**
-   * Screen-relative translation speed multiplier.
+   * Screen-relative translation speed multiplier. At full processed input,
+   * `1` moves one effective viewport width or height per second on each axis.
    * @default 1.0
    */
   dragSpeed: number;
@@ -108,8 +108,6 @@ export class GamepadDragControls extends GamepadControls {
   readonly #parentInverse: Matrix4;
   readonly #selectedWorldPosition: Vector3;
   readonly #selectedLocalPosition: Vector3;
-  readonly #cameraWorldPosition: Vector3;
-  readonly #cameraForward: Vector3;
   readonly #cameraRight: Vector3;
   readonly #cameraUp: Vector3;
   readonly #cameraToSelected: Vector3;
@@ -145,8 +143,6 @@ export class GamepadDragControls extends GamepadControls {
     this.#parentInverse = new Matrix4();
     this.#selectedWorldPosition = new Vector3();
     this.#selectedLocalPosition = new Vector3();
-    this.#cameraWorldPosition = new Vector3();
-    this.#cameraForward = new Vector3();
     this.#cameraRight = new Vector3();
     this.#cameraUp = new Vector3();
     this.#cameraToSelected = new Vector3();
@@ -278,8 +274,7 @@ export class GamepadDragControls extends GamepadControls {
     if (dragX === 0 && dragY === 0) {
       return false;
     }
-    this.#updateCameraAxes();
-    this.#updateViewSizeAtSelectedDepth();
+    this.#updateDragCameraState();
     const scale = dragSpeed * deltaTime;
     this.#selectedWorldPosition.addScaledVector(
       this.#cameraRight,
@@ -333,6 +328,7 @@ export class GamepadDragControls extends GamepadControls {
   #intersectCenter(): Intersection | undefined {
     const controls = this.#controls;
     this.#intersections.length = 0;
+    controls.object.updateWorldMatrix(true, false);
     controls.raycaster.setFromCamera(this.#centerNdc, controls.object);
     controls.raycaster.intersectObjects(
       controls.objects,
@@ -451,60 +447,29 @@ export class GamepadDragControls extends GamepadControls {
     selected.updateMatrixWorld();
   }
 
-  // Refreshes camera-relative axes used for dragging and rotation.
+  // Preserves the native rotation convention based on the camera's local axes.
   #updateCameraAxes(): void {
     const camera = this.#controls.object;
+    camera.updateWorldMatrix(true, false);
     this.#cameraRight
       .set(1, 0, 0)
       .applyQuaternion(camera.quaternion)
       .normalize();
     this.#cameraUp.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
-    camera.getWorldDirection(this.#cameraForward).normalize();
   }
 
-  // Computes the world-space viewport size at the selected object's depth.
-  #updateViewSizeAtSelectedDepth(): void {
+  // Refreshes world-space drag axes and effective viewport dimensions.
+  #updateDragCameraState(): void {
     const camera = this.#controls.object;
-    if (this.#isOrthographicCamera(camera)) {
-      this.#viewSize.set(
-        Math.abs(camera.right - camera.left) / camera.zoom,
-        Math.abs(camera.top - camera.bottom) / camera.zoom,
-      );
-      return;
-    }
-    if (this.#isPerspectiveCamera(camera)) {
-      camera.getWorldPosition(this.#cameraWorldPosition);
-      const depth = Math.max(
-        Number.EPSILON,
-        this.#cameraToSelected
-          .copy(this.#selectedWorldPosition)
-          .sub(this.#cameraWorldPosition)
-          .dot(this.#cameraForward),
-      );
-      const height = 2 * Math.tan((camera.fov * Math.PI) / 360) * depth;
-      this.#viewSize.set(height * camera.aspect, height);
-      return;
-    }
-    this.#viewSize.set(1, 1);
-  }
-
-  /**
-   * Narrows a Three.js camera to `PerspectiveCamera`.
-   *
-   * @param camera - Camera to inspect.
-   * @returns `true` when the camera is perspective.
-   */
-  #isPerspectiveCamera(camera: Camera): camera is PerspectiveCamera {
-    return (camera as PerspectiveCamera).isPerspectiveCamera === true;
-  }
-
-  /**
-   * Narrows a Three.js camera to `OrthographicCamera`.
-   *
-   * @param camera - Camera to inspect.
-   * @returns `true` when the camera is orthographic.
-   */
-  #isOrthographicCamera(camera: Camera): camera is OrthographicCamera {
-    return (camera as OrthographicCamera).isOrthographicCamera === true;
+    camera.updateWorldMatrix(true, false);
+    const view = camera.matrixWorldInverse.elements;
+    this.#cameraRight.set(view[0], view[4], view[8]).normalize();
+    this.#cameraUp.set(view[1], view[5], view[9]).normalize();
+    getCameraViewSize(
+      camera,
+      this.#selectedWorldPosition,
+      this.#viewSize,
+      this.#cameraToSelected,
+    );
   }
 }

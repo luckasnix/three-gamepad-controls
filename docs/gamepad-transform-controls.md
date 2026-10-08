@@ -40,7 +40,7 @@ Every binding is remappable via the `options` parameter.
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
-| `translateSpeed` | `number` | `1.0` | Screen-relative translation speed multiplier. |
+| `translateSpeed` | `number` | `1.0` | Translation gain: effective viewport widths/heights per second for `XYZ`, or their mean in world units per second for constrained axes. |
 | `rotateSpeed` | `number` | `1.0` | Rotation speed multiplier. |
 | `scaleSpeed` | `number` | `1.0` | Scale speed multiplier. |
 | `transformStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for transform input. |
@@ -73,6 +73,21 @@ When the processed transform stick becomes nonzero, a native-style transform int
 `transformStick` accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Mode, axis, space, and reset buttons are not processed by the stick pipeline. See [Stick Processing](./gamepad-stick-processing.md).
 
 Gamepad transforms respect `TransformControls.enabled`, `mode`, the acquired axis, `space`, `translationSnap`, `rotationSnap`, `scaleSnap`, and translation min/max bounds. The wrapper maintains unsnapped internal accumulators, so small stick movements are not lost while snap settings are active.
+
+### Translation and projection
+
+Translation uses the effective dimensions of the current camera projection. Perspective dimensions are measured at the object's camera-space depth and include zoom, aspect ratio, and `setViewOffset()` crops; orthographic dimensions are independent of depth. The crop's position is not added to the object's accumulated translation. Camera world matrices, including parents, are refreshed before movement.
+
+For `XYZ`, `translateSpeed: 1` moves one viewport width or height per second at full processed input on the corresponding screen axis. Constrained axes and planes preserve their existing gain: the mean of the effective viewport width and height in world units per second, multiplied by `translateSpeed` and the processed input along each permitted direction. Their projected response therefore also depends on aspect ratio and axis orientation. Movement that changes depth is not guaranteed to produce a linear finite screen displacement; snapping and bounds can further constrain the result.
+
+The application must call `updateProjectionMatrix()` after directly changing projection properties. Dimensions are read on every movement update, so a zoom change adjusts world-space speed without starting a new segment, recapturing reset origin, or discarding accumulated input.
+
+```ts
+camera.zoom = 2;
+camera.updateProjectionMatrix();
+```
+
+### Interaction lifecycle
 
 Native disable blocks mode, space, axis, reset, and transformation commands before they are applied. Polling continues, so a button held through the blocked period requires a new press to execute its command. An owned gamepad interaction ends once when native disable is observed. See [Native input permissions](./gamepad-controls.md#native-input-permissions) for pause and observation timing.
 

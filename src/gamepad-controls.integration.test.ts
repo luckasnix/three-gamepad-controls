@@ -1,8 +1,11 @@
 import {
   type Controls,
   EventDispatcher,
+  Group,
   MathUtils,
   type Object3D,
+  PerspectiveCamera,
+  Plane,
   Quaternion,
   Raycaster,
   Vector2,
@@ -1790,6 +1793,555 @@ for (const kind of ["drag", "transform"] as const) {
     },
   );
 }
+
+type ProjectionOptions = {
+  projection?: "perspective" | "orthographic";
+  aspect?: number;
+  zoom?: number;
+  crop?: boolean;
+  parent?: "translated" | "rotated";
+  axis?: TransformControls["axis"];
+  index?: number;
+};
+
+const createProjectionScenario = (
+  kind: "drag" | "transform",
+  cleanup: Cleanup,
+  polling: GamepadPollingFixture,
+  options: ProjectionOptions = {},
+) => {
+  const environment = createThreeEnvironment(cleanup, options.projection);
+  const { camera, mesh, scene, element } = environment;
+  const aspect = options.aspect ?? 16 / 9;
+  if (camera instanceof PerspectiveCamera) {
+    camera.aspect = aspect;
+  } else {
+    camera.left = -6 * aspect;
+    camera.right = 6 * aspect;
+  }
+  camera.zoom = options.zoom ?? 1;
+  if (options.crop) {
+    // An off-center window with different horizontal and vertical crop ratios.
+    camera.setViewOffset(1600, 1600 / aspect, 150, 75, 800, 600 / aspect);
+  }
+  camera.updateProjectionMatrix();
+  const cameraParent = new Group();
+  if (options.parent) {
+    cameraParent.position.set(3, -2, 1);
+    if (options.parent === "rotated") {
+      cameraParent.rotation.set(0.2, 0.4, 0.6);
+    }
+    cameraParent.add(camera);
+    scene.add(cameraParent);
+  }
+  camera.updateWorldMatrix(true, false);
+  const centerRay = new Raycaster();
+  centerRay.setFromCamera(new Vector2(), camera);
+  const plane = new Plane().setFromNormalAndCoplanarPoint(
+    camera.getWorldDirection(new Vector3()),
+    new Vector3(0, 0, -10).applyMatrix4(camera.matrixWorld),
+  );
+  expect(centerRay.ray.intersectPlane(plane, mesh.position)).not.toBeNull();
+  const origin = mesh.position.clone();
+  const events: string[] = [];
+  const onStart = () => events.push("start");
+  const onMove = () => events.push("move");
+  const onEnd = () => events.push("end");
+  const index = options.index ?? 0;
+  let native: DragControls | TransformControls;
+  let wrapper: GamepadDragControls | GamepadTransformControls;
+  if (kind === "drag") {
+    const controls = new DragControls([mesh], camera, element);
+    cleanup.add("native", () => controls.dispose());
+    controls.addEventListener("dragstart", onStart);
+    controls.addEventListener("drag", onMove);
+    controls.addEventListener("dragend", onEnd);
+    cleanup.add("listener", () => {
+      controls.removeEventListener("dragstart", onStart);
+      controls.removeEventListener("drag", onMove);
+      controls.removeEventListener("dragend", onEnd);
+    });
+    native = controls;
+    wrapper = new GamepadDragControls(controls, { gamepadIndex: index });
+  } else {
+    const controls = new TransformControls(camera, element);
+    cleanup.add("native", () => controls.dispose());
+    controls.attach(mesh);
+    controls.axis = options.axis ?? "XYZ";
+    const helper = controls.getHelper();
+    scene.add(helper);
+    cleanup.add("resource", () => helper.removeFromParent());
+    controls.addEventListener("mouseDown", onStart);
+    controls.addEventListener("objectChange", onMove);
+    controls.addEventListener("mouseUp", onEnd);
+    cleanup.add("listener", () => {
+      controls.removeEventListener("mouseDown", onStart);
+      controls.removeEventListener("objectChange", onMove);
+      controls.removeEventListener("mouseUp", onEnd);
+    });
+    native = controls;
+    wrapper = new GamepadTransformControls(controls, { gamepadIndex: index });
+  }
+  cleanup.add("wrapper", () => wrapper.dispose());
+  const syncMatrices = () => {
+    camera.updateWorldMatrix(true, false);
+    scene.updateMatrixWorld(true);
+  };
+  syncMatrices();
+  const frame = createFrameDriver(polling, syncMatrices, wrapper);
+  const step = (input: GamepadFixtureOptions = {}, dt = 0.02) =>
+    frame([[index, input]], dt);
+  const projectedPosition = () =>
+    mesh.getWorldPosition(new Vector3()).project(camera);
+  const move = (axes: readonly number[]) => {
+    const before = projectedPosition();
+    step({ axes });
+    return projectedPosition().sub(before);
+  };
+  const acquire = () => {
+    step();
+    if (kind === "drag") {
+      step({ buttons: createGamepadButtons([0, true]) });
+      expect(events).toEqual(["start"]);
+    }
+  };
+  return {
+    camera,
+    cameraParent,
+    mesh,
+    origin,
+    native,
+    wrapper,
+    events,
+    step,
+    move,
+    acquire,
+    projectedPosition,
+    syncMatrices,
+  };
+};
+
+describe("effective camera projection", () => {
+  const profiles = [
+    { name: "perspective square", aspect: 1 },
+    { name: "perspective landscape", aspect: 16 / 9 },
+    { name: "perspective portrait", aspect: 3 / 4 },
+    { name: "perspective crop", aspect: 16 / 9, crop: true },
+    { name: "orthographic square", projection: "orthographic", aspect: 1 },
+    {
+      name: "orthographic crop",
+      projection: "orthographic",
+      crop: true,
+    },
+    { name: "rotated parent", crop: true, parent: "rotated" },
+    {
+      name: "translated parent",
+      projection: "orthographic",
+      aspect: 3 / 4,
+      crop: true,
+      parent: "translated",
+    },
+  ] as const;
+  const inputs = [
+    { name: "horizontal", axes: [0.5, 0] },
+    { name: "vertical", axes: [0, -0.5] },
+    { name: "diagonal", axes: [0.4, -0.3] },
+  ] as const;
+
+  for (const kind of ["drag", "transform"] as const) {
+    integrationTest(
+      `${kind} refreshes a camera parent's matrices before movement`,
+      ({ cleanup, gamepadPolling }) => {
+        const scenario = createProjectionScenario(
+          kind,
+          cleanup,
+          gamepadPolling,
+          {
+            parent: "translated",
+          },
+        );
+        scenario.acquire();
+        scenario.move([0.5, 0]);
+        const before = scenario.mesh.position.clone();
+        scenario.cameraParent.rotation.z = Math.PI / 2;
+        // Bypass the frame driver's matrix sync to exercise wrapper refresh.
+        gamepadPolling.publishFrame([0, { axes: [0.5, 0] }]);
+        scenario.wrapper.update(0.02);
+        const displacement = scenario.mesh.position.clone().sub(before);
+        expect(displacement.x).toBeCloseTo(0, 10);
+        expect(displacement.y).toBeGreaterThan(0.1);
+        expect(displacement.z).toBeCloseTo(0, 10);
+      },
+    );
+
+    integrationTest(
+      `${kind} uses a projection changed by its start callback in the same frame`,
+      ({ cleanup, gamepadPolling }) => {
+        const scenario = createProjectionScenario(
+          kind,
+          cleanup,
+          gamepadPolling,
+        );
+        const zoom = () => {
+          scenario.camera.zoom = 2;
+          scenario.camera.updateProjectionMatrix();
+        };
+        if (scenario.native instanceof DragControls) {
+          scenario.native.addEventListener("dragstart", zoom);
+          cleanup.add("listener", () =>
+            (scenario.native as DragControls).removeEventListener(
+              "dragstart",
+              zoom,
+            ),
+          );
+        } else {
+          scenario.native.addEventListener("mouseDown", zoom);
+          cleanup.add("listener", () =>
+            (scenario.native as TransformControls).removeEventListener(
+              "mouseDown",
+              zoom,
+            ),
+          );
+        }
+        scenario.acquire();
+        // Transform acquires during this move; the origin is at NDC (0, 0).
+        const displacement = scenario.move([0.5, -0.5]);
+        expect(displacement.x).toBeCloseTo(0.02, 10);
+        expect(displacement.y).toBeCloseTo(0.02, 10);
+        expect(scenario.events).toEqual(["start", "move"]);
+      },
+    );
+
+    integrationTest(
+      `${kind} follows projection matrices published by the application`,
+      ({ cleanup, gamepadPolling }) => {
+        const scenario = createProjectionScenario(
+          kind,
+          cleanup,
+          gamepadPolling,
+          {
+            projection: "orthographic",
+          },
+        );
+        scenario.acquire();
+        const original = scenario.move([0.5, -0.5]);
+        scenario.camera.zoom = 2;
+        const unpublished = scenario.move([0.5, -0.5]);
+        expect(unpublished.distanceTo(original)).toBeLessThan(1e-10);
+        scenario.camera.updateProjectionMatrix();
+        const published = scenario.move([0.5, -0.5]);
+        expect(published.distanceTo(original)).toBeLessThan(1e-10);
+        expect(scenario.events).toEqual(["start", "move", "move", "move"]);
+      },
+    );
+
+    for (const profile of profiles) {
+      for (const input of inputs) {
+        integrationTest(
+          `${kind} preserves screen speed with ${profile.name} zoom and ${input.name} input`,
+          ({ cleanup, gamepadPolling }) => {
+            const deltas = [1, 2].map((zoom) => {
+              const scenario = createProjectionScenario(
+                kind,
+                cleanup,
+                gamepadPolling,
+                { ...profile, zoom },
+              );
+              scenario.acquire();
+              const displacement = scenario.move(input.axes);
+              expect(scenario.events).toEqual(["start", "move"]);
+              expect(displacement.x).toBeCloseTo(input.axes[0] * 0.04, 10);
+              expect(displacement.y).toBeCloseTo(-input.axes[1] * 0.04, 10);
+              expect(displacement.z).toBeCloseTo(0, 10);
+              scenario.wrapper.dispose();
+              return displacement;
+            });
+            expect(deltas[1].distanceTo(deltas[0])).toBeLessThan(1e-10);
+          },
+        );
+      }
+    }
+
+    integrationTest(
+      `${kind} preserves screen speed away from the reticle during zoom changes`,
+      ({ cleanup, gamepadPolling }) => {
+        const scenario = createProjectionScenario(
+          kind,
+          cleanup,
+          gamepadPolling,
+          {
+            crop: true,
+            parent: "rotated",
+          },
+        );
+        scenario.acquire();
+        scenario.move([0.5, -0.5]);
+        const offCenter = scenario.projectedPosition();
+        expect(Math.hypot(offCenter.x, offCenter.y)).toBeGreaterThan(0.01);
+        const worldBefore = scenario.mesh.getWorldPosition(new Vector3());
+        const first = scenario.move([0.5, -0.25]);
+        const worldDelta = scenario.mesh
+          .getWorldPosition(new Vector3())
+          .sub(worldBefore);
+        scenario.camera.zoom = 2;
+        scenario.camera.updateProjectionMatrix();
+        const unchanged = scenario.mesh.position.clone();
+        scenario.step({ axes: [0.5, -0.25] }, 0);
+        expect(scenario.mesh.position.distanceTo(unchanged)).toBeLessThan(
+          1e-10,
+        );
+        const secondWorldBefore = scenario.mesh.getWorldPosition(new Vector3());
+        const second = scenario.move([0.5, -0.25]);
+        expect(second.distanceTo(first)).toBeLessThan(1e-10);
+        expect(
+          scenario.mesh
+            .getWorldPosition(new Vector3())
+            .sub(secondWorldBefore)
+            .distanceTo(worldDelta.multiplyScalar(0.5)),
+        ).toBeLessThan(1e-10);
+        expect(
+          scenario.events.filter((event) => event === "start"),
+        ).toHaveLength(1);
+        expect(scenario.events).not.toContain("end");
+        if (scenario.native instanceof TransformControls) {
+          scenario.step(
+            { axes: [0.5, -0.25], buttons: createGamepadButtons([9, true]) },
+            0,
+          );
+          expect(
+            scenario.mesh.position.distanceTo(scenario.origin),
+          ).toBeLessThan(1e-10);
+          expect(scenario.native.dragging).toBe(true);
+          expect(
+            scenario.events.filter((event) => event === "start"),
+          ).toHaveLength(1);
+        }
+      },
+    );
+  }
+
+  for (const axis of ["X", "Y", "XY"] as const) {
+    for (const projection of ["perspective", "orthographic"] as const) {
+      integrationTest(
+        `Transform preserves ${axis} gain with ${projection} zoom and asymmetric crop`,
+        ({ cleanup, gamepadPolling }) => {
+          const deltas = [1, 2].map((zoom) => {
+            const scenario = createProjectionScenario(
+              "transform",
+              cleanup,
+              gamepadPolling,
+              { projection, axis, zoom, crop: true },
+            );
+            scenario.acquire();
+            const displacement = scenario.move([0.4, -0.3]);
+            expect(displacement.length()).toBeGreaterThan(0.001);
+            expect(displacement.x !== 0).toBe(axis.includes("X"));
+            expect(displacement.y !== 0).toBe(axis.includes("Y"));
+            expect(displacement.z).toBeCloseTo(0, 10);
+            scenario.wrapper.dispose();
+            return displacement;
+          });
+          expect(deltas[1].distanceTo(deltas[0])).toBeLessThan(1e-10);
+        },
+      );
+    }
+  }
+
+  integrationTest(
+    "Transform scales depth-axis movement without promising linear projected displacement",
+    ({ cleanup, gamepadPolling }) => {
+      const worldDeltas = [1, 2].map((zoom) => {
+        const scenario = createProjectionScenario(
+          "transform",
+          cleanup,
+          gamepadPolling,
+          {
+            axis: "Z",
+            crop: true,
+            zoom,
+          },
+        );
+        scenario.acquire();
+        const before = scenario.mesh.position.clone();
+        scenario.move([0.5, 0]);
+        const displacement = scenario.mesh.position.clone().sub(before);
+        expect(displacement.x).toBeCloseTo(0, 10);
+        expect(displacement.y).toBeCloseTo(0, 10);
+        expect(displacement.z).toBeGreaterThan(0);
+        scenario.wrapper.dispose();
+        return displacement;
+      });
+      expect(
+        worldDeltas[1].distanceTo(worldDeltas[0].multiplyScalar(0.5)),
+      ).toBeLessThan(1e-10);
+    },
+  );
+
+  integrationTest(
+    "Transform retains snapping, bounds and reset while zoom changes",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createProjectionScenario(
+        "transform",
+        cleanup,
+        gamepadPolling,
+        {
+          axis: "X",
+        },
+      );
+      const native = scenario.native as TransformControls;
+      native.translationSnap = 0.1;
+      native.maxX = 0.3;
+      scenario.acquire();
+      scenario.move([0.5, 0]);
+      expect(scenario.mesh.position.x).toBeCloseTo(0.2, 10);
+      scenario.camera.zoom = 2;
+      scenario.camera.updateProjectionMatrix();
+      for (let frame = 0; frame < 5; frame += 1) {
+        scenario.move([0.5, 0]);
+        expect(scenario.mesh.position.x).toBeLessThanOrEqual(native.maxX);
+      }
+      expect(scenario.mesh.position.x).toBe(0.3);
+      scenario.step(
+        { axes: [0.5, 0], buttons: createGamepadButtons([9, true]) },
+        0,
+      );
+      expect(scenario.mesh.position.distanceTo(scenario.origin)).toBeLessThan(
+        1e-10,
+      );
+      expect(scenario.events.filter((event) => event === "start")).toHaveLength(
+        1,
+      );
+      expect(native.dragging).toBe(true);
+    },
+  );
+
+  integrationTest(
+    "Drag emits one movement event for simultaneous drag and rotation after zoom",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createProjectionScenario(
+        "drag",
+        cleanup,
+        gamepadPolling,
+        {
+          zoom: 2,
+          crop: true,
+          parent: "rotated",
+        },
+      );
+      scenario.acquire();
+      const before = scenario.projectedPosition();
+      scenario.step({ axes: [0.5, -0.5, 0.5, 0] });
+      const displacement = scenario.projectedPosition().sub(before);
+      expect(displacement.x).toBeCloseTo(0.02, 10);
+      expect(displacement.y).toBeCloseTo(0.02, 10);
+      const nativeRotation = new Quaternion().setFromAxisAngle(
+        new Vector3(0, 1, 0).applyQuaternion(scenario.camera.quaternion),
+        0.01 * Math.PI,
+      );
+      expect(scenario.mesh.quaternion.angleTo(nativeRotation)).toBeLessThan(
+        1e-7,
+      );
+      expect(scenario.events).toEqual(["start", "move"]);
+    },
+  );
+
+  for (const kinds of [
+    ["drag", "drag"],
+    ["transform", "transform"],
+    ["drag", "transform"],
+  ] as const) {
+    for (const reversed of [false, true]) {
+      integrationTest(
+        `${kinds.join("/")} isolates projections and lifecycle in slots 0/3 (reversed: ${reversed})`,
+        ({ cleanup, gamepadPolling }) => {
+          const first = createProjectionScenario(
+            kinds[0],
+            cleanup,
+            gamepadPolling,
+            {
+              index: 0,
+              crop: true,
+              parent: "rotated",
+            },
+          );
+          const second = createProjectionScenario(
+            kinds[1],
+            cleanup,
+            gamepadPolling,
+            {
+              index: 3,
+              projection: "orthographic",
+              zoom: 3,
+              aspect: 3 / 4,
+              crop: true,
+              parent: "translated",
+            },
+          );
+          const scenarios = reversed ? [second, first] : [first, second];
+          const step = (
+            input0: GamepadFixtureOptions = {},
+            input3: GamepadFixtureOptions = {},
+          ) => {
+            gamepadPolling.publishFrame([0, input0], [3, input3]);
+            for (const scenario of scenarios) {
+              scenario.syncMatrices();
+              scenario.wrapper.update(0.02);
+              scenario.syncMatrices();
+            }
+          };
+          step();
+          step(
+            {
+              buttons:
+                kinds[0] === "drag" ? createGamepadButtons([0, true]) : [],
+            },
+            {
+              buttons:
+                kinds[1] === "drag" ? createGamepadButtons([0, true]) : [],
+            },
+          );
+          const move = () => {
+            const before = [
+              first.projectedPosition(),
+              second.projectedPosition(),
+            ];
+            step({ axes: [0.4, -0.3] }, { axes: [0, -0.5] });
+            return [
+              first.projectedPosition().sub(before[0]),
+              second.projectedPosition().sub(before[1]),
+            ];
+          };
+          const original = move();
+          first.camera.zoom = 2;
+          first.camera.updateProjectionMatrix();
+          const updated = move();
+          for (let index = 0; index < 2; index += 1) {
+            expect(updated[index].distanceTo(original[index])).toBeLessThan(
+              1e-10,
+            );
+          }
+          expect(second.camera.zoom).toBe(3);
+          expect(original[0].x).toBeCloseTo(0.016, 10);
+          expect(original[0].y).toBeCloseTo(0.012, 10);
+          expect(original[1].x).toBeCloseTo(0, 10);
+          expect(original[1].y).toBeCloseTo(0.02, 10);
+          expect(first.events).toEqual(["start", "move", "move"]);
+          expect(second.events).toEqual(["start", "move", "move"]);
+          first.wrapper.dispose();
+          const released = first.mesh.position.clone();
+          const before = second.projectedPosition();
+          step({ axes: [0.4, -0.3] }, { axes: [0, -0.5] });
+          expect(first.mesh.position.distanceTo(released)).toBeLessThan(1e-10);
+          expect(first.events).toEqual(["start", "move", "move", "end"]);
+          expect(
+            second.projectedPosition().sub(before).distanceTo(original[1]),
+          ).toBeLessThan(1e-10);
+          expect(second.events).toEqual(["start", "move", "move", "move"]);
+        },
+      );
+    }
+  }
+});
 
 describe("real raycasts and native event snapshots", () => {
   integrationTest(

@@ -34,7 +34,7 @@ No visual reticle is rendered by the library. Draw your own center marker in the
 | Property | Type | Default | Description |
 | --- | --- | --- | --- |
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
-| `dragSpeed` | `number` | `1.0` | Screen-relative translation speed multiplier. |
+| `dragSpeed` | `number` | `1.0` | Effective viewport widths/heights per second at full processed input on each axis. |
 | `rotateSpeed` | `number` | `1.0` | Multiplier on `DragControls.rotateSpeed` for rotation. |
 | `dragStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for dragging. |
 | `rotateStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for object rotation. |
@@ -43,6 +43,19 @@ No visual reticle is rendered by the library. Draw your own center marker in the
 Gamepad input respects `DragControls.enabled`, `objects`, `recursive`, `transformGroup`, `raycaster`, and `rotateSpeed`. When `transformGroup` is `true`, this wrapper selects the outermost `Group` in the intersected object's parent chain. This differs from the native pointer implementation, whose group behavior is limited to the configured draggable-object list.
 
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. The select button is not processed by either stick pipeline. See [Stick Processing](./gamepad-stick-processing.md).
+
+## Translation and projection
+
+Dragging moves in the camera-facing plane. With `dragSpeed: 1`, a processed horizontal input of `1` moves one effective viewport width per second; a processed vertical input of `-1` moves one effective viewport height upward per second. Smaller processed inputs retain their analog intensity. The same command produces the same normalized screen displacement at perspective zoom `1` and `2`.
+
+Perspective movement uses the selected position's camera-space depth and the current projection, including zoom, aspect ratio, and `setViewOffset()` crops. Orthographic movement uses the projected viewport dimensions independently of depth. Crop offsets locate the view window; they are not added to the selected object's position. Camera world matrices, including parents, are refreshed before raycasting and movement. Dragging uses world-space view directions; rotation retains the native `DragControls` convention based on camera-local axes.
+
+The application must call `updateProjectionMatrix()` after directly changing `zoom`, `fov`, `aspect`, or other projection properties. The wrapper reads the published projection on every movement update, so changing zoom during a grab adjusts world-space speed without releasing or repositioning the selected object.
+
+```ts
+camera.zoom = 2;
+camera.updateProjectionMatrix();
+```
 
 ## Properties
 
