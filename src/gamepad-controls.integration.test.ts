@@ -1921,6 +1921,209 @@ const createProjectionScenario = (
   };
 };
 
+describe("Transform explicit visibility", () => {
+  const renderedHandles = (native: TransformControls): readonly Object3D[] => {
+    // The helper also contains pickers and interaction guides, which have
+    // separate visibility rules. Compare only the active rendered gizmo.
+    const gizmo = native.getHelper().children[0] as Object3D & {
+      gizmo: Record<TransformControls["mode"], Object3D>;
+    };
+    return gizmo.gizmo[native.mode].children;
+  };
+  const visibilityFlags = [
+    "showX",
+    "showY",
+    "showZ",
+    "showXY",
+    "showYZ",
+    "showXZ",
+    "showE",
+    "showXYZE",
+  ] as const;
+  const modeAxes = {
+    translate: ["X", "Y", "Z", "XY", "YZ", "XZ", "XYZ"],
+    rotate: ["X", "Y", "Z", "E", "XYZE"],
+    scale: ["X", "Y", "Z", "XYZ"],
+  } as const;
+
+  integrationTest.for(["translate", "rotate", "scale"] as const)(
+    "matches the real %s helper for all 256 explicit flag combinations",
+    (mode, { cleanup, gamepadPolling }) => {
+      const environment = createThreeEnvironment(cleanup);
+      const { scene, camera, element, mesh, syncMatrices } = environment;
+      camera.position.set(6, 7, 10);
+      camera.lookAt(mesh.position);
+      const native = new TransformControls(camera, element);
+      cleanup.add("native", () => native.dispose());
+      native.attach(mesh);
+      native.setMode(mode);
+      const helper = native.getHelper();
+      scene.add(helper);
+      cleanup.add("resource", () => helper.removeFromParent());
+      const wrapper = new GamepadTransformControls(native, { gamepadIndex: 0 });
+      cleanup.add("wrapper", () => wrapper.dispose());
+      const frame = createFrameDriver(gamepadPolling, syncMatrices, wrapper);
+      frame([[0]], 0);
+      const initial = pose(mesh);
+      for (let mask = 0; mask < 256; mask += 1) {
+        for (const [index, flag] of visibilityFlags.entries()) {
+          native[flag] = Boolean(mask & (1 << index));
+        }
+        syncMatrices();
+        const visible = new Set<string>();
+        for (const handle of renderedHandles(native)) {
+          if (handle.visible) {
+            visible.add(handle.name);
+          }
+        }
+        const allowed = modeAxes[mode].filter((axis) => visible.has(axis));
+        for (const axis of modeAxes[mode]) {
+          native.axis = axis;
+          frame([[0, { axes: [0.5, -0.5] }]], 0);
+          if (visible.has(axis)) {
+            expect(native.axis, `${mode}/${axis}/${mask}`).toBe(axis);
+          } else {
+            expect(native.axis, `${mode}/${axis}/${mask}`).not.toBe(axis);
+          }
+          if (allowed.length === 0) {
+            expect(native.axis).toBeNull();
+            expect(native.dragging).toBe(false);
+          } else {
+            expect(visible.has(native.axis as string)).toBe(true);
+            expect(native.dragging).toBe(true);
+          }
+          expectPose(mesh, initial);
+          frame([[0]], 0);
+        }
+      }
+    },
+  );
+
+  integrationTest(
+    "allows an explicitly enabled axis hidden by camera alignment",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createProjectionScenario(
+        "transform",
+        cleanup,
+        gamepadPolling,
+        { axis: "Z" },
+      );
+      const native = scenario.native as TransformControls;
+      const handles = renderedHandles(native).filter(
+        (handle) => handle.name === "Z",
+      );
+      expect(handles.length).toBeGreaterThan(0);
+      expect(handles.every((handle) => !handle.visible)).toBe(true);
+      const initial = pose(scenario.mesh);
+      scenario.step();
+      scenario.step({ axes: [0.5, 0] });
+      expect(native.axis).toBe("Z");
+      expect(native.dragging).toBe(true);
+      expect(scenario.mesh.position.z).not.toBe(initial.position.z);
+    },
+  );
+
+  integrationTest.for([false, true])(
+    "isolates visibility, pause and disposal in slots 0/3 (reversed: %s)",
+    (reversed, { cleanup, gamepadPolling }) => {
+      const a = createProjectionScenario("transform", cleanup, gamepadPolling, {
+        index: 0,
+        axis: "E",
+      });
+      const b = createProjectionScenario("transform", cleanup, gamepadPolling, {
+        index: 3,
+        axis: "XYZE",
+      });
+      const nativeA = a.native as TransformControls;
+      const nativeB = b.native as TransformControls;
+      nativeA.setMode("rotate");
+      nativeB.setMode("rotate");
+      const scenarios = reversed ? [b, a] : [a, b];
+      const step = (active = true) => {
+        const input = active ? { axes: [0.5, -0.5] } : {};
+        gamepadPolling.publishFrame([0, input], [3, input]);
+        for (const scenario of scenarios) {
+          scenario.syncMatrices();
+          scenario.wrapper.update(0.02);
+          scenario.syncMatrices();
+        }
+      };
+      step(false);
+      step();
+      expect(a.events).toEqual(["start", "move"]);
+      expect(b.events).toEqual(["start", "move"]);
+      a.wrapper.enabled = false;
+      nativeA.showE = false;
+      const paused = pose(a.mesh);
+      const beforeB = pose(b.mesh);
+      step();
+      expectPose(a.mesh, paused);
+      expect(nativeA.dragging).toBe(true);
+      expect(b.mesh.quaternion.angleTo(beforeB.quaternion)).toBeGreaterThan(0);
+      a.wrapper.enabled = true;
+      step();
+      expect(nativeA.axis).toBe("X");
+      expect(a.events).toEqual(["start", "move", "end", "start", "move"]);
+      expect(nativeB.axis).toBe("XYZE");
+      expect(nativeB.showE).toBe(true);
+      expect(b.events).toEqual(["start", "move", "move", "move"]);
+      nativeA.showX = false;
+      nativeA.showY = false;
+      nativeA.showZ = false;
+      step();
+      expect(nativeA.axis).toBeNull();
+      expect(nativeA.dragging).toBe(false);
+      const released = pose(a.mesh);
+      a.wrapper.dispose();
+      step();
+      expectPose(a.mesh, released);
+      expect(a.events.filter((event) => event === "end")).toHaveLength(2);
+      expect(b.events.filter((event) => event === "end")).toHaveLength(0);
+      expect(nativeB.dragging).toBe(true);
+      step(false);
+      expect(b.events.filter((event) => event === "end")).toHaveLength(1);
+    },
+  );
+
+  integrationTest(
+    "preserves a real pointer acquisition when visibility ends a gamepad segment",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createProjectionScenario(
+        "transform",
+        cleanup,
+        gamepadPolling,
+        { axis: "X" },
+      );
+      const native = scenario.native as TransformControls;
+      scenario.step();
+      scenario.step({ axes: [0.5, 0] });
+      const before = pose(scenario.mesh);
+      const takeover = () => {
+        native.removeEventListener("mouseUp", takeover);
+        native.axis = "Y";
+        native.dragging = false;
+        scenario.syncMatrices();
+        native.pointerDown(transformPointer(0, 0));
+      };
+      native.addEventListener("mouseUp", takeover);
+      cleanup.add("listener", () =>
+        native.removeEventListener("mouseUp", takeover),
+      );
+      native.showX = false;
+      scenario.step({ axes: [0.5, -0.5] });
+      expect(native.axis).toBe("Y");
+      expect(native.dragging).toBe(true);
+      expectPose(scenario.mesh, before);
+      scenario.wrapper.dispose();
+      expect(native.dragging).toBe(true);
+      native.pointerMove(transformPointer(0.2, -1));
+      expect(scenario.mesh.position.y).toBeGreaterThan(before.position.y);
+      native.pointerUp(transformPointer(0.2, 0));
+      expect(native.dragging).toBe(false);
+    },
+  );
+});
+
 describe("effective camera projection", () => {
   const profiles = [
     { name: "perspective square", aspect: 1 },

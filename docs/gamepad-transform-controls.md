@@ -66,7 +66,27 @@ The wrapper remembers one active axis per mode:
 | `rotate` | `X`, `Y`, `Z`, `E`, `XYZE` |
 | `scale` | `X`, `Y`, `Z`, `XYZ` |
 
-Axis selection respects `showX`, `showY`, `showZ`, `showXY`, `showYZ`, and `showXZ`. A neutral update without an owned interaction leaves the native axis, dragging state, and snapshots untouched. When acquiring an interaction, an explicit button selection takes priority, followed by a valid native `axis`, the remembered axis for the mode, and the first allowed axis. If none is available, acquisition clears the axis and does not start a drag. Axis cycles begin from the valid native selection; mode buttons explicitly restore that mode's remembered selection, with a fallback if necessary.
+Axis selection follows the native helper's explicit visibility flags. Every flag listed for an axis must be `true`:
+
+| Axis | Required flags |
+| --- | --- |
+| `X` / `Y` / `Z` | `showX` / `showY` / `showZ`, respectively |
+| `XY` | `showX`, `showY`, `showXY` |
+| `YZ` | `showY`, `showZ`, `showYZ` |
+| `XZ` | `showX`, `showZ`, `showXZ` |
+| `XYZ` | `showX`, `showY`, `showZ`, `showXY`, `showYZ` |
+| `E` | `showX`, `showY`, `showZ`, `showE` |
+| `XYZE` | `showX`, `showY`, `showZ`, `showXY`, `showYZ`, `showXYZE` |
+
+These combinations follow the native `TransformControls` helper, including the plane flags used by `XYZ` and `XYZE`. `showXZ` does not restrict either of those axes, and `showE` does not restrict `XYZE`. The helper may also hide handles because of camera alignment; that geometric hiding does not prohibit gamepad selection.
+
+A neutral update without an owned interaction leaves the native axis, dragging state, and snapshots untouched, even if an external axis is explicitly hidden. When acquiring an interaction, an explicit button selection takes priority, followed by a valid native `axis`, the remembered axis for the mode, and the first allowed axis. If none is available, a selection command or acquisition attempt clears the axis and does not start a drag. Axis cycles begin from the valid native selection; mode buttons explicitly restore that mode's remembered selection, with a fallback if necessary. Candidate lists are refreshed after synchronous end callbacks, and a newly selected axis is validated again after its property notifications.
+
+```ts
+// Disable screen-facing and free rotation while keeping X/Y/Z rotation available.
+transformControls.showE = false;
+transformControls.showXYZE = false;
+```
 
 When the processed transform stick becomes nonzero, a native-style transform interaction starts: `controls.dragging` becomes `true` and the wrapped instance emits `mouseDown`. Returning a zero vector from the pipeline emits `mouseUp` once and sets `controls.dragging` back to `false`, while preserving the selected axis highlight.
 
@@ -93,11 +113,11 @@ Native disable blocks mode, space, axis, reset, and transformation commands befo
 
 While a native pointer drag is active, the wrapper does not acquire a transformation or apply gamepad buttons. Polling still consumes button transitions, so held buttons are not replayed after the drag. If a nonzero processed stick is observed during the pointer drag, the wrapper requires a zero vector before acquiring another transformation. That neutral observation may occur during the pointer drag or after it ends.
 
-Each owned interaction is divided into segments identified by object, mode, space, and axis. Changing mode, space, or axis through buttons or external setters ends the previous segment and starts a new one if the stick remains active. The old `mouseUp` carries the old mode, and the next `mouseDown` uses the new mode. Each new segment captures its own reset origin once. An axis becoming disallowed also ends its segment before a fallback can be acquired.
+Each owned interaction is divided into segments identified by object, mode, space, and axis. Changing mode, space, or axis through buttons or external setters ends the previous segment and starts a new one if the stick remains active. The old `mouseUp` carries the old mode, and the next `mouseDown` uses the new mode. Each new segment captures its own reset origin once. An axis becoming explicitly hidden also ends its segment once, preserving the applied transform without an automatic reset. If the stick remains active and callbacks leave the context and permissions valid, an allowed fallback starts a new segment after `mouseUp`, with its reset origin at the current pose. If no axis is allowed, the selection is cleared and movement stops.
 
 Changing the attached object or calling `detach()` during an owned interaction ends the previous segment and requires neutral input before acquiring the next object. The new object never receives the previous object's reset snapshot or accumulated movement. Calling `attach()` with the same object without an observed detach does not create a new segment.
 
-Context changes are observed at the next enabled wrapper update and after synchronous callbacks during an update. A callback that changes context stops the remaining commands and movement for that update; reacquisition waits until a later update and respects the neutral requirement. Changes entirely reversed between observations are not guaranteed to be detected. Pausing the wrapper preserves its session until updates resume; disconnection events and disposal still end an owned interaction.
+Context changes are observed at the next enabled wrapper update and after synchronous callbacks during an update. A callback that changes context or hides a newly selected or acquired axis stops the remaining commands and movement for that update; reacquisition waits until a later update and respects the existing neutral requirement for object replacement or pointer takeover. Callback changes to external selection and pointer ownership are preserved. Changes entirely reversed between observations are not guaranteed to be detected. Pausing the wrapper preserves its session until updates resume; disconnection events and disposal still end an owned interaction.
 
 Disconnection, disposal, or native disable does not clear an unrelated pointer interaction or external selection. A native `mouseDown` listener distinguishes pointer acquisition from gamepad acquisition, including pointer takeover during cleanup, and is removed on disposal. Cleanup releases ownership before notifying listeners, emits an end only for a published start, and preserves selection or a new pointer drag established by callbacks. This does not provide general arbitration for multiple wrappers editing the same native control or object.
 

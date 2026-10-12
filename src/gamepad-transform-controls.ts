@@ -232,6 +232,8 @@ const PROJECTED_AXIS_EPSILON = 0.001;
  * Modes and axes are selected explicitly with buttons. Moving the transform
  * stick starts a native-style transform interaction, and releasing it ends
  * the interaction while keeping the active axis highlighted.
+ * Selection follows the native helper's explicit visibility flags, including
+ * combined axes and planes, independently of camera-alignment hiding.
  */
 export class GamepadTransformControls extends GamepadControls {
   readonly #controls: RuntimeTransformControls;
@@ -570,9 +572,10 @@ export class GamepadTransformControls extends GamepadControls {
    * callbacks, interrupting this update if its context or segment was invalidated.
    *
    * @param context - Context expected after the operation that invoked callbacks.
+   * @param validateAxis - Also validate a newly selected axis before acquisition.
    * @returns `true` when this update may continue applying gamepad input.
    */
-  #afterCallback(context: TransformContext): boolean {
+  #afterCallback(context: TransformContext, validateAxis = false): boolean {
     const segment = this.#segment;
     if (!this.#matchesContext(context)) {
       this.#interrupted = true;
@@ -582,6 +585,13 @@ export class GamepadTransformControls extends GamepadControls {
     }
     this.#reconcileSegment();
     if (segment !== null && this.#segment !== segment) {
+      this.#interrupted = true;
+    }
+    if (
+      validateAxis &&
+      context.axis !== null &&
+      !this.#isAxisAllowed(context.mode, context.axis)
+    ) {
       this.#interrupted = true;
     }
     return this.#canApplyInput();
@@ -602,7 +612,7 @@ export class GamepadTransformControls extends GamepadControls {
     const controls: Pick<TransformContext, "axis" | "dragging"> =
       this.#controls;
     controls[key] = value;
-    this.#afterCallback(context);
+    this.#afterCallback(context, key === "axis");
   }
 
   /**
@@ -701,6 +711,9 @@ export class GamepadTransformControls extends GamepadControls {
    */
   #selectAxis(axis: TransformAxis): void {
     if (!this.#isAxisAllowed(this.#controls.mode, axis)) {
+      if (this.#resolveAxis() === null) {
+        this.#setActiveAxis(null);
+      }
       return;
     }
     this.#endTransform(false);
@@ -714,8 +727,7 @@ export class GamepadTransformControls extends GamepadControls {
    * Selects the next visible composite axis available in the current mode.
    */
   #cycleCompositeAxis(): void {
-    const validAxes = this.#getVisibleAxes(COMPOSITE_AXES[this.#controls.mode]);
-    this.#cycleThroughAxes(validAxes, 1);
+    this.#cycleThroughAxes(COMPOSITE_AXES[this.#controls.mode], 1);
   }
 
   /**
@@ -724,20 +736,24 @@ export class GamepadTransformControls extends GamepadControls {
    * @param direction - `1` for next axis, `-1` for previous axis.
    */
   #cycleAxis(direction: -1 | 1): void {
-    this.#cycleThroughAxes(this.#getValidAxes(this.#controls.mode), direction);
+    this.#cycleThroughAxes(MODE_AXES[this.#controls.mode], direction);
   }
 
   /**
-   * Moves the active axis through a candidate axis list.
+   * Moves the active axis through candidates permitted after end callbacks.
    *
-   * @param axes - Candidate axes to cycle through.
+   * @param candidates - Unfiltered candidate axes to cycle through.
    * @param direction - `1` for next axis, `-1` for previous axis.
    */
-  #cycleThroughAxes(axes: readonly TransformAxis[], direction: -1 | 1): void {
+  #cycleThroughAxes(
+    candidates: readonly TransformAxis[],
+    direction: -1 | 1,
+  ): void {
     this.#endTransform(false);
     if (!this.#canApplyInput()) {
       return;
     }
+    const axes = this.#getVisibleAxes(candidates);
     if (axes.length === 0) {
       this.#setActiveAxis(null);
       return;
@@ -776,11 +792,16 @@ export class GamepadTransformControls extends GamepadControls {
   }
 
   /**
-   * Updates both the remembered axis for the current mode and the control axis.
+   * Revalidates a candidate after end callbacks before updating axis memory
+   * and the control. An invalidated candidate interrupts this update.
    *
    * @param axis - Axis to activate, or `null` to clear selection.
    */
   #setActiveAxis(axis: TransformAxis | null): void {
+    if (axis !== null && !this.#isAxisAllowed(this.#controls.mode, axis)) {
+      this.#interrupted = true;
+      return;
+    }
     this.#activeAxisByMode[this.#controls.mode] = axis;
     if (this.#controls.axis !== axis) {
       this.#writeProperty("axis", axis);
@@ -825,7 +846,8 @@ export class GamepadTransformControls extends GamepadControls {
   }
 
   /**
-   * Reads TransformControls visibility flags for an axis or plane.
+   * Reads the native helper's explicit axis and plane visibility flags.
+   * Camera-alignment hiding does not prohibit gamepad selection.
    *
    * @param axis - Axis whose visibility should be checked.
    * @returns `true` when all components required by the axis are visible.
@@ -846,10 +868,26 @@ export class GamepadTransformControls extends GamepadControls {
       case "XZ":
         return controls.showX && controls.showZ && controls.showXZ;
       case "XYZ":
+        return (
+          controls.showX &&
+          controls.showY &&
+          controls.showZ &&
+          controls.showXY &&
+          controls.showYZ
+        );
       case "XYZE":
-        return controls.showX && controls.showY && controls.showZ;
+        return (
+          controls.showX &&
+          controls.showY &&
+          controls.showZ &&
+          controls.showXY &&
+          controls.showYZ &&
+          controls.showXYZE
+        );
       case "E":
-        return true;
+        return (
+          controls.showX && controls.showY && controls.showZ && controls.showE
+        );
     }
   }
 
