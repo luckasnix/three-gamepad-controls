@@ -53,10 +53,14 @@ import type {
 } from "./gamepad-controls.ts";
 import { GamepadDragControls } from "./gamepad-drag-controls.ts";
 import { GamepadFirstPersonControls } from "./gamepad-first-person-controls.ts";
-import { GamepadFlyControls } from "./gamepad-fly-controls.ts";
+import {
+  GamepadFlyControls,
+  type GamepadFlyControlsOptions,
+} from "./gamepad-fly-controls.ts";
 import { GamepadMapControls } from "./gamepad-map-controls.ts";
 import { GamepadOrbitControls } from "./gamepad-orbit-controls.ts";
 import { GamepadPointerLockControls } from "./gamepad-pointer-lock-controls.ts";
+import { gamepadStickPipeline } from "./gamepad-stick-processing.ts";
 import { GamepadTrackballControls } from "./gamepad-trackball-controls.ts";
 import { GamepadTransformControls } from "./gamepad-transform-controls.ts";
 
@@ -371,6 +375,411 @@ const readFirstPersonKeyboardMovement = (
   controls.dispose();
   return displacement;
 };
+
+const createFlyAutoForwardScenario = (
+  cleanup: Cleanup,
+  gamepadIndex = 0,
+  options?: Partial<GamepadFlyControlsOptions>,
+) => {
+  const environment = createThreeEnvironment(cleanup);
+  const native = new FlyControls(environment.camera, environment.element);
+  cleanup.add("native", () => native.dispose());
+  native.movementSpeed = 4;
+  native.rollSpeed = 2;
+  native.autoForward = true;
+  // Auto-forward is cached by the native keyboard/pointer handlers.
+  window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW" }));
+  window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
+  const wrapper = new GamepadFlyControls(native, { ...options, gamepadIndex });
+  cleanup.add("wrapper", () => wrapper.dispose());
+  return {
+    ...environment,
+    native,
+    wrapper,
+  };
+};
+
+describe("Fly auto-forward composition", () => {
+  integrationTest(
+    "moves backward proportionally and resumes auto-forward on neutral input",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      const frame = createFrameDriver(
+        gamepadPolling,
+        scenario.syncMatrices,
+        scenario.wrapper,
+        (dt) => scenario.native.update(dt),
+      );
+      for (const [axis, expected] of [
+        [0, -1],
+        [0.5, 0.5],
+        [1, 1],
+        [0, -1],
+      ]) {
+        const before = scenario.camera.position.z;
+        frame([[0, { axes: [0, axis, 0, 0] }]], 0.25);
+        expect(scenario.camera.position.z - before).toBeCloseTo(expected);
+        expect(scenario.native.autoForward).toBe(true);
+      }
+    },
+  );
+
+  integrationTest.for([
+    { name: "deadzone", axes: [0, 0.05, 0, 0] },
+    { name: "strafe", axes: [0.5, 0, 0, 0] },
+    { name: "vertical", axes: [0, 0, 0, 0], up: true },
+    { name: "look and roll", axes: [0, 0, 0.5, 0.5], roll: true },
+    { name: "zero gain", axes: [0, 0.5, 0, 0], moveSpeed: 0 },
+    { name: "zero native speed", axes: [0, 0.5, 0, 0], nativeSpeed: 0 },
+    { name: "zero delta", axes: [0, 0.5, 0, 0], dt: 0 },
+    { name: "zero pipeline", axes: [0, 0.5, 0, 0], zeroPipeline: true },
+  ])(
+    "does not retain suppression for $name",
+    (testCase, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup, 0, {
+        ...(testCase.moveSpeed === undefined
+          ? {}
+          : { moveSpeed: testCase.moveSpeed }),
+        moveStick: testCase.zeroPipeline
+          ? {
+              pipeline: gamepadStickPipeline().transform(() => ({
+                x: 0,
+                y: 0,
+              })),
+            }
+          : undefined,
+      });
+      scenario.native.movementSpeed = testCase.nativeSpeed ?? 4;
+      gamepadPolling.publishFrame([
+        0,
+        {
+          axes: testCase.axes,
+          buttons: createGamepadButtons(
+            [6, testCase.up ?? false, testCase.up ? 0.5 : 0],
+            [4, testCase.roll ?? false],
+          ),
+        },
+      ]);
+      scenario.wrapper.update(testCase.dt ?? 0.25);
+      // Restore a normal native frame without another gamepad application.
+      scenario.native.movementSpeed = 4;
+      const expected = scenario.camera.clone().translateZ(-1);
+      scenario.native.update(0.25);
+      expectPose(scenario.camera, pose(expected));
+    },
+  );
+
+  integrationTest.for(["pipeline", "gain"] as const)(
+    "uses the effective backward direction after %s inversion",
+    (inversion, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(
+        cleanup,
+        0,
+        inversion === "pipeline"
+          ? { moveStick: { pipeline: gamepadStickPipeline().invert("y") } }
+          : { moveSpeed: -1 },
+      );
+      gamepadPolling.publishFrame([0, { axes: [0, -0.5, 0, 0] }]);
+      const before = scenario.camera.position.z;
+      scenario.wrapper.update(0.25);
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z - before).toBeCloseTo(0.5);
+    },
+  );
+
+  integrationTest.for([
+    { keys: [], nativeZ: 0 },
+    { keys: ["KeyW"], nativeZ: -1 },
+    { keys: ["KeyS"], nativeZ: 1 },
+    { keys: ["KeyW", "KeyS"], nativeZ: 0 },
+  ])(
+    "preserves manual keyboard contributions $keys",
+    ({ keys, nativeZ }, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      cleanup.add("listener", () => {
+        for (const code of keys) {
+          window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+        }
+      });
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      for (const code of keys) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+      }
+      const before = scenario.camera.position.z;
+      scenario.wrapper.update(0.25);
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z - before).toBeCloseTo(0.5 + nativeZ);
+      // Release during the next backward frame, before the external update.
+      scenario.wrapper.update(0.25);
+      for (const code of keys) {
+        window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+      }
+      const afterWrapper = scenario.camera.position.z;
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z).toBeCloseTo(afterWrapper);
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z - afterWrapper).toBeCloseTo(-1);
+    },
+  );
+
+  integrationTest.for([0, 2])(
+    "preserves pointer button %s pressed between updates",
+    (button, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      scenario.element.dispatchEvent(
+        new PointerEvent("pointerdown", { button }),
+      );
+      const before = scenario.camera.position.z;
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z - before).toBeCloseTo(
+        button === 0 ? -1 : 1,
+      );
+      scenario.wrapper.update(0.25);
+      scenario.element.dispatchEvent(new PointerEvent("pointerup", { button }));
+      const afterWrapper = scenario.camera.position.z;
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z).toBeCloseTo(afterWrapper);
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z - afterWrapper).toBeCloseTo(-1);
+    },
+  );
+
+  integrationTest.for([
+    "pause without wrapper update",
+    "pause with wrapper update",
+    "native disable",
+    "disconnect event",
+    "disconnect polling",
+    "dispose",
+    "replace object",
+    "neutral",
+    "zero native delta",
+  ] as const)(
+    "releases suppression on %s between updates",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      if (
+        action === "pause without wrapper update" ||
+        action === "pause with wrapper update"
+      ) {
+        scenario.wrapper.enabled = false;
+        if (action === "pause with wrapper update") {
+          scenario.wrapper.update(0.25);
+        }
+      } else if (action === "native disable") {
+        scenario.native.enabled = false;
+      } else if (action === "disconnect event") {
+        dispatchGamepadEvent("gamepaddisconnected", createGamepad(0));
+      } else if (action === "disconnect polling") {
+        gamepadPolling.publishFrame();
+        scenario.wrapper.update(0.25);
+      } else if (action === "dispose") {
+        scenario.wrapper.dispose();
+        scenario.wrapper.dispose();
+      } else if (action === "replace object") {
+        scenario.native.object = new PerspectiveCamera();
+      } else if (action === "neutral") {
+        gamepadPolling.publishFrame([0]);
+        scenario.wrapper.update(0.25);
+      }
+      const object = scenario.native.object;
+      const before = object.position.z;
+      scenario.native.update(action === "zero native delta" ? 0 : 0.25);
+      const blocked =
+        action === "native disable" || action === "zero native delta";
+      expect(object.position.z - before).toBeCloseTo(blocked ? 0 : -1);
+      scenario.native.enabled = true;
+      const next = object.position.z;
+      scenario.native.update(0.25);
+      expect(object.position.z - next).toBeCloseTo(-1);
+    },
+  );
+
+  integrationTest.for([false, true])(
+    "respects autoForward=%s changed between updates",
+    (autoForward, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      scenario.native.autoForward = !autoForward;
+      window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      scenario.native.autoForward = autoForward;
+      const before = scenario.camera.position.z;
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z).toBeCloseTo(before);
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z - before).toBeCloseTo(
+        autoForward ? -1 : 0,
+      );
+      expect(scenario.native.autoForward).toBe(autoForward);
+    },
+  );
+
+  integrationTest(
+    "publishes the final pose once and ignores recursive updates from change",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      const events: ReturnType<typeof pose>[] = [];
+      const onChange = () => {
+        events.push(pose(scenario.camera));
+        scenario.wrapper.update(0.25);
+        scenario.native.update(0.25);
+      };
+      scenario.native.addEventListener("change", onChange);
+      cleanup.add("listener", () =>
+        scenario.native.removeEventListener("change", onChange),
+      );
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowLeft" }));
+      cleanup.add("listener", () => {
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyD" }));
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "ArrowLeft" }));
+      });
+      gamepadPolling.publishFrame([
+        0,
+        {
+          axes: [0.5, 0.5, 0.3, -0.2],
+          buttons: createGamepadButtons([6, true, 0.6], [4, true]),
+        },
+      ]);
+      scenario.wrapper.update(0.25);
+      const expected = scenario.camera.clone().translateX(1);
+      expected.quaternion.multiply(new Quaternion(0, 0.5, 0, 1).normalize());
+      scenario.native.update(0.25);
+      expectPose(scenario.camera, pose(expected));
+      expect(events).toHaveLength(1);
+      expectPose(scenario.camera, events[0]);
+    },
+  );
+
+  integrationTest.for([
+    "dispose",
+    "autoForward",
+    "keyboard",
+    "replacement",
+    "throw",
+  ] as const)(
+    "cleans up after change callback: %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      const originalUpdate = FlyControls.prototype.update;
+      const replacement = vi.fn((dt: number) =>
+        originalUpdate.call(scenario.native, dt),
+      );
+      const failure = new Error("Native listener failed");
+      const onChange = () => {
+        scenario.native.removeEventListener("change", onChange);
+        if (action === "dispose") {
+          scenario.wrapper.dispose();
+        } else if (action === "autoForward") {
+          scenario.native.autoForward = false;
+        } else if (action === "keyboard") {
+          window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyS" }));
+        } else if (action === "replacement") {
+          scenario.native.update = replacement;
+        } else {
+          throw failure;
+        }
+      };
+      scenario.native.addEventListener("change", onChange);
+      cleanup.add("listener", () => {
+        scenario.native.removeEventListener("change", onChange);
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyS" }));
+      });
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      if (action === "throw") {
+        expect(() => scenario.native.update(0.25)).toThrow(failure);
+      } else {
+        scenario.native.update(0.25);
+      }
+      const before = scenario.camera.position.z;
+      scenario.native.update(0.25);
+      expect(scenario.camera.position.z - before).toBeCloseTo(
+        action === "autoForward" ? 0 : action === "keyboard" ? 1 : -1,
+      );
+      if (action === "replacement") {
+        scenario.wrapper.dispose();
+        expect(scenario.native.update).toBe(replacement);
+        expect(replacement).toHaveBeenCalledOnce();
+      }
+    },
+  );
+
+  integrationTest.for(["value", "vector"] as const)(
+    "preserves a later native movement %s replacement",
+    (replacement, { cleanup, gamepadPolling }) => {
+      const scenario = createFlyAutoForwardScenario(cleanup);
+      const native = scenario.native as FlyControls & { _moveVector: Vector3 };
+      const onChange = () => {
+        native.removeEventListener("change", onChange);
+        if (replacement === "value") {
+          native._moveVector.z = 2;
+        } else {
+          native._moveVector = new Vector3(0, 0, 2);
+        }
+      };
+      native.addEventListener("change", onChange);
+      cleanup.add("listener", () =>
+        native.removeEventListener("change", onChange),
+      );
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      native.update(0.25);
+      const before = scenario.camera.position.z;
+      native.update(0.25);
+      expect(scenario.camera.position.z - before).toBeCloseTo(2);
+    },
+  );
+
+  integrationTest.for([false, true])(
+    "isolates slots 0/3 with reverse order %s",
+    (reverse, { cleanup, gamepadPolling }) => {
+      const first = createFlyAutoForwardScenario(cleanup, 0);
+      const second = createFlyAutoForwardScenario(cleanup, 3);
+      second.native.movementSpeed = 2;
+      const scenarios = reverse ? [second, first] : [first, second];
+      for (const [firstAxis, secondAxis] of [
+        [0.5, 0],
+        [0, 1],
+        [0, 0],
+      ]) {
+        gamepadPolling.publishFrame(
+          [0, { axes: [0, firstAxis, 0, 0] }],
+          [3, { axes: [0, secondAxis, 0, 0] }],
+        );
+        const before = [first.camera.position.z, second.camera.position.z];
+        for (const scenario of scenarios) {
+          scenario.syncMatrices();
+          scenario.wrapper.update(0.25);
+          scenario.native.update(0.25);
+          scenario.syncMatrices();
+        }
+        expect(first.camera.position.z - before[0]).toBeCloseTo(
+          firstAxis > 0 ? firstAxis : -1,
+        );
+        expect(second.camera.position.z - before[1]).toBeCloseTo(
+          secondAxis > 0 ? secondAxis * 0.5 : -0.5,
+        );
+      }
+      first.wrapper.dispose();
+      first.native.autoForward = false;
+      window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
+      gamepadPolling.publishFrame([0], [3, { axes: [0, 0.5, 0, 0] }]);
+      const before = [first.camera.position.z, second.camera.position.z];
+      for (const scenario of scenarios) {
+        scenario.wrapper.update(0.25);
+        scenario.native.update(0.25);
+      }
+      expect(first.camera.position.z).toBeCloseTo(before[0]);
+      expect(second.camera.position.z - before[1]).toBeCloseTo(0.25);
+    },
+  );
+});
 
 describe("FirstPerson movement frame", () => {
   const actions = [

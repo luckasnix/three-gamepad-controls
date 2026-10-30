@@ -7,6 +7,7 @@ import {
   createGamepadButtons,
 } from "../test/fixtures/gamepad.ts";
 import {
+  dispatchGamepadEvent,
   type GamepadPollingFixture,
   gamepadTest,
 } from "../test/fixtures/gamepad-browser.ts";
@@ -254,5 +255,145 @@ describe("GamepadFlyControls rotation", () => {
       flyControls.object.quaternion,
       new Quaternion(),
     );
+  });
+});
+
+describe("GamepadFlyControls frame ownership", () => {
+  for (const binding of ["moveStick", "lookStick"] as const) {
+    gamepadTest.each([
+      "pause",
+      "native disable",
+      "dispose",
+      "replace object",
+      "disconnect",
+    ] as const)(`revalidates %s from the ${binding} pipeline`, (action) => {
+      const fly = createFlyControls();
+      const initialObject = fly.object;
+      let wrapper: GamepadFlyControls;
+      const transform = vi.fn((value: Readonly<GamepadStick>) => {
+        if (action === "pause") {
+          wrapper.enabled = false;
+        } else if (action === "native disable") {
+          fly.enabled = false;
+        } else if (action === "dispose") {
+          wrapper.dispose();
+          // Disposal remains terminal even if an application reenables it.
+          wrapper.enabled = true;
+        } else if (action === "replace object") {
+          fly.object = new PerspectiveCamera();
+        } else {
+          dispatchGamepadEvent(
+            "gamepaddisconnected",
+            wrapper.gamepad as Gamepad,
+          );
+        }
+        return value;
+      });
+      wrapper = createControls(fly, {
+        [binding]: { pipeline: gamepadStickPipeline().transform(transform) },
+      });
+      polling.publishFrame([0, { axes: [0.5, 0.5, 0.5, 0.5] }]);
+      wrapper.update(0.25);
+      expect(transform).toHaveBeenCalledOnce();
+      expect(initialObject.position.length()).toBe(0);
+      expect(fly.object.position.length()).toBe(0);
+      expectQuaternionToBeCloseTo(initialObject.quaternion, new Quaternion());
+    });
+  }
+
+  gamepadTest("ignores recursive wrapper updates from a pipeline", () => {
+    const fly = createFlyControls();
+    let wrapper: GamepadFlyControls;
+    const transform = vi.fn((value: Readonly<GamepadStick>) => {
+      wrapper.update(0.25);
+      return value;
+    });
+    wrapper = createControls(fly, {
+      moveStick: { pipeline: gamepadStickPipeline().transform(transform) },
+    });
+    polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+    wrapper.update(0.25);
+    expect(transform).toHaveBeenCalledOnce();
+    expect(fly.object.position.z).toBeCloseTo(0.5);
+  });
+
+  gamepadTest("can update again after a pipeline throws", () => {
+    const fly = createFlyControls();
+    const failure = new Error("Pipeline failed");
+    const transform = vi
+      .fn((value: Readonly<GamepadStick>) => value)
+      .mockImplementationOnce(() => {
+        throw failure;
+      });
+    const wrapper = createControls(fly, {
+      moveStick: { pipeline: gamepadStickPipeline().transform(transform) },
+    });
+    polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+    expect(() => wrapper.update(0.25)).toThrow(failure);
+    expect(fly.object.position.length()).toBe(0);
+    wrapper.update(0.25);
+    expect(fly.object.position.z).toBeCloseTo(0.5);
+  });
+});
+
+describe("GamepadFlyControls native update ownership", () => {
+  gamepadTest(
+    "restores an inherited update and ignores reuse after disposal",
+    () => {
+      const fly = createFlyControls();
+      const originalUpdate = fly.update;
+      const wrapper = createControls(fly);
+      expect(fly.update).not.toBe(originalUpdate);
+      wrapper.dispose();
+      wrapper.dispose();
+      expect(fly.update).toBe(originalUpdate);
+      expect(Object.hasOwn(fly, "update")).toBe(false);
+      wrapper.enabled = true;
+      polling.publishFrame([0, { axes: [0, 1, 0, 0] }]);
+      polling.getGamepads.mockClear();
+      wrapper.update(0.25);
+      expect(polling.getGamepads).not.toHaveBeenCalled();
+      expect(fly.object.position.length()).toBe(0);
+    },
+  );
+
+  gamepadTest(
+    "delegates with native this and restores an own descriptor",
+    () => {
+      const fly = createFlyControls();
+      const originalUpdate = fly.update;
+      const update = vi.fn(function (this: FlyControls, deltaTime: number) {
+        expect(this).toBe(fly);
+        originalUpdate.call(this, deltaTime);
+      });
+      Object.defineProperty(fly, "update", {
+        value: update,
+        configurable: true,
+        writable: true,
+        enumerable: false,
+      });
+      const descriptor = Object.getOwnPropertyDescriptor(fly, "update");
+      const wrapper = createControls(fly);
+      fly.update(0.25);
+      expect(update).toHaveBeenCalledExactlyOnceWith(0.25);
+      wrapper.dispose();
+      expect(Object.getOwnPropertyDescriptor(fly, "update")).toEqual(
+        descriptor,
+      );
+    },
+  );
+
+  gamepadTest("preserves a later application update replacement", () => {
+    const fly = createFlyControls();
+    const originalUpdate = fly.update;
+    const wrapper = createControls(fly);
+    const update = vi.fn((deltaTime: number) => {
+      originalUpdate.call(fly, deltaTime);
+    });
+    fly.update = update;
+    wrapper.dispose();
+    expect(fly.update).toBe(update);
+    fly.update(0.25);
+    expect(update).toHaveBeenCalledExactlyOnceWith(0.25);
   });
 });

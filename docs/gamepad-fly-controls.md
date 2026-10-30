@@ -53,6 +53,18 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields. The
 
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
 
+## Auto-forward and Input Composition
+
+Call `gamepadFlyControls.update(delta)` **before** `flyControls.update(delta)` with the same frame delta. The wrapper applies gamepad movement and rotation, then the native update adds keyboard/mouse input and publishes its `change` event with the final position and orientation.
+
+With `autoForward` enabled, an applied backward gamepad displacement suppresses only the automatic forward contribution in the next native update. Partial stick deflection produces proportional backward movement. Manual forward and backward commands still add their native contribution, so holding the forward key can oppose gamepad backward movement. The wrapper never changes `autoForward` or clears keyboard/mouse state.
+
+Backward movement is determined after the movement pipeline and speed multipliers. Deadzone input, a pipeline that produces zero movement, zero movement gain, zero native movement speed, and zero delta do not request suppression. Strafe, vertical movement, look, and roll alone keep automatic forward movement active. The native initialization rules still apply: assigning `autoForward` alone may leave its cached movement vector unchanged until a native keyboard or pointer event refreshes it.
+
+Suppression is consumed by one native update. Neutral input, wrapper pause (including frames that call only the native update), native disable, observed gamepad disconnection, and `dispose()` leave no pending suppression. Paused polling cannot observe a polling-only disconnection until updates resume; browser disconnection events remain active. If the native destination changes between updates, the pending suppression does not transfer to the new object.
+
+The wrapper installs an update adapter on its native instance and restores the original method on `dispose()` if the application has not replaced it. Later application method replacements are preserved. The wrapper does not dispose the native control. Applications sharing a native control or destination must coordinate their updates. Recursive wrapper updates from pipelines or native `change` listeners, and recursive calls through the native adapter, are ignored.
+
 ## Events
 
 Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
@@ -86,7 +98,7 @@ renderer.setAnimationLoop((timestamp) => {
   const delta = timer.getDelta();
   // Apply gamepad translation and rotation first.
   gamepadFlyControls.update(delta);
-  // Then let FlyControls apply keyboard and mouse input.
+  // Then apply native input and publish the final change event.
   flyControls.update(delta);
   renderer.render(scene, camera);
 });
