@@ -1,4 +1,4 @@
-import { MathUtils, Spherical, Vector3 } from "three";
+import { MathUtils, type Object3D, Spherical, Vector3 } from "three";
 import type { FirstPersonControls } from "three/addons/controls/FirstPersonControls.js";
 
 import { GAMEPAD_AXIS, GAMEPAD_BUTTON } from "./core.ts";
@@ -8,6 +8,7 @@ import {
 } from "./gamepad-controls.ts";
 import {
   DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStick,
   type GamepadStickBinding,
   type GamepadStickBindingOptions,
   resolveGamepadStickBinding,
@@ -118,11 +119,21 @@ type FirstPersonOrientation = {
  * and climbing along Y, independent of camera pitch and roll.
  * Combined gamepad movement is limited to unit magnitude before speed and
  * forward height gains, preserving smaller analog intentions unchanged.
+ * Applied backward movement suppresses only the automatic target for the next
+ * native update; native inertia and manual input remain intact.
  * Bindings and speeds are configurable via {@link GamepadFirstPersonControlsOptions}.
  */
 export class GamepadFirstPersonControls extends GamepadControls {
   readonly #controls: FirstPersonControlsWithOrientation;
   readonly #options: ResolvedGamepadFirstPersonControlsOptions;
+  readonly #originalUpdate: FirstPersonControls["update"];
+  readonly #originalUpdateDescriptor: PropertyDescriptor | undefined;
+  readonly #nativeUpdate: FirstPersonControls["update"];
+  #backwardObject: Object3D | null = null;
+  #backwardGamepad: Gamepad | null = null;
+  #updating = false;
+  #nativeUpdating = false;
+  #disposed = false;
 
   // Pre-allocated to avoid per-frame GC pressure.
   readonly #lookDirection: Vector3;
@@ -155,6 +166,162 @@ export class GamepadFirstPersonControls extends GamepadControls {
     this.#lookDirection = new Vector3();
     this.#spherical = new Spherical();
     this.#targetPosition = new Vector3();
+    this.#originalUpdate = controls.update;
+    this.#originalUpdateDescriptor = Object.getOwnPropertyDescriptor(
+      controls,
+      "update",
+    );
+    this.#nativeUpdate = (deltaTime) => this.#updateNative(deltaTime);
+    controls.update = this.#nativeUpdate;
+  }
+
+  /**
+   * Starts a fresh input frame, dropping unconsumed auto-forward suppression.
+   * Recursive updates are ignored; failed input frames retain no suppression.
+   *
+   * @param deltaTime - Seconds since the last frame.
+   */
+  public override update(deltaTime: number): void {
+    if (this.#updating || this.#nativeUpdating || this.#disposed) {
+      return;
+    }
+    this.#clearBackwardInput();
+    this.#updating = true;
+    try {
+      super.update(deltaTime);
+    } catch (error) {
+      this.#clearBackwardInput();
+      throw error;
+    } finally {
+      this.#updating = false;
+    }
+  }
+
+  /**
+   * Releases this instance's update adapter without disposing the native control.
+   * Later application replacements are preserved. Disposal is terminal.
+   */
+  public override dispose(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#disposed = true;
+    this.#clearBackwardInput();
+    super.dispose();
+    if (this.#controls.update === this.#nativeUpdate) {
+      if (this.#originalUpdateDescriptor === undefined) {
+        Reflect.deleteProperty(this.#controls, "update");
+      } else {
+        Object.defineProperty(
+          this.#controls,
+          "update",
+          this.#originalUpdateDescriptor,
+        );
+      }
+    }
+  }
+
+  /** Releases pending suppression before notifying disconnection listeners. */
+  protected override onGamepadDisconnected(gamepad: Gamepad): void {
+    this.#clearBackwardInput();
+    super.onGamepadDisconnected(gamepad);
+  }
+
+  /** Clears the destination and snapshot that received backward movement. */
+  #clearBackwardInput(): void {
+    this.#backwardObject = null;
+    this.#backwardGamepad = null;
+  }
+
+  /** Revalidates ownership and permissions after synchronous callbacks. */
+  #canApplyInput(gamepad: Gamepad | null, object: Object3D | null): boolean {
+    return (
+      !this.#disposed &&
+      this.enabled &&
+      this.#controls.enabled &&
+      this.gamepadInput.gamepad === gamepad &&
+      this.#controls.object === object
+    );
+  }
+
+  /**
+   * Consumes one backward frame. Masking only autoForward lets the original
+   * update compute manual targets and damp its existing velocity unchanged.
+   * A temporary setter preserves assignments, including explicit false writes;
+   * conditional restoration also preserves application property replacements.
+   */
+  #updateNative(deltaTime: number): void {
+    if (this.#nativeUpdating || this.#updating) {
+      return;
+    }
+    const controls = this.#controls;
+    const gamepad = this.#backwardGamepad;
+    const object = this.#backwardObject;
+    this.#clearBackwardInput();
+    this.#nativeUpdating = true;
+    try {
+      if (
+        gamepad === null ||
+        deltaTime === 0 ||
+        !this.#canApplyInput(gamepad, object)
+      ) {
+        this.#originalUpdate.call(controls, deltaTime);
+        return;
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(
+        controls,
+        "autoForward",
+      );
+      let value = controls.autoForward;
+      let assigned = false;
+      let suppress = true;
+      const enumerable = descriptor?.enumerable ?? true;
+      const get = (): boolean =>
+        suppress && this.#canApplyInput(gamepad, object) ? false : value;
+      const set = (next: boolean): void => {
+        assigned = true;
+        value = next;
+        descriptor?.set?.call(controls, next);
+      };
+      Object.defineProperty(controls, "autoForward", {
+        configurable: true,
+        enumerable,
+        get,
+        set,
+      });
+      try {
+        this.#originalUpdate.call(controls, deltaTime);
+      } finally {
+        // A later descriptor change may retain our getter. Release its mask
+        // even when that change means the application now owns the property.
+        suppress = false;
+        const current = Object.getOwnPropertyDescriptor(
+          controls,
+          "autoForward",
+        );
+        if (
+          current?.get === get &&
+          current.set === set &&
+          current.configurable === true &&
+          current.enumerable === enumerable
+        ) {
+          if (descriptor === undefined) {
+            Reflect.deleteProperty(controls, "autoForward");
+            if (assigned) {
+              controls.autoForward = value;
+            }
+          } else {
+            Object.defineProperty(
+              controls,
+              "autoForward",
+              "value" in descriptor ? { ...descriptor, value } : descriptor,
+            );
+          }
+        }
+      }
+    } finally {
+      this.#nativeUpdating = false;
+    }
   }
 
   /**
@@ -175,15 +342,34 @@ export class GamepadFirstPersonControls extends GamepadControls {
       buttonMoveUp,
       buttonMoveDown,
     } = this.#options;
+    const input = this.gamepadInput;
+    const gamepad = input.gamepad;
+    const object = this.#controls.object;
+    const move = input.stick(
+      moveStick.xAxis,
+      moveStick.yAxis,
+      moveStick.pipeline,
+    );
+    if (!this.#canApplyInput(gamepad, object)) {
+      return;
+    }
+    const look = input.stick(
+      lookStick.xAxis,
+      lookStick.yAxis,
+      lookStick.pipeline,
+    );
+    if (!this.#canApplyInput(gamepad, object)) {
+      return;
+    }
     this.#applyMovement(
       deltaTime,
       moveSpeed,
-      moveStick,
+      move,
       buttonDeadzone,
       buttonMoveUp,
       buttonMoveDown,
     );
-    this.#applyLook(deltaTime, lookSpeed, lookStick);
+    this.#applyLook(deltaTime, lookSpeed, look);
   }
 
   /**
@@ -194,7 +380,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
    *
    * @param deltaTime - Seconds since the last frame.
    * @param moveSpeed - User-configured movement speed multiplier.
-   * @param moveStick - Resolved movement stick binding.
+   * @param move - Processed movement stick input.
    * @param buttonDeadzone - Analog button dead zone threshold.
    * @param buttonMoveUp - Button index for upward movement.
    * @param buttonMoveDown - Button index for downward movement.
@@ -202,18 +388,13 @@ export class GamepadFirstPersonControls extends GamepadControls {
   #applyMovement(
     deltaTime: number,
     moveSpeed: number,
-    moveStick: GamepadStickBinding,
+    move: Readonly<GamepadStick>,
     buttonDeadzone: number,
     buttonMoveUp: number,
     buttonMoveDown: number,
   ): void {
     const controls = this.#controls;
     const input = this.gamepadInput;
-    const move = input.stick(
-      moveStick.xAxis,
-      moveStick.yAxis,
-      moveStick.pipeline,
-    );
     const up = input.buttonValue(buttonMoveUp);
     const down = input.buttonValue(buttonMoveDown);
     let strafe = move.x;
@@ -248,6 +429,10 @@ export class GamepadFirstPersonControls extends GamepadControls {
         sinYaw * forwardDistance - cosYaw * strafeDistance;
       controls.object.position.z +=
         cosYaw * forwardDistance + sinYaw * strafeDistance;
+      if (forwardDistance < 0) {
+        this.#backwardObject = controls.object;
+        this.#backwardGamepad = input.gamepad;
+      }
     }
 
     if (climb !== 0) {
@@ -260,19 +445,13 @@ export class GamepadFirstPersonControls extends GamepadControls {
    *
    * @param deltaTime - Seconds since the last frame.
    * @param lookSpeed - User-configured look speed multiplier.
-   * @param lookStick - Resolved camera-look stick binding.
+   * @param look - Processed camera-look stick input.
    */
   #applyLook(
     deltaTime: number,
     lookSpeed: number,
-    lookStick: GamepadStickBinding,
+    look: Readonly<GamepadStick>,
   ): void {
-    const input = this.gamepadInput;
-    const look = input.stick(
-      lookStick.xAxis,
-      lookStick.yAxis,
-      lookStick.pipeline,
-    );
     const { x: lookX, y: lookY } = look;
 
     if (lookX === 0 && lookY === 0) {

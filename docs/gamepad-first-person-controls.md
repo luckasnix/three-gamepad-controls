@@ -55,7 +55,21 @@ For example, full forward movement combined with full climb uses `1 / Math.sqrt(
 
 Movement is applied before gamepad look, using the yaw at the start of the frame. Keep calling `gamepadControls.update(delta)` before `controls.update(delta)`: native keyboard and pointer input remain additive, with pointer movement retaining its own direction along the full camera look vector. The wrapper normalizes only gamepad movement; it does not normalize the sum with native input or change native movement state.
 
-Gamepad translation and look are applied immediately. The native `dampingFactor` does not currently apply to the gamepad contribution. Native `autoForward` remains a separate contribution; analog gamepad retreat does not suppress it. Configure the movement stick pipeline when a different stick response is needed; its output is still subject to the combined movement normalization above.
+Gamepad translation and look are applied immediately. The native `dampingFactor` does not currently apply to the gamepad contribution. Configure the movement stick pipeline when a different stick response is needed; its output is still subject to the combined movement normalization above.
+
+## Auto-forward and input composition
+
+Call `gamepadFirstPersonControls.update(delta)` **before** `firstPersonControls.update(delta)` with the same frame delta. An applied backward gamepad displacement suppresses only the automatic forward target in the next native update. With `dampingFactor = 1`, partial stick deflection produces proportional retreat, and neutral input resumes automatic movement if `autoForward` is still enabled. The native automatic movement follows the full look direction; gamepad retreat stays in the yaw-based XZ plane even when looking up or down.
+
+Backward movement is determined from the final longitudinal displacement, after the movement pipeline, combined normalization, speed multipliers, delta, and any applicable height gain. This includes inversions introduced by custom pipelines or gains. A zero effective displacement, blocked input, or strafe, climb, or look alone does not request suppression.
+
+Keyboard and pointer movement remain additive, with their native direction, normalization, and speed. A held manual forward command can still oppose gamepad retreat. The wrapper does not clear native input flags or velocities. With native damping below `1`, removing the automatic target preserves accumulated velocity: the camera can keep moving forward briefly while that velocity decays. Neutral input restores the automatic target with native acceleration. This does not add damping to gamepad movement or look.
+
+Suppression is consumed by one native call, including a call with zero delta or disabled native controls. A new wrapper update drops any unconsumed request. Wrapper pause (including frames that call only the native update), native disable, observed gamepad disconnection, and `dispose()` release the intervention. Polling-only loss remains unobserved while the wrapper is paused; browser disconnection events remain active. A pending request belongs to the gamepad snapshot and camera that received the movement and does not transfer to a replacement destination.
+
+The wrapper installs an update adapter only on the supplied native instance. During a suppressed native update, `autoForward` temporarily reads as `false`; assignments made during that call are retained, including an explicit assignment of `false`. Cleanup restores the property's descriptor and current configuration in `finally`, preserving later application property replacements. The original native update still computes manual targets and applies native damping and look.
+
+`dispose()` is idempotent and restores the original update method only if the application has not replaced it. The wrapper does not dispose the native control, and reuse after disposal is unsupported. Recursive wrapper/native calls through the adapter during pipelines or native updates are ignored. Both stick pipelines are read and permissions are rechecked before applying input; a callback that pauses, disposes, disconnects, or changes the destination cancels that input frame. Applications sharing a native control or destination must coordinate their updates.
 
 ## Properties
 
@@ -101,7 +115,7 @@ renderer.setAnimationLoop((timestamp) => {
   const delta = timer.getDelta();
   // Apply gamepad movement and synchronize the native look state first.
   gamepadFirstPersonControls.update(delta);
-  // Then let FirstPersonControls apply keyboard and mouse input.
+  // Then apply native input, coordinated auto-forward, and native inertia.
   firstPersonControls.update(delta);
   renderer.render(scene, camera);
 });

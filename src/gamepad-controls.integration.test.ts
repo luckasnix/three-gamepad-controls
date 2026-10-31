@@ -52,7 +52,10 @@ import type {
   GamepadControlsEventMap,
 } from "./gamepad-controls.ts";
 import { GamepadDragControls } from "./gamepad-drag-controls.ts";
-import { GamepadFirstPersonControls } from "./gamepad-first-person-controls.ts";
+import {
+  GamepadFirstPersonControls,
+  type GamepadFirstPersonControlsOptions,
+} from "./gamepad-first-person-controls.ts";
 import {
   GamepadFlyControls,
   type GamepadFlyControlsOptions,
@@ -774,6 +777,464 @@ describe("Fly auto-forward composition", () => {
       for (const scenario of scenarios) {
         scenario.wrapper.update(0.25);
         scenario.native.update(0.25);
+      }
+      expect(first.camera.position.z).toBeCloseTo(before[0]);
+      expect(second.camera.position.z - before[1]).toBeCloseTo(0.25);
+    },
+  );
+});
+
+const createFirstPersonAutoForwardScenario = (
+  cleanup: Cleanup,
+  options?: Partial<GamepadFirstPersonControlsOptions>,
+  orientation = { lat: 0, lon: 180 },
+) => {
+  const scenario = createFirstPersonMovementScenario(cleanup, orientation);
+  scenario.controls.autoForward = true;
+  const wrapper = new GamepadFirstPersonControls(scenario.controls, options);
+  cleanup.add("wrapper", () => wrapper.dispose());
+  return { ...scenario, wrapper };
+};
+
+describe("FirstPerson auto-forward composition", () => {
+  integrationTest(
+    "retreats proportionally and resumes auto-forward on neutral input",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonMovementScenario(cleanup, {
+        lat: 0,
+        lon: 180,
+      });
+      scenario.controls.autoForward = true;
+      const wrapper = new GamepadFirstPersonControls(scenario.controls);
+      cleanup.add("wrapper", () => wrapper.dispose());
+      const frame = createFrameDriver(
+        gamepadPolling,
+        scenario.syncMatrices,
+        wrapper,
+        (dt) => scenario.controls.update(dt),
+      );
+      for (const [axis, expected] of [
+        [0, -1],
+        [0.25, 0.25],
+        [0.5, 0.5],
+        [1, 1],
+        [0, -1],
+      ]) {
+        const before = scenario.camera.position.clone();
+        frame([[0, { axes: [0, axis, 0, 0] }]], 0.25);
+        expect(scenario.camera.position.z - before.z).toBeCloseTo(expected);
+        expect(scenario.camera.position.y).toBeCloseTo(before.y);
+        expect(scenario.controls.autoForward).toBe(true);
+      }
+    },
+  );
+
+  integrationTest.for([
+    { lat: -45, lon: 0 },
+    { lat: 45, lon: 0 },
+    { lat: -45, lon: 90 },
+    { lat: 45, lon: 90 },
+    { lat: -45, lon: 225 },
+    { lat: 45, lon: 225 },
+  ])(
+    "keeps retreat horizontal at $lat/$lon",
+    (orientation, { cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(
+        cleanup,
+        {},
+        orientation,
+      );
+      const frame = createFrameDriver(
+        gamepadPolling,
+        scenario.syncMatrices,
+        scenario.wrapper,
+        (dt) => scenario.controls.update(dt),
+      );
+      const forward = new Vector3().setFromSphericalCoords(
+        1,
+        Math.PI / 2,
+        MathUtils.degToRad(orientation.lon),
+      );
+      const look = scenario.camera.getWorldDirection(new Vector3());
+      for (const axis of [0, 0.25, 0.5, 1, 0]) {
+        const before = scenario.camera.position.clone();
+        frame([[0, { axes: [0, axis, 0, 0] }]], 0.25);
+        const expected =
+          axis === 0 ? look : forward.clone().multiplyScalar(-axis);
+        expect(
+          scenario.camera.position.clone().sub(before).distanceTo(expected),
+        ).toBeLessThan(1e-8);
+      }
+    },
+  );
+
+  integrationTest.for([
+    { name: "deadzone", axes: [0, 0.05, 0, 0] },
+    { name: "strafe", axes: [0.5, 0, 0, 0] },
+    { name: "climb", axes: [0, 0, 0, 0], climb: true },
+    { name: "look", axes: [0, 0, 0.5, 0] },
+    { name: "zero gain", axes: [0, 0.5, 0, 0], moveSpeed: 0 },
+    { name: "zero native speed", axes: [0, 0.5, 0, 0], nativeSpeed: 0 },
+    { name: "zero delta", axes: [0, 0.5, 0, 0], dt: 0 },
+    { name: "zero pipeline", axes: [0, 0.5, 0, 0], zeroPipeline: true },
+    {
+      name: "cancelled height gain",
+      axes: [0, -0.5, 0, 0],
+      cancelHeight: true,
+    },
+  ])(
+    "does not suppress automation for $name",
+    (testCase, { cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(cleanup, {
+        moveSpeed: testCase.moveSpeed ?? 1,
+        moveStick: testCase.zeroPipeline
+          ? {
+              pipeline: gamepadStickPipeline().transform(() => ({
+                x: 0,
+                y: 0,
+              })),
+            }
+          : {},
+      });
+      if (testCase.cancelHeight) {
+        scenario.camera.position.y = 1;
+        scenario.controls.heightSpeed = true;
+        scenario.controls.heightCoef = -4;
+      }
+      scenario.controls.movementSpeed = testCase.nativeSpeed ?? 4;
+      gamepadPolling.publishFrame([
+        0,
+        {
+          axes: testCase.axes,
+          buttons: testCase.climb ? createGamepadButtons([6, true]) : [],
+        },
+      ]);
+      scenario.wrapper.update(testCase.dt ?? 0.25);
+      scenario.controls.movementSpeed = 4;
+      scenario.controls.heightSpeed = false;
+      const before = scenario.camera.position.clone();
+      const forward = scenario.camera.getWorldDirection(new Vector3());
+      scenario.controls.update(0.25);
+      expect(
+        scenario.camera.position.clone().sub(before).distanceTo(forward),
+      ).toBeLessThan(1e-8);
+      expect(scenario.controls.autoForward).toBe(true);
+    },
+  );
+
+  integrationTest.for(["pipeline", "gain", "native speed", "height"] as const)(
+    "uses effective retreat after %s inversion",
+    (inversion, { cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(cleanup, {
+        moveSpeed: inversion === "gain" ? -1 : 1,
+        moveStick:
+          inversion === "pipeline"
+            ? { pipeline: gamepadStickPipeline().invert("y") }
+            : {},
+      });
+      if (inversion === "native speed") {
+        scenario.controls.movementSpeed = -4;
+      }
+      if (inversion === "height") {
+        scenario.camera.position.y = 1;
+        scenario.controls.heightSpeed = true;
+        scenario.controls.heightCoef = -8;
+      }
+      gamepadPolling.publishFrame([0, { axes: [0, -0.5, 0, 0] }]);
+      const before = scenario.camera.position.z;
+      scenario.wrapper.update(0.25);
+      scenario.controls.update(0.25);
+      expect(scenario.camera.position.z - before).toBeCloseTo(0.5);
+    },
+  );
+
+  integrationTest(
+    "normalizes combined retreat and applies look only after movement",
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(cleanup, {
+        moveStick: {
+          pipeline: gamepadStickPipeline().transform(() =>
+            Object.freeze({ x: 2, y: 2 }),
+          ),
+        },
+      });
+      gamepadPolling.publishFrame([
+        0,
+        { axes: [0, 0, 0.5, -0.25], buttons: createGamepadButtons([6, true]) },
+      ]);
+      const before = scenario.camera.position.clone();
+      const quaternion = scenario.camera.quaternion.clone();
+      scenario.wrapper.update(0.25);
+      const afterWrapper = pose(scenario.camera);
+      scenario.controls.update(0.25);
+      expect(
+        scenario.camera.position
+          .clone()
+          .sub(before)
+          .distanceTo(new Vector3(2 / 3, 1 / 3, 2 / 3)),
+      ).toBeLessThan(1e-8);
+      expect(scenario.camera.quaternion.angleTo(quaternion)).toBeGreaterThan(
+        0.1,
+      );
+      expectPose(scenario.camera, afterWrapper);
+    },
+  );
+
+  integrationTest.for([
+    { keys: [], expected: [0, 0, 0] },
+    { keys: ["KeyW"], expected: [0, 0, -1] },
+    { keys: ["KeyS"], expected: [0, 0, 1] },
+    { keys: ["KeyW", "KeyS"], expected: [0, 0, 0] },
+    { keys: ["KeyD", "KeyR"], expected: [Math.SQRT1_2, Math.SQRT1_2, 0] },
+  ])(
+    "preserves keyboard input $keys and release between updates",
+    ({ keys, expected }, { cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(cleanup);
+      cleanup.add("listener", () => {
+        for (const code of keys) {
+          window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+        }
+      });
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      for (const code of keys) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+      }
+      const before = scenario.camera.position.clone();
+      scenario.controls.update(0.25);
+      expect(
+        scenario.camera.position
+          .clone()
+          .sub(before)
+          .distanceTo(new Vector3(...expected)),
+      ).toBeLessThan(1e-8);
+      scenario.wrapper.update(0.25);
+      for (const code of keys) {
+        window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+      }
+      const afterRelease = pose(scenario.camera);
+      scenario.controls.update(0.25);
+      expectPose(scenario.camera, afterRelease);
+      scenario.controls.update(0.25);
+      expect(scenario.camera.position.z - afterRelease.position.z).toBeCloseTo(
+        -1,
+      );
+    },
+  );
+
+  integrationTest.for([0, 2])(
+    "preserves pointer button %s along the look direction",
+    (button, { cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(
+        cleanup,
+        {},
+        { lat: 45, lon: 180 },
+      );
+      vi.spyOn(scenario.element, "setPointerCapture").mockImplementation(
+        () => {},
+      );
+      vi.spyOn(scenario.element, "releasePointerCapture").mockImplementation(
+        () => {},
+      );
+      const pointer = (type: string) =>
+        scenario.element.dispatchEvent(
+          new PointerEvent(type, {
+            button,
+            pointerId: 1,
+            pointerType: "mouse",
+            bubbles: true,
+          }),
+        );
+      cleanup.add("listener", () => {
+        pointer("pointerup");
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyS" }));
+      });
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      pointer("pointerdown");
+      const before = scenario.camera.position.clone();
+      const pointerMovement = scenario.camera
+        .getWorldDirection(new Vector3())
+        .multiplyScalar(button === 0 ? 1 : -1);
+      scenario.controls.update(0.25);
+      expect(
+        scenario.camera.position
+          .clone()
+          .sub(before)
+          .distanceTo(pointerMovement),
+      ).toBeLessThan(1e-8);
+      // Releasing the keyboard must not clear a pointer contribution already held.
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyS" }));
+      window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyS" }));
+      scenario.wrapper.update(0.25);
+      const held = scenario.camera.position.clone();
+      scenario.controls.update(0.25);
+      expect(
+        scenario.camera.position.clone().sub(held).distanceTo(pointerMovement),
+      ).toBeLessThan(1e-8);
+      scenario.wrapper.update(0.25);
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyS" }));
+      pointer("pointerup");
+      const released = scenario.camera.position.clone();
+      scenario.controls.update(0.25);
+      expect(
+        scenario.camera.position
+          .clone()
+          .sub(released)
+          .distanceTo(new Vector3(0, 0, 1)),
+      ).toBeLessThan(1e-8);
+      window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyS" }));
+      scenario.wrapper.update(0.25);
+      const neutral = pose(scenario.camera);
+      scenario.controls.update(0.25);
+      expectPose(scenario.camera, neutral);
+    },
+  );
+
+  integrationTest(
+    "preserves native inertia when removing and restoring the automatic target",
+    ({ cleanup, gamepadPolling }) => {
+      const reference = createFirstPersonMovementScenario(cleanup, {
+        lat: 45,
+        lon: 90,
+      });
+      const scenario = createFirstPersonAutoForwardScenario(
+        cleanup,
+        {},
+        { lat: 45, lon: 90 },
+      );
+      reference.controls.dampingFactor = 0.1;
+      scenario.controls.dampingFactor = 0.1;
+      const backward = new Vector3(-1, 0, 0);
+      for (const axis of [0, 0, 0, 0, 0, 0.25, 0.5, 1, 1, 0, 0, 0]) {
+        reference.controls.autoForward = axis === 0;
+        const beforeReference = reference.camera.position.clone();
+        reference.controls.update(0.25);
+        const expected = reference.camera.position
+          .clone()
+          .sub(beforeReference)
+          .addScaledVector(backward, axis);
+        const before = scenario.camera.position.clone();
+        gamepadPolling.publishFrame([0, { axes: [0, axis, 0, 0] }]);
+        scenario.wrapper.update(0.25);
+        scenario.controls.update(0.25);
+        expect(
+          scenario.camera.position.clone().sub(before).distanceTo(expected),
+        ).toBeLessThan(1e-8);
+        expect(
+          scenario.camera.quaternion.angleTo(reference.camera.quaternion),
+        ).toBeLessThan(1e-7);
+        expect(scenario.controls.autoForward).toBe(true);
+      }
+    },
+  );
+
+  integrationTest.for([
+    "pause without update",
+    "pause with update",
+    "native disable",
+    "disconnect event",
+    "disconnect polling",
+    "dispose",
+    "replace object",
+    "neutral",
+    "zero native delta",
+  ] as const)(
+    "releases pending suppression on %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(cleanup);
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      if (action === "pause without update" || action === "pause with update") {
+        scenario.wrapper.enabled = false;
+        if (action === "pause with update") {
+          scenario.wrapper.update(0.25);
+        }
+      } else if (action === "native disable") {
+        scenario.controls.enabled = false;
+      } else if (action === "disconnect event") {
+        dispatchGamepadEvent("gamepaddisconnected", createGamepad(0));
+      } else if (action === "disconnect polling") {
+        gamepadPolling.publishFrame();
+        scenario.wrapper.update(0.25);
+      } else if (action === "dispose") {
+        scenario.wrapper.dispose();
+        scenario.wrapper.dispose();
+      } else if (action === "replace object") {
+        scenario.controls.object = new PerspectiveCamera();
+      } else if (action === "neutral") {
+        gamepadPolling.publishFrame([0]);
+        scenario.wrapper.update(0.25);
+      }
+      const object = scenario.controls.object;
+      const before = object.position.z;
+      scenario.controls.update(action === "zero native delta" ? 0 : 0.25);
+      expect(object.position.z - before).toBeCloseTo(
+        action === "native disable" || action === "zero native delta" ? 0 : -1,
+      );
+      scenario.controls.enabled = true;
+      const next = object.position.z;
+      scenario.controls.update(0.25);
+      expect(object.position.z - next).toBeCloseTo(-1);
+    },
+  );
+
+  integrationTest.for([false, true])(
+    "respects external autoForward=%s between updates",
+    (value, { cleanup, gamepadPolling }) => {
+      const scenario = createFirstPersonAutoForwardScenario(cleanup);
+      scenario.controls.autoForward = !value;
+      gamepadPolling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      scenario.wrapper.update(0.25);
+      scenario.controls.autoForward = value;
+      const before = pose(scenario.camera);
+      scenario.controls.update(0.25);
+      expectPose(scenario.camera, before);
+      expect(scenario.controls.autoForward).toBe(value);
+      scenario.controls.update(0.25);
+      expect(scenario.camera.position.z - before.position.z).toBeCloseTo(
+        value ? -1 : 0,
+      );
+    },
+  );
+
+  integrationTest.for([false, true])(
+    "isolates slots 0/3 with reversed order %s",
+    (reverse, { cleanup, gamepadPolling }) => {
+      const first = createFirstPersonAutoForwardScenario(cleanup, {
+        gamepadIndex: 0,
+      });
+      const second = createFirstPersonAutoForwardScenario(cleanup, {
+        gamepadIndex: 3,
+      });
+      second.controls.movementSpeed = 2;
+      const scenarios = reverse ? [second, first] : [first, second];
+      for (const [a, b] of [
+        [0.5, 0],
+        [0, 1],
+        [0, 0],
+      ]) {
+        gamepadPolling.publishFrame(
+          [0, { axes: [0, a, 0, 0] }],
+          [3, { axes: [0, b, 0, 0] }],
+        );
+        const before = [first.camera.position.z, second.camera.position.z];
+        for (const scenario of scenarios) {
+          scenario.wrapper.update(0.25);
+          scenario.controls.update(0.25);
+        }
+        expect(first.camera.position.z - before[0]).toBeCloseTo(a > 0 ? a : -1);
+        expect(second.camera.position.z - before[1]).toBeCloseTo(
+          b > 0 ? b * 0.5 : -0.5,
+        );
+      }
+      first.wrapper.dispose();
+      first.controls.autoForward = false;
+      gamepadPolling.publishFrame([0], [3, { axes: [0, 0.5, 0, 0] }]);
+      const before = [first.camera.position.z, second.camera.position.z];
+      for (const scenario of scenarios) {
+        scenario.wrapper.update(0.25);
+        scenario.controls.update(0.25);
       }
       expect(first.camera.position.z).toBeCloseTo(before[0]);
       expect(second.camera.position.z - before[1]).toBeCloseTo(0.25);

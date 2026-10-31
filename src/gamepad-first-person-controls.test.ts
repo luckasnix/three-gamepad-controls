@@ -7,6 +7,7 @@ import {
   createGamepadButtons,
 } from "../test/fixtures/gamepad.ts";
 import {
+  dispatchGamepadEvent,
   type GamepadPollingFixture,
   gamepadTest,
 } from "../test/fixtures/gamepad-browser.ts";
@@ -353,6 +354,339 @@ describe("GamepadFirstPersonControls movement", () => {
     controls.update(0.25);
     expect(firstPersonControls.object.position.z).toBeCloseTo(expectedZ);
   });
+});
+
+describe("GamepadFirstPersonControls frame ownership", () => {
+  for (const binding of ["moveStick", "lookStick"] as const) {
+    gamepadTest.each([
+      "pause",
+      "native disable",
+      "dispose",
+      "replace object",
+      "disconnect",
+    ] as const)(`revalidates %s from the ${binding} pipeline`, (action) => {
+      const native = createFirstPersonControls();
+      native.autoForward = true;
+      native.dampingFactor = 1;
+      const initialObject = native.object;
+      const quaternion = initialObject.quaternion.clone();
+      let wrapper: GamepadFirstPersonControls;
+      const transform = vi.fn((value: Readonly<GamepadStick>) => {
+        if (action === "pause") {
+          wrapper.enabled = false;
+        } else if (action === "native disable") {
+          native.enabled = false;
+        } else if (action === "dispose") {
+          wrapper.dispose();
+          wrapper.enabled = true;
+        } else if (action === "replace object") {
+          native.object = new PerspectiveCamera();
+        } else {
+          dispatchGamepadEvent(
+            "gamepaddisconnected",
+            wrapper.gamepad as Gamepad,
+          );
+        }
+        return value;
+      });
+      wrapper = createControls(native, {
+        [binding]: { pipeline: gamepadStickPipeline().transform(transform) },
+      });
+      polling.publishFrame([0, { axes: [0.5, 0.5, 0.5, 0.5] }]);
+      wrapper.update(0.25);
+      expect(transform).toHaveBeenCalledOnce();
+      expect(initialObject.position.length()).toBe(0);
+      expect(native.object.position.length()).toBe(0);
+      expect(initialObject.quaternion.angleTo(quaternion)).toBeLessThan(1e-7);
+      native.enabled = true;
+      native.update(0.25);
+      expect(native.object.position.z).toBeCloseTo(-1);
+    });
+  }
+
+  gamepadTest(
+    "ignores recursive wrapper and native updates from a pipeline",
+    () => {
+      const native = createFirstPersonControls();
+      native.autoForward = true;
+      native.dampingFactor = 1;
+      let wrapper: GamepadFirstPersonControls;
+      const transform = vi.fn((value: Readonly<GamepadStick>) => {
+        wrapper.update(0.25);
+        native.update(0.25);
+        return value;
+      });
+      wrapper = createControls(native, {
+        moveStick: { pipeline: gamepadStickPipeline().transform(transform) },
+      });
+      polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      wrapper.update(0.25);
+      native.update(0.25);
+      expect(transform).toHaveBeenCalledOnce();
+      expect(native.object.position.z).toBeCloseTo(0.5);
+    },
+  );
+
+  gamepadTest.each(["moveStick", "lookStick"] as const)(
+    "clears pending input and recovers after %s throws",
+    (binding) => {
+      const native = createFirstPersonControls();
+      native.autoForward = true;
+      native.dampingFactor = 1;
+      const failure = new Error("Pipeline failed");
+      const transform = vi.fn((value: Readonly<GamepadStick>) => value);
+      const wrapper = createControls(native, {
+        [binding]: { pipeline: gamepadStickPipeline().transform(transform) },
+      });
+      polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      wrapper.update(0.25);
+      transform.mockImplementationOnce(() => {
+        throw failure;
+      });
+      expect(() => wrapper.update(0.25)).toThrow(failure);
+      native.update(0.25);
+      expect(native.object.position.z).toBeCloseTo(-0.5);
+      wrapper.update(0.25);
+      native.update(0.25);
+      expect(native.object.position.z).toBeCloseTo(0);
+    },
+  );
+});
+
+describe("GamepadFirstPersonControls native adapter ownership", () => {
+  gamepadTest(
+    "restores inherited update and ignores reuse after disposal",
+    () => {
+      const native = createFirstPersonControls();
+      const original = native.update;
+      const wrapper = createControls(native);
+      expect(native.update).not.toBe(original);
+      wrapper.dispose();
+      wrapper.dispose();
+      expect(native.update).toBe(original);
+      expect(Object.hasOwn(native, "update")).toBe(false);
+      wrapper.enabled = true;
+      polling.publishFrame([0, { axes: [0, 1, 0, 0] }]);
+      polling.getGamepads.mockClear();
+      wrapper.update(0.25);
+      expect(polling.getGamepads).not.toHaveBeenCalled();
+      expect(native.object.position.length()).toBe(0);
+    },
+  );
+
+  gamepadTest(
+    "delegates with native this and restores the original own descriptor",
+    () => {
+      const native = createFirstPersonControls();
+      const original = native.update;
+      const update = vi.fn(function (this: FirstPersonControls, dt: number) {
+        expect(this).toBe(native);
+        original.call(this, dt);
+      });
+      Object.defineProperty(native, "update", {
+        value: update,
+        configurable: true,
+        writable: true,
+        enumerable: false,
+      });
+      const descriptor = Object.getOwnPropertyDescriptor(native, "update");
+      const wrapper = createControls(native);
+      native.update(0.25);
+      wrapper.dispose();
+      expect(update).toHaveBeenCalledExactlyOnceWith(0.25);
+      expect(Object.getOwnPropertyDescriptor(native, "update")).toEqual(
+        descriptor,
+      );
+    },
+  );
+
+  gamepadTest.each([
+    "false",
+    "true",
+    "redefine",
+    "delete",
+    "replace setter",
+    "lock descriptor",
+    "change enumerability",
+    "replace update",
+    "dispose",
+    "throw",
+    "recursive",
+  ] as const)(
+    "preserves application changes during native update: %s",
+    (action) => {
+      const native = createFirstPersonControls();
+      native.autoForward = true;
+      native.dampingFactor = 1;
+      const original = native.update;
+      const replacement = vi.fn((dt: number) => original.call(native, dt));
+      const failure = new Error("Native update failed");
+      const descriptor = Object.getOwnPropertyDescriptor(native, "autoForward");
+      let wrapper: GamepadFirstPersonControls;
+      let first = true;
+      native.update = function (dt) {
+        original.call(this, dt);
+        if (!first) {
+          return;
+        }
+        first = false;
+        if (action === "false" || action === "true") {
+          this.autoForward = action === "true";
+          expect(this.autoForward).toBe(false);
+        } else if (action === "redefine") {
+          Object.defineProperty(this, "autoForward", {
+            value: false,
+            configurable: true,
+            writable: false,
+            enumerable: false,
+          });
+        } else if (action === "delete") {
+          Reflect.deleteProperty(this, "autoForward");
+        } else if (action === "replace setter") {
+          Object.defineProperty(this, "autoForward", { set: undefined });
+        } else if (action === "lock descriptor") {
+          Object.defineProperty(this, "autoForward", { configurable: false });
+        } else if (action === "change enumerability") {
+          Object.defineProperty(this, "autoForward", { enumerable: false });
+        } else if (action === "replace update") {
+          this.update = replacement;
+        } else if (action === "dispose") {
+          wrapper.dispose();
+        } else if (action === "throw") {
+          throw failure;
+        } else {
+          wrapper.update(dt);
+          this.update(dt);
+        }
+      };
+      const ownUpdate = native.update;
+      wrapper = createControls(native);
+      polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      wrapper.update(0.25);
+      if (action === "throw") {
+        expect(() => native.update(0.25)).toThrow(failure);
+      } else {
+        native.update(0.25);
+      }
+      expect(native.object.position.z).toBeCloseTo(0.5);
+      const auto = !["false", "redefine", "delete"].includes(action);
+      if (action === "redefine") {
+        expect(Object.getOwnPropertyDescriptor(native, "autoForward")).toEqual({
+          value: false,
+          writable: false,
+          configurable: true,
+          enumerable: false,
+        });
+      } else if (action === "delete") {
+        expect(Object.hasOwn(native, "autoForward")).toBe(false);
+      } else if (action === "replace setter") {
+        expect(
+          Object.getOwnPropertyDescriptor(native, "autoForward")?.set,
+        ).toBeUndefined();
+      } else if (action === "lock descriptor") {
+        expect(
+          Object.getOwnPropertyDescriptor(native, "autoForward")?.configurable,
+        ).toBe(false);
+        expect(native.autoForward).toBe(true);
+      } else if (action === "change enumerability") {
+        expect(
+          Object.getOwnPropertyDescriptor(native, "autoForward")?.enumerable,
+        ).toBe(false);
+        expect(native.autoForward).toBe(true);
+      } else {
+        expect(Object.getOwnPropertyDescriptor(native, "autoForward")).toEqual({
+          ...descriptor,
+          value: auto,
+        });
+      }
+      native.update(0.25);
+      expect(native.object.position.z).toBeCloseTo(auto ? -0.5 : 0.5);
+      wrapper.dispose();
+      expect(native.update).toBe(
+        action === "replace update" ? replacement : ownUpdate,
+      );
+    },
+  );
+
+  gamepadTest(
+    "revalidates suppression when the original update pauses the wrapper",
+    () => {
+      const native = createFirstPersonControls();
+      native.autoForward = true;
+      native.dampingFactor = 1;
+      const original = native.update;
+      let wrapper: GamepadFirstPersonControls;
+      native.update = function (dt) {
+        wrapper.enabled = false;
+        original.call(this, dt);
+      };
+      wrapper = createControls(native);
+      polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      wrapper.update(0.25);
+      native.update(0.25);
+      expect(native.object.position.z).toBeCloseTo(-0.5);
+      expect(native.autoForward).toBe(true);
+    },
+  );
+
+  gamepadTest.each([false, true])(
+    "restores missing autoForward property with assignment=%s",
+    (assign) => {
+      const native = createFirstPersonControls();
+      native.dampingFactor = 1;
+      Reflect.deleteProperty(native, "autoForward");
+      const original = native.update;
+      native.update = function (dt) {
+        if (assign) {
+          this.autoForward = true;
+        }
+        original.call(this, dt);
+      };
+      const wrapper = createControls(native);
+      polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      wrapper.update(0.25);
+      native.update(0.25);
+      expect(native.object.position.z).toBeCloseTo(0.5);
+      expect(Object.hasOwn(native, "autoForward")).toBe(assign);
+      expect(native.autoForward).toBe(assign ? true : undefined);
+    },
+  );
+
+  gamepadTest(
+    "preserves an application's accessor and forwards false writes with native this",
+    () => {
+      const native = createFirstPersonControls();
+      native.dampingFactor = 1;
+      let value = true;
+      const get = () => value;
+      const set = vi.fn(function (this: FirstPersonControls, next: boolean) {
+        expect(this).toBe(native);
+        value = next;
+      });
+      Object.defineProperty(native, "autoForward", {
+        get,
+        set,
+        enumerable: false,
+        configurable: true,
+      });
+      const descriptor = Object.getOwnPropertyDescriptor(native, "autoForward");
+      const original = native.update;
+      native.update = function (dt) {
+        original.call(this, dt);
+        this.autoForward = false;
+      };
+      const wrapper = createControls(native);
+      polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
+      wrapper.update(0.25);
+      native.update(0.25);
+      expect(native.object.position.z).toBeCloseTo(0.5);
+      expect(set).toHaveBeenCalledExactlyOnceWith(false);
+      expect(native.autoForward).toBe(false);
+      expect(Object.getOwnPropertyDescriptor(native, "autoForward")).toEqual(
+        descriptor,
+      );
+    },
+  );
 });
 
 describe("GamepadFirstPersonControls look", () => {
