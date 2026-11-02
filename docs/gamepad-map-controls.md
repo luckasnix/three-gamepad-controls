@@ -42,7 +42,7 @@ Every binding is remappable via the `options` parameter.
 | `buttonDollyIn` | `number` | `7` | Button index for zoom in — analog trigger value (right trigger). |
 | `buttonDollyOut` | `number` | `6` | Button index for zoom out — analog trigger value (left trigger). |
 
-Native speeds multiply the corresponding wrapper options, exactly as in Orbit. Zero effective speed blocks that action. Gamepad input currently does not suspend `autoRotate`.
+Native speeds multiply the corresponding wrapper options, exactly as in Orbit. Zero effective speed blocks that action.
 
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the Map-specific action default. Overriding only the pipeline therefore keeps left-stick pan and right-stick rotation. Pipelines do not process dolly triggers. See [Stick Processing](./gamepad-stick-processing.md).
 
@@ -51,6 +51,14 @@ Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and 
 Map inherits Orbit's independent `enabled`, `enableRotate`, `enablePan`, and `enableZoom` gates with its swapped stick bindings. See [Native input permissions](./gamepad-controls.md#native-input-permissions).
 
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).
+
+## Automatic rotation and input composition
+
+Map inherits [Orbit's automatic-rotation composition](./gamepad-orbit-controls.md#automatic-rotation-and-input-composition). Accepted pan, rotation, or dolly suspends new automatic rotation throughout the frame, including the public operations' synchronous updates and the following native update. Call `gamepadMapControls.update(delta)` before `mapControls.update(delta)` every frame.
+
+Neutral input releases suspension on the next wrapper update, even with residual damping. Geometric limits retain valid intent; blocked input, zero effective gains, zero frame delta, and damping alone do not sustain suspension. Pausing releases suppression without ending the retained gamepad session. Disconnection, observed native disable, destination changes, disposal, and failed updates also release it.
+
+The current `autoRotate` and `autoRotateSpeed` settings, application changes in callbacks, and native pointer rules remain intact. This behavior uses Map's configured bindings and works with either camera projection and either `screenSpacePanning` setting. The instance's native update adaptation is restored on disposal when still owned; later application replacements are preserved.
 
 ## Events
 
@@ -72,6 +80,8 @@ import { MapControls } from "three/addons/controls/MapControls.js";
 import { GamepadMapControls } from "three-gamepad-controls";
 
 const mapControls = new MapControls(camera, renderer.domElement);
+// Optional: pauses automatically while accepted gamepad input is applied.
+mapControls.autoRotate = true;
 const gamepadMapControls = new GamepadMapControls(mapControls);
 
 gamepadMapControls.addEventListener("connected", (event) => {

@@ -40,7 +40,7 @@ Every binding is remappable via the `options` parameter.
 | `buttonDollyIn` | `number` | `7` | Button index for zoom in — analog trigger value (right trigger). |
 | `buttonDollyOut` | `number` | `6` | Button index for zoom out — analog trigger value (left trigger). |
 
-The effective speed for each action is its native speed multiplied by the wrapper option. A zero native speed or multiplier blocks that action without opening or retaining a session by itself. Values 2 × 0.5 produce the same response as 1 × 1. Gamepad input currently does not suspend `autoRotate`.
+The effective speed for each action is its native speed multiplied by the wrapper option. A zero native speed or multiplier blocks that action without opening or retaining a session by itself. Values 2 × 0.5 produce the same response as 1 × 1.
 
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Stick pipelines do not process the dolly triggers; configure their scalar threshold with `buttonDeadzone`. See [Stick Processing](./gamepad-stick-processing.md).
 
@@ -50,6 +50,18 @@ Inherits all properties from [`GamepadControls`](./gamepad-controls.md#propertie
 
 Gamepad input respects `OrbitControls.enabled`, `enableRotate`, `enablePan`, and `enableZoom`. Blocking one action leaves the others available. Native `change` listeners can change permissions during an update; subsequent gamepad operations use the new values. See [Native input permissions](./gamepad-controls.md#native-input-permissions) for polling, pause, and residual motion.
 
+## Automatic rotation and input composition
+
+Accepted gamepad rotation, pan, or dolly suspends the automatic contribution of `autoRotate`. The processed action must be permitted and have a nonzero effective speed and frame delta. Reaching a geometric limit still counts as intent; dead-zone input, a pipeline returning zero, blocked actions, zero gains, and residual damping alone do not suspend automation.
+
+Call `gamepadOrbitControls.update(delta)` **before** `orbitControls.update(delta)` every frame. Suspension covers the synchronous updates inside public Orbit operations and every subsequent native update until the next wrapper update or invalidation. The next neutral wrapper update releases it, even while native damping continues. Existing residual motion is preserved; suspension prevents new automatic rotation rather than stopping the camera instantly.
+
+`autoRotate` and `autoRotateSpeed` remain unchanged and readable throughout input processing. Application assignments, including those made in synchronous `start`, `change`, or `end` listeners, remain effective. Permissions and gains are revalidated without rereading stick pipelines. The native control still decides when pointer activity permits automatic rotation; gamepad input never fabricates or resets pointer state.
+
+Pausing the wrapper releases suppression on the next wrapper or native update while retaining the gamepad session. Observed native disable, loss of actionable input, a changed gamepad snapshot or camera destination, disconnection, disposal, and failed updates also release suppression. Polling-only disconnection remains unobserved while the wrapper is paused, as in the base lifecycle.
+
+The update adaptation belongs only to the wrapped instance. `dispose()` is terminal and idempotent, restores the native update when still owned, and preserves later application replacements. It does not dispose the native control. Sharing a native control or camera between wrappers requires application coordination.
+
 ## Events
 
 Inherits all events from [`GamepadControls`](./gamepad-controls.md#events).
@@ -58,7 +70,7 @@ The wrapper dispatches `start` and `end` on the wrapped native control. A sessio
 
 Native updates remain responsible for `change`. Damping can therefore produce `change` after `end`, without a new `start`. Pausing only the wrapper retains its session; neutral input or native disabling is observed on resume. Browser disconnection events and disposal still end a paused session.
 
-Permissions are checked again after synchronous listeners. Recursive wrapper updates during input application or session finalization are ignored. Finalization releases only the wrapper's own session and preserves native pointer state and residual motion.
+Permissions are checked again after synchronous listeners. Recursive wrapper updates during input application, native updates, or session finalization are ignored; recursive native updates return `false`. Finalization releases only the wrapper's own session and preserves native pointer state and residual motion.
 
 Mouse and gamepad events can interleave on the same native instance, with no additional source field in their payloads. The balanced pair belongs to the gamepad session; it is not an aggregate activity counter or arbitration between input sources.
 
@@ -78,6 +90,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GamepadOrbitControls } from "three-gamepad-controls";
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
+// Optional: pauses automatically while accepted gamepad input is applied.
+orbitControls.autoRotate = true;
 const gamepadOrbitControls = new GamepadOrbitControls(orbitControls);
 
 gamepadOrbitControls.addEventListener("connected", (event) => {

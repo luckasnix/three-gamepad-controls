@@ -12,7 +12,10 @@ import {
 import { TrackballControls } from "three/addons/controls/TrackballControls.js";
 import { expect, vi } from "vitest";
 
-import { createGamepadButtons } from "../test/fixtures/gamepad.ts";
+import {
+  createGamepad,
+  createGamepadButtons,
+} from "../test/fixtures/gamepad.ts";
 import {
   dispatchGamepadEvent,
   gamepadTest,
@@ -59,6 +62,7 @@ type InteractionEvents = OrbitControlsEventMap & PointerLockControlsEventMap;
  * @param index - Gamepad slot selected by the wrapper.
  * @param projection - Camera projection used by the scene fixture.
  * @param options - Wrapper option overrides for this scenario.
+ * @param configureOrbit - Optional native setup before installing an Orbit/Map wrapper.
  * @returns The scene, control pair, captured events, and frame update helpers.
  */
 const createScenario = (
@@ -69,6 +73,7 @@ const createScenario = (
   options: Partial<
     GamepadOrbitControlsOptions & GamepadPointerLockControlsOptions
   > = {},
+  configureOrbit?: (native: OrbitControls) => void,
 ) => {
   const environment = createThreeEnvironment(cleanup, projection);
   const { camera, element, scene, syncMatrices } = environment;
@@ -86,6 +91,7 @@ const createScenario = (
   if (native instanceof OrbitControls) {
     native.enableDamping = false;
     native.autoRotate = false;
+    configureOrbit?.(native);
   }
   if (native instanceof TrackballControls) {
     native.staticMoving = true;
@@ -146,6 +152,968 @@ const createScenario = (
     index,
   };
 };
+
+/** Narrows the real Orbit/Map scenario for automatic-rotation regressions. */
+const createOrbitScenario = (
+  kind: "orbit" | "map",
+  cleanup: Cleanup,
+  index = 3,
+  projection: "perspective" | "orthographic" = "perspective",
+  options: Partial<GamepadOrbitControlsOptions> = {},
+  configureNative?: (native: OrbitControls) => void,
+) => {
+  const scenario = createScenario(
+    kind,
+    cleanup,
+    index,
+    projection,
+    options,
+    configureNative,
+  );
+  return {
+    ...scenario,
+    native: scenario.native as OrbitControls,
+    wrapper: scenario.wrapper as GamepadOrbitControls,
+  };
+};
+
+type OrbitScenario = ReturnType<typeof createOrbitScenario>;
+
+type OrbitNative = OrbitControls & {
+  _getAutoRotationAngle(delta: number | null): number;
+};
+
+const orbitActionInput = (kind: "orbit" | "map", action = "rotate") =>
+  action === "zoom"
+    ? { buttons: createGamepadButtons([7, false, 0.4]) }
+    : {
+        axes:
+          (action === "rotate") === (kind === "orbit")
+            ? [0.4, 0.2, 0, 0]
+            : [0, 0, 0.4, 0.2],
+      };
+
+/** Compares destinations, including the native target and camera projection. */
+const expectOrbitDestination = (
+  actual: OrbitScenario,
+  expected: OrbitScenario,
+) => {
+  actual.syncMatrices();
+  expected.syncMatrices();
+  expect(
+    actual.camera.position.distanceTo(expected.camera.position),
+  ).toBeLessThan(1e-8);
+  expect(
+    actual.camera.quaternion.angleTo(expected.camera.quaternion),
+  ).toBeLessThan(1e-7);
+  expect(actual.native.target.distanceTo(expected.native.target)).toBeLessThan(
+    1e-8,
+  );
+  expect(actual.camera.zoom).toBeCloseTo(expected.camera.zoom, 10);
+  expect(actual.camera.projectionMatrix.elements).toEqual(
+    expected.camera.projectionMatrix.elements,
+  );
+  expect(actual.types()).toEqual(expected.types());
+};
+
+for (const kind of ["orbit", "map"] as const) {
+  for (const projection of ["perspective", "orthographic"] as const) {
+    interactionTest.for([false, true])(
+      `${kind} ${projection} suspends autoRotate throughout the frame with damping %s`,
+      (damping, { cleanup, gamepadPolling }) => {
+        const actual = createOrbitScenario(kind, cleanup, 0, projection);
+        const reference = createOrbitScenario(kind, cleanup, 3, projection);
+        for (const scenario of [actual, reference]) {
+          scenario.native.autoRotate = true;
+          scenario.native.enableDamping = damping;
+          scenario.native.dampingFactor = 0.2;
+        }
+        const rotateX = kind === "map" ? [0, 0, 0.4, 0] : [0.4, 0, 0, 0];
+        const rotateY = kind === "map" ? [0, 0, 0, 0.4] : [0, 0.4, 0, 0];
+        const pan = kind === "map" ? [0.3, 0.2, 0, 0] : [0, 0, 0.3, 0.2];
+        const activeFrames = [
+          { axes: rotateX },
+          { axes: rotateY },
+          { axes: pan },
+          { buttons: createGamepadButtons([7, false, 0.4]) },
+          { buttons: createGamepadButtons([6, false, 0.4]) },
+          {
+            axes: [0.3, 0.2, 0.4, 0.2],
+            buttons: createGamepadButtons([7, false, 0.4], [6, false, 0.2]),
+          },
+        ];
+        gamepadPolling.publishFrame([0], [3]);
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+        for (const input of activeFrames) {
+          reference.native.autoRotate = false;
+          gamepadPolling.publishFrame([0, input], [3, input]);
+          actual.wrapper.update(0.1);
+          reference.wrapper.update(0.1);
+          expectOrbitDestination(actual, reference);
+          for (const delta of [undefined, null, 0, 0.1]) {
+            actual.native.update(delta);
+            reference.native.update(delta);
+            expectOrbitDestination(actual, reference);
+          }
+          expect(actual.native.autoRotate).toBe(true);
+        }
+        const before = actual.camera.quaternion.clone();
+        reference.native.autoRotate = true;
+        gamepadPolling.publishFrame([0], [3]);
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+        expect(actual.camera.quaternion.angleTo(before)).toBeGreaterThan(1e-5);
+        expect(actual.types().filter((type) => type === "start")).toHaveLength(
+          1,
+        );
+        expect(actual.types().filter((type) => type === "end")).toHaveLength(1);
+      },
+    );
+  }
+
+  for (const action of ["rotate", "pan", "zoom"] as const) {
+    interactionTest.for(["permission", "native gain", "wrapper gain"] as const)(
+      `${kind} autoRotate ignores blocked ${action} intent: %s`,
+      (block, { cleanup, gamepadPolling }) => {
+        const speed = `${action}Speed` as const;
+        const permission =
+          action === "rotate"
+            ? "enableRotate"
+            : action === "pan"
+              ? "enablePan"
+              : "enableZoom";
+        const actual = createOrbitScenario(kind, cleanup, 0, "perspective", {
+          [speed]: block === "wrapper gain" ? 0 : 1,
+        });
+        const reference = createOrbitScenario(kind, cleanup, 3);
+        actual.native.autoRotate = reference.native.autoRotate = true;
+        if (block === "permission") {
+          actual.native[permission] = false;
+        }
+        if (block === "native gain") {
+          actual.native[speed] = 0;
+        }
+        gamepadPolling.publishFrame([0, orbitActionInput(kind, action)], [3]);
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+        expect(actual.types()).toEqual(["change"]);
+      },
+    );
+  }
+
+  interactionTest.for(["deadzone", "pipeline", "zero delta"] as const)(
+    `${kind} autoRotate ignores ineffective input: %s`,
+    (block, { cleanup, gamepadPolling }) => {
+      const actual = createOrbitScenario(kind, cleanup, 0, "perspective", {
+        rotateStick:
+          block === "pipeline"
+            ? {
+                pipeline: gamepadStickPipeline().transform(() => ({
+                  x: 0,
+                  y: 0,
+                })),
+              }
+            : {},
+      });
+      const reference = createOrbitScenario(kind, cleanup, 3);
+      actual.native.autoRotate = reference.native.autoRotate = true;
+      const input =
+        block === "deadzone"
+          ? {
+              axes: [0.01, 0.01, 0.01, 0.01],
+              buttons: createGamepadButtons([6, false, 0.1], [7, false, 0.09]),
+            }
+          : orbitActionInput(kind);
+      gamepadPolling.publishFrame([0, input], [3]);
+      actual.wrapper.update(block === "zero delta" ? 0 : 0.1);
+      reference.wrapper.update(0.1);
+      actual.native.update(0.1);
+      reference.native.update(0.1);
+      expectOrbitDestination(actual, reference);
+      expect(actual.types()).toEqual(["change"]);
+    },
+  );
+
+  interactionTest.for(["perspective", "orthographic"] as const)(
+    `${kind} autoRotate remains suspended at a %s dolly limit`,
+    (projection, { cleanup, gamepadPolling }) => {
+      const actual = createOrbitScenario(kind, cleanup, 0, projection);
+      const reference = createOrbitScenario(kind, cleanup, 3, projection);
+      actual.native.autoRotate = true;
+      for (const scenario of [actual, reference]) {
+        scenario.native.minDistance = scenario.native.maxDistance = 10;
+        scenario.native.minZoom = scenario.native.maxZoom = 1;
+      }
+      for (let frame = 0; frame < 2; frame++) {
+        const input = orbitActionInput(kind, "zoom");
+        gamepadPolling.publishFrame([0, input], [3, input]);
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+        expect(actual.types()).toEqual(["start"]);
+      }
+      reference.native.autoRotate = true;
+      gamepadPolling.publishFrame([0], [3]);
+      actual.update();
+      reference.update();
+      expectOrbitDestination(actual, reference);
+      expect(actual.types()).toEqual(["start", "end", "change"]);
+    },
+  );
+
+  interactionTest.for([
+    "pause without update",
+    "pause with update",
+    "native disable",
+    "disconnect event",
+    "disconnect polling",
+    "dispose",
+    "permission",
+    "gain",
+  ] as const)(
+    `${kind} releases autoRotate suppression on %s`,
+    (action, { cleanup, gamepadPolling }) => {
+      const actual = createOrbitScenario(kind, cleanup, 0);
+      const reference = createOrbitScenario(kind, cleanup, 3);
+      actual.native.autoRotate = true;
+      const input = orbitActionInput(kind);
+      gamepadPolling.publishFrame([0, input], [3, input]);
+      actual.wrapper.update(0.1);
+      reference.wrapper.update(0.1);
+      expectOrbitDestination(actual, reference);
+      reference.native.autoRotate = true;
+      for (const scenario of [actual, reference]) {
+        if (action.startsWith("pause")) {
+          scenario.wrapper.enabled = false;
+          if (action === "pause with update") {
+            scenario.wrapper.update(0.1);
+          }
+        } else if (action === "native disable") {
+          scenario.native.enabled = false;
+        } else if (action === "disconnect event") {
+          dispatchGamepadEvent(
+            "gamepaddisconnected",
+            scenario.wrapper.gamepad as Gamepad,
+          );
+        } else if (action === "dispose") {
+          scenario.wrapper.dispose();
+          scenario.wrapper.dispose();
+        } else if (action === "permission") {
+          scenario.native.enableRotate = false;
+        } else if (action === "gain") {
+          scenario.native.rotateSpeed = 0;
+        }
+      }
+      if (action === "disconnect polling") {
+        gamepadPolling.publishFrame();
+        actual.wrapper.update(0.1);
+        reference.wrapper.update(0.1);
+      }
+      const before = actual.camera.quaternion.clone();
+      actual.native.update(0.1);
+      reference.native.update(0.1);
+      expectOrbitDestination(actual, reference);
+      expect(actual.camera.quaternion.angleTo(before)).toBeGreaterThan(0.01);
+      if (action.startsWith("pause")) {
+        expect(actual.types().filter((type) => type === "end")).toHaveLength(0);
+      }
+      for (const scenario of [actual, reference]) {
+        scenario.wrapper.enabled = true;
+        scenario.native.enabled = true;
+        scenario.native.enableRotate = true;
+        scenario.native.rotateSpeed = 1;
+      }
+      gamepadPolling.publishFrame([0], [3]);
+      actual.update();
+      reference.update();
+      expectOrbitDestination(actual, reference);
+      expect(actual.types().filter((type) => type === "end")).toHaveLength(1);
+    },
+  );
+
+  for (const event of ["start", "change"] as const) {
+    interactionTest.for([
+      "pause",
+      "disable",
+      "forbid",
+      "zero",
+      "disconnect",
+      "dispose",
+      "reenter",
+    ] as const)(
+      `${kind} revalidates autoRotate after ${event} requests %s`,
+      (action, { cleanup, gamepadPolling }) => {
+        const actual = createOrbitScenario(kind, cleanup, 0);
+        const reference = createOrbitScenario(kind, cleanup, 3);
+        actual.native.autoRotate = true;
+        for (const scenario of [actual, reference]) {
+          const listener = vi.fn(() => {
+            scenario.native.removeEventListener(event, listener);
+            if (action === "reenter") {
+              scenario.wrapper.update(0.1);
+              expect(scenario.native.update(0.1)).toBe(false);
+              return;
+            }
+            scenario.native.autoRotate = true;
+            if (action === "pause") {
+              scenario.wrapper.enabled = false;
+            }
+            if (action === "disable") {
+              scenario.native.enabled = false;
+            }
+            if (action === "forbid") {
+              scenario.native.enableRotate = false;
+            }
+            if (action === "zero") {
+              scenario.native.rotateSpeed = 0;
+            }
+            if (action === "disconnect") {
+              dispatchGamepadEvent(
+                "gamepaddisconnected",
+                scenario.wrapper.gamepad as Gamepad,
+              );
+            }
+            if (action === "dispose") {
+              scenario.wrapper.dispose();
+            }
+          });
+          scenario.native.addEventListener(event, listener);
+          cleanup.add("listener", () =>
+            scenario.native.removeEventListener(event, listener),
+          );
+        }
+        const input = orbitActionInput(kind);
+        gamepadPolling.publishFrame([0, input], [3, input]);
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+        expect(gamepadPolling.getGamepads).toHaveBeenCalledTimes(2);
+        expect(actual.native.autoRotate).toBe(true);
+      },
+    );
+  }
+
+  interactionTest.for(["reenter", "dispose", "throw"] as const)(
+    `${kind} releases autoRotate before an end listener requests %s`,
+    (action, { cleanup, gamepadPolling }) => {
+      const scenario = createOrbitScenario(kind, cleanup);
+      scenario.native.autoRotate = true;
+      gamepadPolling.publishFrame([3, orbitActionInput(kind)]);
+      scenario.update();
+      const before = scenario.camera.quaternion.clone();
+      const listener = () => {
+        scenario.wrapper.update(0.1);
+        if (action === "dispose") {
+          scenario.wrapper.dispose();
+        }
+        if (action === "throw") {
+          throw new Error("end failure");
+        }
+        expect(scenario.native.update(0.1)).toBe(true);
+      };
+      scenario.native.addEventListener("end", listener);
+      cleanup.add("listener", () =>
+        scenario.native.removeEventListener("end", listener),
+      );
+      gamepadPolling.publishFrame([3]);
+      if (action === "throw") {
+        expect(() => scenario.wrapper.dispose()).toThrow("end failure");
+        scenario.wrapper.dispose();
+        expect(Object.hasOwn(scenario.native, "update")).toBe(false);
+        scenario.native.update(0.1);
+      } else {
+        scenario.update();
+      }
+      expect(scenario.camera.quaternion.angleTo(before)).toBeGreaterThan(0.01);
+      expect(scenario.types().filter((type) => type === "end")).toHaveLength(1);
+    },
+  );
+
+  interactionTest.for([false, true])(
+    `${kind} preserves autoRotate=%s and speed changes inside change callbacks`,
+    (value, { cleanup, gamepadPolling }) => {
+      const scenario = createOrbitScenario(kind, cleanup);
+      scenario.native.autoRotate = true;
+      const descriptor = Object.getOwnPropertyDescriptor(
+        scenario.native,
+        "autoRotate",
+      );
+      const listener = () => {
+        expect(scenario.native.autoRotate).toBe(true);
+        scenario.native.autoRotate = value;
+        scenario.native.autoRotateSpeed = 5;
+        scenario.native.removeEventListener("change", listener);
+      };
+      scenario.native.addEventListener("change", listener);
+      cleanup.add("listener", () =>
+        scenario.native.removeEventListener("change", listener),
+      );
+      gamepadPolling.publishFrame([3, orbitActionInput(kind)]);
+      scenario.wrapper.update(0.1);
+      const after = scenario.camera.quaternion.clone();
+      scenario.native.update(0.1);
+      expect(scenario.camera.quaternion.angleTo(after)).toBeLessThan(1e-7);
+      expect(scenario.native.autoRotate).toBe(value);
+      expect(scenario.native.autoRotateSpeed).toBe(5);
+      expect(
+        Object.getOwnPropertyDescriptor(scenario.native, "autoRotate"),
+      ).toEqual({
+        ...descriptor,
+        value,
+      });
+      gamepadPolling.publishFrame([3]);
+      scenario.update();
+      expect(scenario.camera.quaternion.angleTo(after)).toBeCloseTo(
+        value ? ((Math.PI * 2) / 60) * 5 * 0.1 : 0,
+        7,
+      );
+    },
+  );
+
+  for (const projection of ["perspective", "orthographic"] as const) {
+    interactionTest.for([false, true])(
+      `${kind} ${projection} preserves pointer gating with screenSpacePanning=%s`,
+      (screenSpacePanning, { cleanup, gamepadPolling }) => {
+        const actual = createOrbitScenario(kind, cleanup, 0, projection);
+        const reference = createOrbitScenario(kind, cleanup, 3, projection);
+        for (const scenario of [actual, reference]) {
+          scenario.camera.position.set(0, 10, 10);
+          scenario.native.update();
+          scenario.events.length = 0;
+          scenario.native.autoRotate = true;
+          scenario.native.screenSpacePanning = screenSpacePanning;
+          vi.spyOn(scenario.element, "setPointerCapture").mockImplementation(
+            () => {},
+          );
+          vi.spyOn(
+            scenario.element,
+            "releasePointerCapture",
+          ).mockImplementation(() => {});
+          scenario.element.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              pointerId: 1,
+              pointerType: "mouse",
+              button: 0,
+              clientX: 200,
+              clientY: 200,
+              bubbles: true,
+            }),
+          );
+        }
+        cleanup.add("listener", () =>
+          document.dispatchEvent(
+            new PointerEvent("pointerup", {
+              pointerId: 1,
+              pointerType: "mouse",
+              button: 0,
+            }),
+          ),
+        );
+        const input = orbitActionInput(kind);
+        gamepadPolling.publishFrame([0, input], [3, input]);
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+        document.dispatchEvent(
+          new PointerEvent("pointermove", {
+            pointerId: 1,
+            pointerType: "mouse",
+            button: 0,
+            clientX: 240,
+            clientY: 220,
+          }),
+        );
+        expectOrbitDestination(actual, reference);
+        gamepadPolling.publishFrame([0], [3]);
+        actual.update();
+        reference.update();
+        const held = actual.camera.quaternion.clone();
+        const heldAzimuth = actual.native.getAzimuthalAngle();
+        actual.native.update(0.1);
+        reference.native.update(0.1);
+        expect(actual.camera.quaternion.angleTo(held)).toBeLessThan(1e-7);
+        expectOrbitDestination(actual, reference);
+        document.dispatchEvent(
+          new PointerEvent("pointerup", {
+            pointerId: 1,
+            pointerType: "mouse",
+            button: 0,
+          }),
+        );
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+        expect(
+          Math.abs(actual.native.getAzimuthalAngle() - heldAzimuth),
+        ).toBeGreaterThan(0.01);
+      },
+    );
+  }
+}
+
+interactionTest.for([false, true])(
+  "Orbit/Map isolate autoRotate in slots 0/3 with reversed order %s",
+  (reverse, { cleanup, gamepadPolling }) => {
+    const actual = [
+      createOrbitScenario("orbit", cleanup, 0),
+      createOrbitScenario("map", cleanup, 3),
+    ];
+    const reference = [
+      createOrbitScenario("orbit", cleanup, 0),
+      createOrbitScenario("map", cleanup, 3),
+    ];
+    for (const scenario of actual) {
+      scenario.native.autoRotate = true;
+    }
+    const order = reverse ? [1, 0] : [0, 1];
+    for (const active of [
+      [true, false],
+      [false, true],
+      [true, true],
+      [false, false],
+    ]) {
+      gamepadPolling.publishFrame(
+        [0, active[0] ? orbitActionInput("orbit") : {}],
+        [3, active[1] ? orbitActionInput("map", "pan") : {}],
+      );
+      for (const index of order) {
+        reference[index].native.autoRotate = !active[index];
+        actual[index].wrapper.update(0.1);
+        reference[index].wrapper.update(0.1);
+      }
+      for (const index of order) {
+        actual[index].native.update(0.1);
+        reference[index].native.update(0.1);
+        expectOrbitDestination(actual[index], reference[index]);
+      }
+    }
+    actual[0].wrapper.dispose();
+    reference[0].wrapper.dispose();
+    reference[0].native.autoRotate = true;
+    gamepadPolling.publishFrame([0], [3, orbitActionInput("map", "pan")]);
+    reference[1].native.autoRotate = false;
+    for (const index of order) {
+      actual[index].update();
+      reference[index].update();
+      expectOrbitDestination(actual[index], reference[index]);
+    }
+  },
+);
+
+interactionTest.for([false, true])(
+  "Orbit restores inherited/owned native adapters, own descriptors: %s",
+  (own, { cleanup, gamepadPolling }) => {
+    let updateDescriptor: PropertyDescriptor | undefined;
+    let angleDescriptor: PropertyDescriptor | undefined;
+    const originalAngle = (OrbitControls.prototype as OrbitNative)
+      ._getAutoRotationAngle;
+    let retainedAngle = originalAngle;
+    const scenario = createOrbitScenario(
+      "orbit",
+      cleanup,
+      3,
+      "perspective",
+      {},
+      (native) => {
+        native.autoRotate = true;
+        if (own) {
+          const originalUpdate = native.update;
+          Object.defineProperty(native, "update", {
+            configurable: true,
+            enumerable: false,
+            writable: true,
+            value: function (this: OrbitControls, delta?: number | null) {
+              return originalUpdate.call(this, delta);
+            },
+          });
+          Object.defineProperty(native, "_getAutoRotationAngle", {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: originalAngle,
+          });
+        }
+        updateDescriptor = Object.getOwnPropertyDescriptor(native, "update");
+        angleDescriptor = Object.getOwnPropertyDescriptor(
+          native,
+          "_getAutoRotationAngle",
+        );
+      },
+    );
+    const native = scenario.native as OrbitNative;
+    const listener = () => {
+      retainedAngle = native._getAutoRotationAngle;
+      expect(retainedAngle.call(native, 0.1)).toBe(0);
+    };
+    native.addEventListener("change", listener);
+    cleanup.add("listener", () =>
+      native.removeEventListener("change", listener),
+    );
+    gamepadPolling.publishFrame([3, { axes: [0.4, 0, 0, 0] }]);
+    scenario.wrapper.update(0.1);
+    native.removeEventListener("change", listener);
+    expect(
+      Object.getOwnPropertyDescriptor(native, "_getAutoRotationAngle"),
+    ).toEqual(angleDescriptor);
+    expect(retainedAngle.call(native, 0.1)).toBeCloseTo(
+      originalAngle.call(native, 0.1),
+    );
+    const retainedUpdate = native.update;
+    expect(native.update(0.1)).toBe(false);
+    scenario.wrapper.dispose();
+    expect(Object.getOwnPropertyDescriptor(native, "update")).toEqual(
+      updateDescriptor,
+    );
+    expect(retainedUpdate(0.1)).toBe(true);
+    const polls = gamepadPolling.getGamepads.mock.calls.length;
+    scenario.wrapper.enabled = true;
+    scenario.wrapper.update(0.1);
+    expect(gamepadPolling.getGamepads).toHaveBeenCalledTimes(polls);
+  },
+);
+
+interactionTest(
+  "Orbit preserves a later native update replacement on disposal",
+  ({ cleanup, gamepadPolling }) => {
+    const scenario = createOrbitScenario("orbit", cleanup);
+    scenario.native.autoRotate = true;
+    gamepadPolling.publishFrame([3, orbitActionInput("orbit")]);
+    scenario.wrapper.update(0.1);
+    const replacement = vi.fn(scenario.native.update);
+    scenario.native.update = replacement;
+    scenario.wrapper.dispose();
+    expect(scenario.native.update).toBe(replacement);
+    expect(scenario.native.update(0.1)).toBe(true);
+    expect(replacement).toHaveBeenCalledExactlyOnceWith(0.1);
+  },
+);
+
+interactionTest.for([
+  "replace",
+  "delete",
+  "configurable",
+  "enumerable",
+  "writable",
+] as const)(
+  "Orbit preserves a later automatic-angle descriptor change: %s",
+  (change, { cleanup, gamepadPolling }) => {
+    const scenario = createOrbitScenario("orbit", cleanup);
+    const native = scenario.native as OrbitNative;
+    native.autoRotate = true;
+    const original = native._getAutoRotationAngle;
+    let retained = original;
+    let expected: PropertyDescriptor | undefined;
+    const listener = () => {
+      native.removeEventListener("change", listener);
+      retained = native._getAutoRotationAngle;
+      if (change === "delete") {
+        Reflect.deleteProperty(native, "_getAutoRotationAngle");
+      } else if (change === "replace") {
+        native._getAutoRotationAngle = original;
+      } else {
+        Object.defineProperty(native, "_getAutoRotationAngle", {
+          [change]: change === "enumerable",
+        });
+      }
+      expected = Object.getOwnPropertyDescriptor(
+        native,
+        "_getAutoRotationAngle",
+      );
+    };
+    native.addEventListener("change", listener);
+    cleanup.add("listener", () =>
+      native.removeEventListener("change", listener),
+    );
+    gamepadPolling.publishFrame([3, { axes: [0.4, 0, 0, 0] }]);
+    scenario.wrapper.update(0.1);
+    expect(
+      Object.getOwnPropertyDescriptor(native, "_getAutoRotationAngle"),
+    ).toEqual(expected);
+    expect(retained.call(native, 0.1)).toBeCloseTo(original.call(native, 0.1));
+    const before = scenario.camera.quaternion.clone();
+    gamepadPolling.publishFrame([3]);
+    scenario.update();
+    expect(scenario.camera.quaternion.angleTo(before)).toBeGreaterThan(0.01);
+  },
+);
+
+interactionTest(
+  "Orbit revalidates a pause during the native autoRotate getter",
+  ({ cleanup, gamepadPolling }) => {
+    const scenario = createOrbitScenario("orbit", cleanup);
+    Object.defineProperty(scenario.native, "autoRotate", {
+      configurable: true,
+      get: () => {
+        scenario.wrapper.enabled = false;
+        return true;
+      },
+    });
+    gamepadPolling.publishFrame([3, { axes: [0.4, 0, 0, 0] }]);
+    scenario.wrapper.update(0.1);
+    expect(scenario.native.getAzimuthalAngle()).toBeCloseTo(
+      -0.4 * 0.1 * Math.PI -
+        ((Math.PI * 2) / 60 / 60) * scenario.native.autoRotateSpeed,
+      10,
+    );
+    expect(scenario.types()).toEqual(["start", "change"]);
+    expect(Object.hasOwn(scenario.native, "_getAutoRotationAngle")).toBe(false);
+  },
+);
+
+interactionTest(
+  "Orbit preserves a nonconfigurable autoRotate setting",
+  ({ cleanup, gamepadPolling }) => {
+    const scenario = createOrbitScenario(
+      "orbit",
+      cleanup,
+      3,
+      "perspective",
+      {},
+      (native) => {
+        Object.defineProperty(native, "autoRotate", {
+          configurable: false,
+          enumerable: true,
+          writable: false,
+          value: true,
+        });
+      },
+    );
+    const descriptor = Object.getOwnPropertyDescriptor(
+      scenario.native,
+      "autoRotate",
+    );
+    gamepadPolling.publishFrame([3, orbitActionInput("orbit")]);
+    scenario.wrapper.update(0.1);
+    const after = scenario.camera.quaternion.clone();
+    expect(scenario.native.update(0.1)).toBe(false);
+    expect(scenario.camera.quaternion.angleTo(after)).toBeLessThan(1e-7);
+    scenario.wrapper.dispose();
+    expect(scenario.native.update(0.1)).toBe(true);
+    expect(
+      Object.getOwnPropertyDescriptor(scenario.native, "autoRotate"),
+    ).toEqual(descriptor);
+  },
+);
+
+interactionTest.for(["start", "internal change", "external change"] as const)(
+  "Orbit clears autoRotate suppression after a throwing %s listener",
+  (stage, { cleanup, gamepadPolling }) => {
+    const scenario = createOrbitScenario("orbit", cleanup);
+    scenario.native.autoRotate = true;
+    scenario.native.enableDamping = stage === "external change";
+    scenario.native.dampingFactor = 0.2;
+    const event = stage === "start" ? "start" : "change";
+    const fail = () => {
+      throw new Error("listener failure");
+    };
+    cleanup.add("listener", () =>
+      scenario.native.removeEventListener(event, fail),
+    );
+    gamepadPolling.publishFrame([3, orbitActionInput("orbit")]);
+    if (stage === "external change") {
+      scenario.wrapper.update(0.1);
+      scenario.native.addEventListener(event, fail);
+      expect(() => scenario.native.update(0.1)).toThrow("listener failure");
+    } else {
+      scenario.native.addEventListener(event, fail);
+      expect(() => scenario.wrapper.update(0.1)).toThrow("listener failure");
+    }
+    scenario.native.removeEventListener(event, fail);
+    expect(Object.hasOwn(scenario.native, "_getAutoRotationAngle")).toBe(false);
+    const before = scenario.camera.quaternion.clone();
+    expect(scenario.native.update(0.1)).toBe(true);
+    expect(scenario.camera.quaternion.angleTo(before)).toBeGreaterThan(1e-5);
+    gamepadPolling.publishFrame([3]);
+    scenario.update();
+    expect(scenario.types().filter((type) => type === "end")).toHaveLength(1);
+  },
+);
+
+for (const stage of [
+  "pipeline",
+  "start",
+  "change",
+  "between updates",
+] as const) {
+  interactionTest.for(["gamepad", "camera"] as const)(
+    `Orbit invalidates autoRotate intent when the %s changes during ${stage}`,
+    (destination, { cleanup, gamepadPolling }) => {
+      let scenario: OrbitScenario;
+      const invalidate = () => {
+        if (destination === "gamepad") {
+          scenario.wrapper.gamepad = createGamepad(3);
+        } else {
+          scenario.native.object = scenario.camera.clone();
+        }
+      };
+      scenario = createOrbitScenario("orbit", cleanup, 3, "perspective", {
+        rotateStick:
+          stage === "pipeline"
+            ? {
+                pipeline: gamepadStickPipeline().transform((value) => {
+                  invalidate();
+                  return value;
+                }),
+              }
+            : {},
+      });
+      scenario.native.autoRotate = true;
+      if (stage === "start" || stage === "change") {
+        const listener = () => {
+          scenario.native.removeEventListener(stage, listener);
+          invalidate();
+        };
+        scenario.native.addEventListener(stage, listener);
+        cleanup.add("listener", () =>
+          scenario.native.removeEventListener(stage, listener),
+        );
+      }
+      gamepadPolling.publishFrame([3, orbitActionInput("orbit")]);
+      scenario.wrapper.update(0.1);
+      if (stage === "between updates") {
+        invalidate();
+      }
+      const before = scenario.native.object.quaternion.clone();
+      scenario.native.update(0.1);
+      expect(scenario.native.object.quaternion.angleTo(before)).toBeGreaterThan(
+        0.01,
+      );
+      expect(scenario.types().filter((type) => type === "start")).toHaveLength(
+        stage === "pipeline" ? 0 : 1,
+      );
+    },
+  );
+}
+
+for (const kind of ["orbit", "map"] as const) {
+  interactionTest.for(["pause", "event loss", "poll loss"] as const)(
+    `${kind} rearms autoRotate suppression after %s`,
+    (transition, { cleanup, gamepadPolling }) => {
+      const actual = createOrbitScenario(kind, cleanup, 0);
+      const reference = createOrbitScenario(kind, cleanup, 3);
+      actual.native.autoRotate = true;
+      const input = orbitActionInput(kind);
+      gamepadPolling.publishFrame([0, input], [3, input]);
+      actual.update();
+      reference.update();
+      expectOrbitDestination(actual, reference);
+      reference.native.autoRotate = true;
+      if (transition === "pause") {
+        actual.wrapper.enabled = reference.wrapper.enabled = false;
+        actual.wrapper.update(0.1);
+        reference.wrapper.update(0.1);
+      } else if (transition === "event loss") {
+        for (const scenario of [actual, reference]) {
+          dispatchGamepadEvent(
+            "gamepaddisconnected",
+            scenario.wrapper.gamepad as Gamepad,
+          );
+        }
+      } else {
+        gamepadPolling.publishFrame();
+        actual.wrapper.update(0.1);
+        reference.wrapper.update(0.1);
+      }
+      actual.native.update(0.1);
+      reference.native.update(0.1);
+      expectOrbitDestination(actual, reference);
+      actual.wrapper.enabled = reference.wrapper.enabled = true;
+      if (transition !== "pause") {
+        gamepadPolling.publishFrame([0], [3]);
+        actual.update();
+        reference.update();
+        expectOrbitDestination(actual, reference);
+      }
+      reference.native.autoRotate = false;
+      gamepadPolling.publishFrame([0, input], [3, input]);
+      actual.update();
+      reference.update();
+      expectOrbitDestination(actual, reference);
+      expect(actual.types().filter((type) => type === "start")).toHaveLength(
+        transition === "pause" ? 1 : 2,
+      );
+      expect(actual.types().filter((type) => type === "end")).toHaveLength(
+        transition === "pause" ? 0 : 1,
+      );
+    },
+  );
+
+  interactionTest(
+    `${kind} retains autoRotate suppression for other actions after a change callback`,
+    ({ cleanup, gamepadPolling }) => {
+      const actual = createOrbitScenario(kind, cleanup, 0);
+      const reference = createOrbitScenario(kind, cleanup, 3);
+      actual.native.autoRotate = true;
+      for (const scenario of [actual, reference]) {
+        const listener = () => {
+          scenario.native.enableRotate = false;
+        };
+        scenario.native.addEventListener("change", listener);
+        cleanup.add("listener", () =>
+          scenario.native.removeEventListener("change", listener),
+        );
+      }
+      const input = {
+        axes: [0.4, 0.2, 0.3, 0.2],
+        buttons: createGamepadButtons([7, false, 0.4]),
+      };
+      gamepadPolling.publishFrame([0, input], [3, input]);
+      actual.update();
+      reference.update();
+      expectOrbitDestination(actual, reference);
+      expect(actual.native.target.length()).toBeGreaterThan(0.1);
+      expect(
+        actual.camera.position.distanceTo(actual.native.target),
+      ).toBeLessThan(10);
+      for (const scenario of [actual, reference]) {
+        scenario.native.panSpeed = scenario.native.zoomSpeed = 0;
+      }
+      reference.native.autoRotate = true;
+      actual.native.update(0.1);
+      reference.native.update(0.1);
+      expectOrbitDestination(actual, reference);
+    },
+  );
+
+  interactionTest(
+    `${kind} respects autoRotate and speed assignments between wrapper and native updates`,
+    ({ cleanup, gamepadPolling }) => {
+      const actual = createOrbitScenario(kind, cleanup, 0);
+      const reference = createOrbitScenario(kind, cleanup, 3);
+      actual.native.autoRotate = true;
+      const input = orbitActionInput(kind);
+      gamepadPolling.publishFrame([0, input], [3, input]);
+      actual.wrapper.update(0.1);
+      reference.wrapper.update(0.1);
+      for (const value of [false, true, false, true]) {
+        actual.native.autoRotate = value;
+        actual.native.autoRotateSpeed = reference.native.autoRotateSpeed = 5;
+        actual.native.update(0.1);
+        reference.native.update(0.1);
+        expectOrbitDestination(actual, reference);
+        expect(actual.native.autoRotate).toBe(value);
+      }
+      actual.native.autoRotate = false;
+      gamepadPolling.publishFrame([0], [3]);
+      actual.update();
+      reference.update();
+      expectOrbitDestination(actual, reference);
+      const before = actual.native.getAzimuthalAngle();
+      actual.native.autoRotate = reference.native.autoRotate = true;
+      actual.native.update(0.1);
+      reference.native.update(0.1);
+      expectOrbitDestination(actual, reference);
+      expect(before - actual.native.getAzimuthalAngle()).toBeCloseTo(
+        ((Math.PI * 2) / 60) * 5 * 0.1,
+        10,
+      );
+    },
+  );
+}
 
 interactionTest.for(sessionKinds)(
   "%s balances continuous input and keeps native change notifications",
