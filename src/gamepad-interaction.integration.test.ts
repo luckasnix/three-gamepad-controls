@@ -1,4 +1,11 @@
-import { type EventDispatcher, Quaternion } from "three";
+import {
+  type EventDispatcher,
+  Line,
+  type Matrix4,
+  type Object3D,
+  Quaternion,
+  type Vector3,
+} from "three";
 import { ArcballControls } from "three/addons/controls/ArcballControls.js";
 import { MapControls } from "three/addons/controls/MapControls.js";
 import {
@@ -152,6 +159,495 @@ const createScenario = (
     index,
   };
 };
+
+type ArcballGeometry = ArcballControls & {
+  target: Vector3;
+  _gizmos: Object3D;
+  _tbRadius: number;
+  _state: unknown;
+  onSinglePanStart(
+    event: { clientX: number; clientY: number },
+    operation: string,
+  ): void;
+  applyTransformMatrix(transformation: {
+    camera: Matrix4 | null;
+    gizmos: Matrix4 | null;
+  }): void;
+  onDoubleTap(event: { clientX: number; clientY: number }): void;
+};
+
+/** Reads geometry without repairing the camera projection under test. */
+const arcballGeometry = (scenario: ReturnType<typeof createScenario>) => {
+  const { camera } = scenario;
+  const native = scenario.native as ArcballGeometry;
+  camera.updateMatrixWorld(true);
+  native._gizmos.updateMatrixWorld(true);
+  return {
+    near: camera.near,
+    far: camera.far,
+    zoom: camera.zoom,
+    projection: camera.projectionMatrix.toArray(),
+    inverse: camera.projectionMatrixInverse.toArray(),
+    position: camera.position.toArray(),
+    quaternion: camera.quaternion.toArray(),
+    up: camera.up.toArray(),
+    matrix: camera.matrix.toArray(),
+    world: camera.matrixWorld.toArray(),
+    target: native.target.toArray(),
+    gizmos: native._gizmos.matrix.toArray(),
+    gizmosWorld: native._gizmos.matrixWorld.toArray(),
+    gizmoVertices: native._gizmos.children.flatMap((child) =>
+      child instanceof Line
+        ? Array.from<number>(child.geometry.getAttribute("position").array)
+        : [],
+    ),
+    radius: native._tbRadius,
+  };
+};
+
+/** Compares native results with numerical tolerance, including quaternion sign. */
+const expectArcballGeometry = (
+  actual: ReturnType<typeof arcballGeometry>,
+  expected: ReturnType<typeof arcballGeometry>,
+) => {
+  for (const key of ["near", "far", "zoom", "radius"] as const) {
+    expect(actual[key], key).toBeCloseTo(expected[key], 9);
+  }
+  expect(
+    new Quaternion()
+      .fromArray(actual.quaternion)
+      .angleTo(new Quaternion().fromArray(expected.quaternion)),
+  ).toBeLessThan(1e-7);
+  for (const key of [
+    "projection",
+    "inverse",
+    "position",
+    "up",
+    "matrix",
+    "world",
+    "target",
+    "gizmos",
+    "gizmosWorld",
+    "gizmoVertices",
+  ] as const) {
+    actual[key].forEach((value, index) => {
+      expect(value, `${key}[${index}]`).toBeCloseTo(expected[key][index], 9);
+    });
+  }
+};
+
+interactionTest(
+  "Arcball clipping matches native wheel zoom-out before rendering",
+  ({ cleanup, gamepadPolling }) => {
+    const actual = createScenario("arcball", cleanup);
+    const reference = createScenario("arcball", cleanup);
+    (actual.native as ArcballControls).adjustNearFar = true;
+    (reference.native as ArcballControls).adjustNearFar = true;
+    const changes = collectEvents(
+      cleanup,
+      actual.dispatcher,
+      ["change"],
+      "actual",
+      () => arcballGeometry(actual),
+    );
+    reference.element.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 125,
+        cancelable: true,
+      }),
+    );
+    gamepadPolling.publishFrame([
+      3,
+      {
+        buttons: createGamepadButtons([6, false, 1]),
+      },
+    ]);
+    actual.wrapper.update(1 / 8);
+    const expected = arcballGeometry(reference);
+    expect(expected.near).toBeGreaterThan(0.1);
+    expectArcballGeometry(arcballGeometry(actual), expected);
+    expect(changes).toHaveLength(1);
+    expectArcballGeometry(changes[0].data, expected);
+  },
+);
+
+for (const projection of ["perspective", "orthographic"] as const) {
+  for (const adjustNearFar of [true, false]) {
+    interactionTest(
+      `Arcball clipping ${projection} adjust=${adjustNearFar} matches wheel, focus and subsequent rotations`,
+      ({ cleanup, gamepadPolling }) => {
+        const actual = createScenario("arcball", cleanup, 3, projection);
+        const reference = createScenario("arcball", cleanup, 0, projection);
+        const native = actual.native as ArcballGeometry;
+        const referenceNative = reference.native as ArcballGeometry;
+        native.adjustNearFar = referenceNative.adjustNearFar = adjustNearFar;
+        const originalApply = native.applyTransformMatrix;
+        const changes = collectEvents(
+          cleanup,
+          actual.dispatcher,
+          ["change"],
+          "actual",
+          () => arcballGeometry(actual),
+        );
+        const compare = () => {
+          const expected = arcballGeometry(reference);
+          expectArcballGeometry(arcballGeometry(actual), expected);
+          expectArcballGeometry(changes[changes.length - 1].data, expected);
+          expect(native.applyTransformMatrix).toBe(originalApply);
+          expect(Object.hasOwn(native, "applyTransformMatrix")).toBe(false);
+          const projected = actual.camera.clone();
+          projected.updateProjectionMatrix();
+          expect(
+            actual.camera.projectionMatrix.equals(projected.projectionMatrix),
+          ).toBe(true);
+          expect(
+            actual.camera.projectionMatrixInverse.equals(
+              projected.projectionMatrixInverse,
+            ),
+          ).toBe(true);
+        };
+        for (const amount of [-1, 0.5, -0.75, 1]) {
+          reference.element.dispatchEvent(
+            new WheelEvent("wheel", {
+              deltaY: -125 * amount,
+              cancelable: true,
+            }),
+          );
+          gamepadPolling.publishFrame([
+            3,
+            {
+              buttons: createGamepadButtons([
+                amount > 0 ? 7 : 6,
+                false,
+                Math.abs(amount),
+              ]),
+            },
+          ]);
+          actual.wrapper.update(1 / 8);
+          compare();
+        }
+        // Focus a real center-ray hit beyond the original target, then restore
+        // clipping through focus with adjustment disabled and zoom still enabled.
+        for (const adjust of [adjustNearFar, !adjustNearFar, false]) {
+          native.adjustNearFar = referenceNative.adjustNearFar = adjust;
+          for (const scenario of [actual, reference]) {
+            scenario.mesh.position.z -= 3;
+            scenario.scene.updateMatrixWorld(true);
+          }
+          gamepadPolling.publishFrame([3]);
+          actual.wrapper.update(1 / 8);
+          referenceNative.onDoubleTap({ clientX: 400, clientY: 300 });
+          gamepadPolling.publishFrame([
+            3,
+            { buttons: createGamepadButtons([0, true]) },
+          ]);
+          actual.wrapper.update(1 / 8);
+          compare();
+        }
+        expect(actual.camera.near).toBe(0.1);
+        expect(actual.camera.far).toBe(1000);
+        // Identical gamepad rotations must remain coherent after either native
+        // or gamepad scaling/focus history, including the view-axis up vector.
+        for (const input of [
+          { axes: [0.4, -0.3, 0, 0] },
+          { buttons: createGamepadButtons([4, false, 0.6]) },
+        ]) {
+          gamepadPolling.publishFrame([0, input], [3, input]);
+          reference.wrapper.update(1 / 8);
+          actual.wrapper.update(1 / 8);
+          compare();
+        }
+      },
+    );
+  }
+
+  interactionTest(
+    `Arcball clipping ${projection} preserves native distance and zoom clamps`,
+    ({ cleanup, gamepadPolling }) => {
+      const actual = createScenario("arcball", cleanup, 3, projection);
+      const reference = createScenario("arcball", cleanup, 0, projection);
+      for (const scenario of [actual, reference]) {
+        const native = scenario.native as ArcballControls;
+        native.adjustNearFar = true;
+        native.minDistance = 9;
+        native.maxDistance = 11;
+        native.minZoom = 0.9;
+        native.maxZoom = 1.1;
+      }
+      for (const amount of [-1, -1, 1, 1, 1]) {
+        reference.element.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: -125 * amount * 4,
+            cancelable: true,
+          }),
+        );
+        gamepadPolling.publishFrame([
+          3,
+          {
+            buttons: createGamepadButtons([amount > 0 ? 7 : 6, false, 1]),
+          },
+        ]);
+        actual.wrapper.update(0.5);
+        expectArcballGeometry(
+          arcballGeometry(actual),
+          arcballGeometry(reference),
+        );
+      }
+      expect(actual.types()).toEqual(["start", ...Array(5).fill("change")]);
+      gamepadPolling.publishFrame([3]);
+      actual.wrapper.update(0.5);
+      expect(actual.types().at(-1)).toBe("end");
+    },
+  );
+
+  for (const hit of [true, false]) {
+    interactionTest(
+      `Arcball clipping ${projection} focus with zoom disabled and hit=${hit}`,
+      ({ cleanup, gamepadPolling }) => {
+        const actual = createScenario("arcball", cleanup, 3, projection);
+        const reference = createScenario("arcball", cleanup, 0, projection);
+        for (const scenario of [actual, reference]) {
+          const native = scenario.native as ArcballControls;
+          native.adjustNearFar = true;
+          scenario.element.dispatchEvent(
+            new WheelEvent("wheel", { deltaY: 125 }),
+          );
+          // Disabling adjustment alone must not restore clipping. Native focus
+          // without zoom only translates; it does not apply scale side effects.
+          native.adjustNearFar = false;
+          native.enableZoom = false;
+          scenario.mesh.position.set(hit ? 0 : 100, 0, -3);
+          scenario.scene.updateMatrixWorld(true);
+          scenario.events.length = 0;
+        }
+        const before = arcballGeometry(actual);
+        gamepadPolling.publishFrame([3]);
+        actual.wrapper.update(0.1);
+        (reference.native as ArcballGeometry).onDoubleTap({
+          clientX: 400,
+          clientY: 300,
+        });
+        gamepadPolling.publishFrame([
+          3,
+          { buttons: createGamepadButtons([0, true]) },
+        ]);
+        actual.wrapper.update(0.1);
+        const after = arcballGeometry(actual);
+        expectArcballGeometry(after, arcballGeometry(reference));
+        expect(after.near).toBe(before.near);
+        expect(after.far).toBe(before.far);
+        expect(actual.types()).toEqual(hit ? ["start", "change", "end"] : []);
+      },
+    );
+  }
+}
+
+interactionTest(
+  "Arcball clipping applies once without borrowing an existing native zoom state",
+  ({ cleanup, gamepadPolling }) => {
+    const actual = createScenario("arcball", cleanup);
+    const reference = createScenario("arcball", cleanup);
+    const native = actual.native as ArcballGeometry;
+    native.adjustNearFar = true;
+    (reference.native as ArcballControls).adjustNearFar = true;
+    native.onSinglePanStart({ clientX: 400, clientY: 300 }, "ZOOM");
+    const state = native._state;
+    const projectionUpdate = vi.spyOn(actual.camera, "updateProjectionMatrix");
+    const originalApply = vi.spyOn(native, "applyTransformMatrix");
+    gamepadPolling.publishFrame([3]);
+    actual.wrapper.update(0.125);
+    for (const button of [6, 0]) {
+      projectionUpdate.mockClear();
+      if (button === 6) {
+        reference.element.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: 125 }),
+        );
+      } else {
+        (reference.native as ArcballGeometry).onDoubleTap({
+          clientX: 400,
+          clientY: 300,
+        });
+      }
+      gamepadPolling.publishFrame([
+        3,
+        { buttons: createGamepadButtons([button, true]) },
+      ]);
+      actual.wrapper.update(0.125);
+      expectArcballGeometry(
+        arcballGeometry(actual),
+        arcballGeometry(reference),
+      );
+      expect(projectionUpdate).toHaveBeenCalledOnce();
+      expect(originalApply).not.toHaveBeenCalled();
+      expect(native.applyTransformMatrix).toBe(originalApply);
+      expect(native._state).toBe(state);
+    }
+  },
+);
+
+interactionTest.for([false, true])(
+  "Arcball clipping stays independent across slots 0/3 with reverse=%s",
+  (reverse, { cleanup, gamepadPolling }) => {
+    const first = createScenario("arcball", cleanup, 0, "perspective");
+    const second = createScenario("arcball", cleanup, 3, "orthographic");
+    const references = [
+      createScenario("arcball", cleanup, 0, "perspective"),
+      createScenario("arcball", cleanup, 3, "orthographic"),
+    ];
+    const scenarios = [first, second];
+    const order = reverse ? [second, first] : scenarios;
+    for (const [index, scenario] of scenarios.entries()) {
+      const native = scenario.native as ArcballGeometry;
+      const reference = references[index].native as ArcballGeometry;
+      native.adjustNearFar = reference.adjustNearFar = index === 0;
+      native.scaleFactor = reference.scaleFactor = index === 0 ? 1.5 : 2;
+    }
+    gamepadPolling.publishFrame([0], [3]);
+    for (const scenario of order) {
+      scenario.wrapper.update(0.125);
+    }
+    for (const input of [
+      { buttons: createGamepadButtons([6, false, 1]) },
+      { buttons: createGamepadButtons([0, true]) },
+    ]) {
+      gamepadPolling.publishFrame([0, input], [3, input]);
+      for (const scenario of order) {
+        const other = scenario === first ? second : first;
+        const beforeOther = arcballGeometry(other);
+        scenario.wrapper.update(0.125);
+        expectArcballGeometry(arcballGeometry(other), beforeOther);
+      }
+      for (const [index, reference] of references.entries()) {
+        if (input.buttons[0]?.pressed) {
+          (reference.native as ArcballGeometry).onDoubleTap({
+            clientX: 400,
+            clientY: 300,
+          });
+        } else {
+          reference.element.dispatchEvent(
+            new WheelEvent("wheel", { deltaY: 125 }),
+          );
+        }
+        expectArcballGeometry(
+          arcballGeometry(scenarios[index]),
+          arcballGeometry(reference),
+        );
+        expect(
+          Object.hasOwn(scenarios[index].native, "applyTransformMatrix"),
+        ).toBe(false);
+      }
+    }
+    first.wrapper.dispose();
+    const beforeFirst = arcballGeometry(first);
+    gamepadPolling.publishFrame([
+      3,
+      { buttons: createGamepadButtons([7, false, 1]) },
+    ]);
+    second.wrapper.update(0.125);
+    references[1].element.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: -125 }),
+    );
+    expectArcballGeometry(
+      arcballGeometry(second),
+      arcballGeometry(references[1]),
+    );
+    expectArcballGeometry(arcballGeometry(first), beforeFirst);
+  },
+);
+
+interactionTest.for([
+  "pause",
+  "disable",
+  "event",
+  "polling",
+  "dispose",
+] as const)(
+  "Arcball clipping retains geometry on %s and leaves native wheel usable",
+  (reason, { cleanup, gamepadPolling }) => {
+    const scenario = createScenario("arcball", cleanup);
+    const reference = createScenario("arcball", cleanup);
+    const native = scenario.native as ArcballGeometry;
+    native.adjustNearFar = true;
+    (reference.native as ArcballControls).adjustNearFar = true;
+    const originalApply = native.applyTransformMatrix;
+    gamepadPolling.publishFrame([
+      3,
+      { buttons: createGamepadButtons([6, false, 1]) },
+    ]);
+    scenario.wrapper.update(0.125);
+    reference.element.dispatchEvent(new WheelEvent("wheel", { deltaY: 125 }));
+    const before = arcballGeometry(scenario);
+    if (reason === "pause") {
+      scenario.wrapper.enabled = false;
+    } else if (reason === "disable") {
+      native.enabled = false;
+    } else if (reason === "event") {
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        gamepadPolling.gamepads[3] as Gamepad,
+      );
+      gamepadPolling.publishFrame();
+    } else if (reason === "polling") {
+      gamepadPolling.publishFrame();
+    } else {
+      scenario.wrapper.dispose();
+    }
+    scenario.wrapper.update(0.125);
+    expectArcballGeometry(arcballGeometry(scenario), before);
+    expect(scenario.types()).toEqual(
+      reason === "pause" ? ["start", "change"] : ["start", "change", "end"],
+    );
+    native.enabled = true;
+    scenario.wrapper.enabled = true;
+    gamepadPolling.publishFrame([3]);
+    scenario.wrapper.update(0.125);
+    expect(scenario.types()).toEqual(["start", "change", "end"]);
+    scenario.wrapper.dispose();
+    expect(native.applyTransformMatrix).toBe(originalApply);
+    for (const target of [scenario, reference]) {
+      target.element.dispatchEvent(new WheelEvent("wheel", { deltaY: -125 }));
+    }
+    expectArcballGeometry(
+      arcballGeometry(scenario),
+      arcballGeometry(reference),
+    );
+  },
+);
+
+interactionTest(
+  "Arcball clipping uses configuration changed by start and publishes complete geometry at change",
+  ({ cleanup, gamepadPolling }) => {
+    const actual = createScenario("arcball", cleanup);
+    const reference = createScenario("arcball", cleanup);
+    for (const scenario of [actual, reference]) {
+      (scenario.native as ArcballControls).adjustNearFar = true;
+      scenario.element.dispatchEvent(new WheelEvent("wheel", { deltaY: 125 }));
+    }
+    const native = actual.native as ArcballControls;
+    const onStart = () => {
+      native.adjustNearFar = false;
+    };
+    native.addEventListener("start", onStart);
+    cleanup.add("listener", () => native.removeEventListener("start", onStart));
+    const changes = collectEvents(
+      cleanup,
+      actual.dispatcher,
+      ["change"],
+      "actual",
+      () => arcballGeometry(actual),
+    );
+    (reference.native as ArcballControls).adjustNearFar = false;
+    reference.element.dispatchEvent(new WheelEvent("wheel", { deltaY: 125 }));
+    gamepadPolling.publishFrame([
+      3,
+      { buttons: createGamepadButtons([6, false, 1]) },
+    ]);
+    actual.wrapper.update(0.125);
+    expect(changes).toHaveLength(1);
+    expectArcballGeometry(changes[0].data, arcballGeometry(reference));
+    expect(native.adjustNearFar).toBe(false);
+  },
+);
 
 /** Narrows the real Orbit/Map scenario for automatic-rotation regressions. */
 const createOrbitScenario = (

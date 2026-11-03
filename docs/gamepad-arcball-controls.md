@@ -54,6 +54,16 @@ Gamepad input respects `enabled`, `enableRotate`, `enablePan`, `enableZoom`, `en
 
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Pipelines do not process zoom, Z rotation, or focus buttons; `buttonDeadzone` controls the scalar analog threshold. See [Stick Processing](./gamepad-stick-processing.md).
 
+## Clipping and projection
+
+Configure `adjustNearFar` on the wrapped `ArcballControls`. Gamepad zoom and the zoom portion of center focus follow the native clipping rules for both perspective and orthographic cameras. With adjustment enabled, camera distance and gizmo bounds determine `near` and `far` using Arcball's stored reference values. The projection matrix and its inverse are ready when the gamepad `change` event is dispatched.
+
+After setting `adjustNearFar = false`, the next gamepad zoom or focus that applies zoom restores Arcball's initial clipping planes, matching the native operation. Changing the flag alone leaves the current planes in place. Focus with `enableZoom = false` only translates the camera and center, and leaves clipping unchanged. A center-ray miss performs no focus operation.
+
+Zoom remains centered on the Arcball gizmos. Scale and focus preserve native distance/zoom limits, gizmo transforms and trackball radius, including subsequent rotation and Z-rotation. These geometric updates run once per scale application and do not require an extra native `update()` in the render loop.
+
+The clipping integration is local to each wrapper and native control pair. Its synchronous focus adapter is restored before gamepad `change` listeners run, including cleanup if focus throws. The wrapper continues to own only its gamepad session; animation and pointer-session arbitration follow the existing contract described below.
+
 ## Properties
 
 Inherits all properties from [`GamepadControls`](./gamepad-controls.md#properties).

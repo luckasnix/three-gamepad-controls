@@ -1,7 +1,11 @@
 import {
+  Box3,
   type Camera,
-  type Matrix4,
+  Matrix4,
   type Object3D,
+  type OrthographicCamera,
+  type PerspectiveCamera,
+  Sphere,
   Vector2,
   Vector3,
 } from "three";
@@ -142,7 +146,7 @@ type ArcballTransformation = {
 
 type ArcballControlsWithRuntimeHelpers = ArcballControls & {
   // Camera controlled by the Arcball instance.
-  object: Camera;
+  object: PerspectiveCamera | OrthographicCamera;
 
   // Internal gizmo object used as the center for scale and z-rotation.
   _gizmos: Object3D;
@@ -152,6 +156,17 @@ type ArcballControlsWithRuntimeHelpers = ArcballControls & {
 
   // Internal trackball radius used to scale pan deltas.
   _tbRadius: number;
+
+  // Native baselines, including translations temporarily used by focus().
+  _cameraMatrixState: Matrix4;
+  _gizmoMatrixState: Matrix4;
+  _initialNear: number;
+  _initialFar: number;
+  _nearPos0: number;
+  _farPos0: number;
+
+  // Computes the native radius without changing pointer/animation state.
+  calculateTbRadius(camera: Camera): number;
 
   // Refreshes ArcballControls cached camera and gizmo matrices.
   updateMatrixState(): void;
@@ -252,6 +267,9 @@ type ArcballActions = Omit<ArcballInput, "zoom"> & { zoomSize: number };
  * needed after manual camera or target changes, matching Arcball's native API.
  * Gamepad `start`, `change`, and `end` events are dispatched on the native controls.
  * The balanced session belongs to this wrapper, including isolated focus commands.
+ * Zoom and focus preserve native `adjustNearFar` clipping and projection behavior,
+ * including restoration of the native initial planes on the next scale operation
+ * after adjustment is disabled. Focus without zoom leaves clipping unchanged.
  */
 export class GamepadArcballControls extends GamepadControls {
   readonly #controls: ArcballControlsWithRuntimeHelpers;
@@ -263,6 +281,9 @@ export class GamepadArcballControls extends GamepadControls {
   readonly #cameraForward: Vector3;
   readonly #cameraRight: Vector3;
   readonly #previousUp: Vector3;
+  readonly #scaleMatrix = new Matrix4();
+  readonly #gizmoBounds = new Box3();
+  readonly #gizmoSphere = new Sphere();
 
   /** Whether this wrapper owns an active gamepad interaction. */
   #wasInteracting = false;
@@ -576,7 +597,8 @@ export class GamepadArcballControls extends GamepadControls {
     if (transformation === undefined) {
       return false;
     }
-    this.#applyTransform(transformation);
+    this.#applyScaleTransform(transformation);
+    controls.updateMatrixState();
     return true;
   }
 
@@ -613,7 +635,27 @@ export class GamepadArcballControls extends GamepadControls {
     }
     const controls = this.#controls;
     controls.updateMatrixState();
-    controls.focus(point, controls.scaleFactor);
+    // focus() translates its cached baselines before applying scale. Route only
+    // that synchronous transform through our state-independent scale applicator.
+    const descriptor = Object.getOwnPropertyDescriptor(
+      controls,
+      "applyTransformMatrix",
+    );
+    const applyScale = (transformation: ArcballTransformation): void => {
+      this.#applyScaleTransform(transformation);
+    };
+    controls.applyTransformMatrix = applyScale;
+    try {
+      controls.focus(point, controls.scaleFactor);
+    } finally {
+      if (controls.applyTransformMatrix === applyScale) {
+        if (descriptor) {
+          Object.defineProperty(controls, "applyTransformMatrix", descriptor);
+        } else {
+          Reflect.deleteProperty(controls, "applyTransformMatrix");
+        }
+      }
+    }
     controls.updateMatrixState();
     return true;
   }
@@ -626,6 +668,63 @@ export class GamepadArcballControls extends GamepadControls {
   #applyTransform(transformation: ArcballTransformation): void {
     this.#controls.applyTransformMatrix(transformation);
     this.#controls.updateMatrixState();
+  }
+
+  /**
+   * Applies native scale matrices and geometric side effects exactly once.
+   * Arcball's own applicator gates these effects on inaccessible state Symbols.
+   * Reproduce its scale/focus branch without entering or borrowing pointer state;
+   * native scale() and focus() still own the transformation and limit calculations.
+   * Cached baselines must stay intact until focus() restores its temporary ones.
+   *
+   * @param transformation - Native camera and gizmo scale transformations.
+   */
+  #applyScaleTransform(transformation: ArcballTransformation): void {
+    const controls = this.#controls;
+    const camera = controls.object;
+    const gizmos = controls._gizmos;
+    if (transformation.camera !== null) {
+      this.#scaleMatrix
+        .copy(controls._cameraMatrixState)
+        .premultiply(transformation.camera)
+        .decompose(camera.position, camera.quaternion, camera.scale);
+      camera.updateMatrix();
+    }
+    if (transformation.gizmos !== null) {
+      this.#scaleMatrix
+        .copy(controls._gizmoMatrixState)
+        .premultiply(transformation.gizmos)
+        .decompose(gizmos.position, gizmos.quaternion, gizmos.scale);
+      gizmos.updateMatrix();
+    }
+    controls._tbRadius = controls.calculateTbRadius(camera);
+    if (controls.adjustNearFar) {
+      const distance = camera.position.distanceTo(gizmos.position);
+      this.#gizmoBounds
+        .setFromObject(gizmos)
+        .getBoundingSphere(this.#gizmoSphere);
+      const { radius, center } = this.#gizmoSphere;
+      const adjustedNear = Math.max(
+        controls._nearPos0,
+        radius + center.length(),
+      );
+      const adjustedFar = Math.min(
+        controls._farPos0,
+        -radius + center.length(),
+      );
+      camera.near =
+        distance - Math.min(adjustedNear, distance - controls._initialNear);
+      camera.far =
+        distance - Math.min(adjustedFar, distance - controls._initialFar);
+      camera.updateProjectionMatrix();
+    } else if (
+      camera.near !== controls._initialNear ||
+      camera.far !== controls._initialFar
+    ) {
+      camera.near = controls._initialNear;
+      camera.far = controls._initialFar;
+      camera.updateProjectionMatrix();
+    }
   }
 
   /**

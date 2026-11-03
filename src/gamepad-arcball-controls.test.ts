@@ -39,6 +39,7 @@ const createArcballControls = () => {
   object.lookAt(0, 0, 0);
   object.updateMatrixWorld();
   gizmos.position.set(1, 2, 3);
+  gizmos.updateMatrix();
   return {
     transformation,
     controls: {
@@ -54,6 +55,14 @@ const createArcballControls = () => {
       _gizmos: gizmos,
       _rotationAxis: new Vector3(),
       _tbRadius: 2,
+      _cameraMatrixState: object.matrix.clone(),
+      _gizmoMatrixState: gizmos.matrix.clone(),
+      _initialNear: object.near,
+      _initialFar: object.far,
+      _nearPos0: 10 - object.near,
+      _farPos0: 10 - object.far,
+      adjustNearFar: false,
+      calculateTbRadius: vi.fn(() => 2),
       applyTransformMatrix:
         vi.fn<(transformation: ArcballTransformation) => void>(),
       dispatchEvent: vi.fn<(event: { type: string }) => void>(),
@@ -324,8 +333,60 @@ describe("GamepadArcballControls pan and interaction events", () => {
 });
 
 describe("GamepadArcballControls zoom", () => {
+  gamepadTest.for(["camera", "gizmos"] as const)(
+    "preserves the absent %s component of a native scale transform",
+    (component) => {
+      const { controls: arcball, transformation } = createArcballControls();
+      transformation[component] = null;
+      const controls = createControls(arcball);
+      polling.publishFrame([
+        0,
+        { buttons: createGamepadButtons([6, false, 1]) },
+      ]);
+      controls.update(0.125);
+      expect(arcball.object.position.toArray()).toEqual(
+        component === "camera" ? [0, 0, 10] : [1, 2, 13],
+      );
+      expect(arcball._gizmos.position.toArray()).toEqual(
+        component === "gizmos" ? [1, 2, 3] : [2, 4, 6],
+      );
+    },
+  );
+
+  gamepadTest.for(["near", "far"] as const)(
+    "restores a changed %s plane and projection when adjustment is disabled",
+    (plane) => {
+      const { controls: arcball } = createArcballControls();
+      arcball.object[plane] *= 2;
+      arcball.object.updateProjectionMatrix();
+      const projectionUpdate = vi.spyOn(
+        arcball.object,
+        "updateProjectionMatrix",
+      );
+      const controls = createControls(arcball);
+      polling.publishFrame([
+        0,
+        { buttons: createGamepadButtons([6, false, 1]) },
+      ]);
+      controls.update(0.125);
+      expect(arcball.object.near).toBe(arcball._initialNear);
+      expect(arcball.object.far).toBe(arcball._initialFar);
+      expect(projectionUpdate).toHaveBeenCalledOnce();
+      const expected = arcball.object.clone();
+      expected.updateProjectionMatrix();
+      expect(
+        arcball.object.projectionMatrix.equals(expected.projectionMatrix),
+      ).toBe(true);
+      expect(
+        arcball.object.projectionMatrixInverse.equals(
+          expected.projectionMatrixInverse,
+        ),
+      ).toBe(true);
+    },
+  );
+
   gamepadTest("zooms around the gizmo center using trigger values", () => {
-    const { controls: arcball, transformation } = createArcballControls();
+    const { controls: arcball } = createArcballControls();
     const controls = createControls(arcball, { zoomSpeed: 1.5 });
     polling.gamepads[0] = createGamepad(0, {
       buttons: createGamepadButtons([6, false, 0.25], [7, false, 0.75]),
@@ -334,9 +395,10 @@ describe("GamepadArcballControls zoom", () => {
     const [size, point] = arcball.scale.mock.calls[0];
     expect(size).toBeCloseTo(2 ** 1.5);
     expect(point).toBe(arcball._gizmos.position);
-    expect(arcball.applyTransformMatrix).toHaveBeenCalledExactlyOnceWith(
-      transformation,
-    );
+    expect(arcball.object.position.toArray()).toEqual([1, 2, 13]);
+    expect(arcball._gizmos.position.toArray()).toEqual([2, 4, 6]);
+    expect(arcball._gizmos.scale.toArray()).toEqual([2, 2, 2]);
+    expect(arcball.applyTransformMatrix).not.toHaveBeenCalled();
     expect(arcball.update).toHaveBeenCalledOnce();
   });
 
@@ -409,6 +471,52 @@ describe("GamepadArcballControls z-rotation", () => {
 });
 
 describe("GamepadArcballControls focus", () => {
+  gamepadTest.for(["return", "throw", "replace"] as const)(
+    "restores only its own synchronous focus adapter on %s",
+    (outcome) => {
+      const { controls: arcball, transformation } = createArcballControls();
+      const original = arcball.applyTransformMatrix;
+      const descriptor = Object.getOwnPropertyDescriptor(
+        arcball,
+        "applyTransformMatrix",
+      );
+      const replacement = vi.fn();
+      arcball.unprojectOnObj.mockReturnValue(new Vector3(0, 0, 1));
+      arcball.focus.mockImplementation(() => {
+        expect(arcball.applyTransformMatrix).not.toBe(original);
+        arcball.applyTransformMatrix(transformation);
+        if (outcome === "throw") {
+          throw new Error("Application focus failure");
+        }
+        if (outcome === "replace") {
+          arcball.applyTransformMatrix = replacement;
+        }
+      });
+      const controls = createControls(arcball);
+      polling.publishFrame([0]);
+      controls.update(0.1);
+      polling.publishFrame([0, { buttons: createGamepadButtons([0, true]) }]);
+      if (outcome === "throw") {
+        expect(() => controls.update(0.1)).toThrow("Application focus failure");
+      } else {
+        controls.update(0.1);
+      }
+      expect(arcball.object.position.toArray()).toEqual([1, 2, 13]);
+      expect(original).not.toHaveBeenCalled();
+      if (outcome === "replace") {
+        expect(arcball.applyTransformMatrix).toBe(replacement);
+      } else {
+        expect(
+          Object.getOwnPropertyDescriptor(arcball, "applyTransformMatrix"),
+        ).toEqual(descriptor);
+      }
+      controls.dispose();
+      expect(arcball.applyTransformMatrix).toBe(
+        outcome === "replace" ? replacement : original,
+      );
+    },
+  );
+
   gamepadTest("focuses the object hit at the viewport center", () => {
     const { controls: arcball } = createArcballControls();
     const focusPoint = new Vector3(4, 5, 6);
