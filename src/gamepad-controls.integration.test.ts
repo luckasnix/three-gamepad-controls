@@ -2791,6 +2791,677 @@ const createProjectionScenario = (
   };
 };
 
+type TransformGeometryControls = TransformControls & {
+  minX: number;
+  worldPosition: Vector3;
+  worldQuaternion: Quaternion;
+  worldPositionStart: Vector3;
+  worldQuaternionStart: Quaternion;
+  rotationAxis: Vector3;
+  rotationAngle: number;
+};
+
+const createTransformGeometryScenario = (
+  cleanup: Cleanup,
+  polling: GamepadPollingFixture,
+  projection: "perspective" | "orthographic" = "orthographic",
+  index = 0,
+) => {
+  const environment = createThreeEnvironment(cleanup, projection);
+  const { mesh, scene, camera, element, syncMatrices } = environment;
+  const parent = new Group();
+  parent.position.set(1, -2, 0);
+  parent.rotation.z = 0.3;
+  scene.add(parent);
+  parent.add(mesh);
+  mesh.position.set(1, 2, 0);
+  const native = new TransformControls(
+    camera,
+    element,
+  ) as TransformGeometryControls;
+  cleanup.add("native", () => native.dispose());
+  native.attach(mesh);
+  native.axis = "X";
+  const helper = native.getHelper();
+  scene.add(helper);
+  cleanup.add("resource", () => helper.removeFromParent());
+  const wrapper = new GamepadTransformControls(native, {
+    gamepadIndex: index,
+    transformStick: { pipeline: gamepadStickPipeline() },
+  });
+  cleanup.add("wrapper", () => wrapper.dispose());
+  const frame = createFrameDriver(polling, syncMatrices, wrapper);
+  const step = (input: GamepadFixtureOptions = {}, dt = 0.02) =>
+    frame([[index, input]], dt);
+  syncMatrices();
+  step();
+  const guide = (name: string) => {
+    const guides: Object3D[] = [];
+    helper.traverse((child) => {
+      if (
+        child.name === name &&
+        (child as Object3D & { tag?: string }).tag === "helper"
+      ) {
+        guides.push(child);
+      }
+    });
+    return guides.find((child) => child.parent?.visible) as Object3D;
+  };
+  return {
+    ...environment,
+    parent,
+    native,
+    wrapper,
+    step,
+    guide,
+  };
+};
+
+describe("Transform geometry", () => {
+  integrationTest(
+    "keeps the native local-axis convention for rotation progress",
+    ({ cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      const start = new Quaternion().setFromAxisAngle(
+        new Vector3(0, 0, 1),
+        0.4,
+      );
+      s.mesh.quaternion.copy(start);
+      s.native.mode = "rotate";
+      s.native.axis = "X";
+      s.native.space = "local";
+      s.step({ axes: [0.5, -0.25] });
+      s.parent.rotation.z += 0.7;
+      s.step({ axes: [0.5, -0.25] });
+      expect(s.native.rotationAxis).toEqual(new Vector3(1, 0, 0));
+      expect(
+        start
+          .clone()
+          .multiply(
+            new Quaternion().setFromAxisAngle(
+              s.native.rotationAxis,
+              s.native.rotationAngle,
+            ),
+          )
+          .angleTo(s.mesh.quaternion),
+      ).toBeLessThan(1e-7);
+    },
+  );
+
+  integrationTest(
+    "keeps real START/END/DELTA geometry at the segment origin",
+    ({ cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      const origin = s.mesh.getWorldPosition(new Vector3());
+      const orientation = s.mesh.getWorldQuaternion(new Quaternion());
+      for (let frame = 0; frame < 3; frame++) {
+        if (frame > 0) {
+          s.parent.rotation.z += 0.2;
+          s.parent.position.x += 0.3;
+          s.parent.scale.set(2, 3, 4);
+        }
+        s.step({ axes: [0.5, 0] });
+        const end = s.mesh.getWorldPosition(new Vector3());
+        expect(s.native.worldPositionStart.distanceTo(origin)).toBeLessThan(
+          1e-8,
+        );
+        expect(s.native.worldQuaternionStart.angleTo(orientation)).toBeLessThan(
+          1e-7,
+        );
+        expect(
+          s.guide("START").getWorldPosition(new Vector3()).distanceTo(origin),
+        ).toBeLessThan(1e-8);
+        expect(
+          s.guide("END").getWorldPosition(new Vector3()).distanceTo(end),
+        ).toBeLessThan(1e-8);
+        expect(
+          new Vector3(1, 1, 1)
+            .applyMatrix4(s.guide("DELTA").matrixWorld)
+            .distanceTo(end),
+        ).toBeLessThan(1e-8);
+      }
+    },
+  );
+
+  integrationTest.for(["world", "local"] as const)(
+    "matches native pointer increments in %s space with changing parent scale",
+    (space, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      const reference = createTransformGeometryScenario(
+        cleanup,
+        gamepadPolling,
+      );
+      s.native.axis = reference.native.axis = "Y";
+      s.native.space = reference.native.space = space;
+      for (const scale of [
+        new Vector3(2, 3, 4),
+        new Vector3(0, 2, 3),
+        new Vector3(3, 2, 1),
+      ]) {
+        reference.native.axis = "Y";
+        for (const scenario of [s, reference]) {
+          scenario.parent.scale.copy(scale);
+          scenario.parent.rotation.z += 0.2;
+          scenario.syncMatrices();
+        }
+        reference.native.pointerDown(transformPointer(0, 0));
+        // Orthographic height 12: this pointer delta is 0.14 world units.
+        reference.native.pointerMove(transformPointer(0.14 / 6, -1));
+        reference.native.pointerUp(transformPointer(0.14 / 6, 0));
+        s.step({ axes: [0, -0.5] });
+        expect(
+          s.mesh.position.distanceTo(reference.mesh.position),
+          `parent scale ${scale.toArray()}: gamepad ${s.mesh.position.toArray()}, pointer ${reference.mesh.position.toArray()}`,
+        ).toBeLessThan(1e-8);
+        expect(
+          s.mesh
+            .getWorldPosition(new Vector3())
+            .distanceTo(reference.mesh.getWorldPosition(new Vector3())),
+        ).toBeLessThan(1e-8);
+      }
+    },
+  );
+
+  integrationTest(
+    "preserves the accumulated free-rotation trajectory with a static context",
+    ({ cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.mode = "rotate";
+      s.native.axis = "XYZE";
+      s.mesh.quaternion.setFromAxisAngle(new Vector3(0, 0, 1), 0.4);
+      const start = s.mesh.quaternion.clone();
+      const parent = s.parent.getWorldQuaternion(new Quaternion());
+      let horizontal = 0;
+      let vertical = 0;
+      for (const axes of [
+        [0.5, -0.25],
+        [-0.3, 0.4],
+        [0.2, 0.5],
+      ]) {
+        horizontal += axes[0] * Math.PI * 0.02;
+        vertical -= axes[1] * Math.PI * 0.02;
+        s.step({ axes });
+        const world = new Quaternion()
+          .setFromAxisAngle(new Vector3(1, 0, 0), vertical)
+          .multiply(
+            new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), horizontal),
+          );
+        const expected = parent
+          .clone()
+          .invert()
+          .multiply(world)
+          .multiply(parent)
+          .multiply(start);
+        expect(s.mesh.quaternion.angleTo(expected)).toBeLessThan(1e-7);
+        expect(
+          new Quaternion()
+            .setFromAxisAngle(s.native.rotationAxis, s.native.rotationAngle)
+            .multiply(start)
+            .angleTo(s.mesh.quaternion),
+        ).toBeLessThan(1e-7);
+      }
+    },
+  );
+
+  integrationTest.for(["world", "local"] as const)(
+    "uses the current parent for %s translation",
+    (space, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.space = space;
+      s.step({ axes: [0.5, 0] });
+      const origin = s.native.worldPositionStart.clone();
+      s.parent.position.set(-2, 1, -1);
+      s.parent.rotation.z += Math.PI / 2;
+      s.parent.scale.set(2, 3, 4);
+      s.syncMatrices();
+      const before = s.mesh.getWorldPosition(new Vector3());
+      const direction = new Vector3(1, 0, 0);
+      if (space === "local") {
+        direction.applyQuaternion(s.mesh.getWorldQuaternion(new Quaternion()));
+      }
+      // Project the intended axis onto the stick, with the screen Y sign reversed.
+      s.step({ axes: [direction.x * 0.5, -direction.y * 0.5] });
+      const delta = s.mesh.getWorldPosition(new Vector3()).sub(before);
+      expect(delta.length()).toBeGreaterThan(0);
+      expect(
+        delta.clone().normalize().distanceTo(direction.normalize()),
+      ).toBeLessThan(1e-8);
+      expect(s.native.worldPositionStart).toEqual(origin);
+    },
+  );
+
+  integrationTest.for(["X", "E", "XYZE"] as const)(
+    "applies only the new %s rotation through the current parent",
+    (axis, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.mode = "rotate";
+      s.native.axis = axis;
+      s.step({ axes: [0.5, -0.25] });
+      s.parent.rotation.set(0.4, -0.2, 1.2);
+      s.syncMatrices();
+      const before = s.mesh.quaternion.clone();
+      // A zero-time update must not reinterpret the previous rotation.
+      s.step({ axes: [0.5, -0.25] }, 0);
+      expect(s.mesh.quaternion.angleTo(before)).toBeLessThan(1e-7);
+      s.step({ axes: [0.5, -0.25] });
+      expect(s.mesh.quaternion.angleTo(before)).toBeGreaterThan(0.001);
+      expect(s.native.rotationAngle).not.toBe(0);
+      expect(s.native.rotationAxis.length()).toBeCloseTo(1);
+      const composed = new Quaternion().setFromAxisAngle(
+        s.native.rotationAxis,
+        s.native.rotationAngle,
+      );
+      expect(composed.angleTo(s.mesh.quaternion)).toBeLessThan(1e-7);
+      if (axis === "XYZE") {
+        const direction = new Vector3(1, 0, 0).transformDirection(
+          s.guide("AXIS").matrixWorld,
+        );
+        expect(direction.dot(s.native.rotationAxis)).toBeCloseTo(1);
+      }
+    },
+  );
+
+  integrationTest.for([null, 0, 0.1])(
+    "recovers from a singular parent with translationSnap %s",
+    (snap, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.translationSnap = snap;
+      s.step({ axes: [0.5, 0] });
+      const origin = s.native.worldPositionStart.clone();
+      const before = s.mesh.position.clone();
+      s.parent.scale.set(0, 2, 3);
+      s.step({ axes: [0.5, 0] });
+      expect(s.mesh.position.toArray().every(Number.isFinite)).toBe(true);
+      expect(s.native.worldQuaternion.toArray().every(Number.isFinite)).toBe(
+        true,
+      );
+      expect(s.native.dragging).toBe(true);
+      if (snap === 0.1) {
+        expect(s.mesh.position).toEqual(before);
+      } else {
+        expect(s.mesh.position.distanceTo(before)).toBeCloseTo(0.14);
+      }
+      s.parent.scale.set(2, 3, 4);
+      s.syncMatrices();
+      const recovered = s.mesh.getWorldPosition(new Vector3());
+      s.step({ axes: [0.5, 0] });
+      const delta = s.mesh.getWorldPosition(new Vector3()).sub(recovered);
+      expect(delta.x).toBeGreaterThan(0);
+      expect(delta.y).toBeCloseTo(0);
+      expect(delta.z).toBeCloseTo(0);
+      expect(s.native.worldPositionStart).toEqual(origin);
+    },
+  );
+
+  integrationTest.for(["perspective", "orthographic"] as const)(
+    "combines %s zoom, animated parent, bounds, snapping and reset",
+    (projection, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(
+        cleanup,
+        gamepadPolling,
+        projection,
+      );
+      const start = s.mesh.position.clone();
+      const origin = s.mesh.getWorldPosition(new Vector3());
+      s.step({ axes: [0.5, 0] });
+      s.parent.position.set(3, -1, 0);
+      s.parent.rotation.z += 0.6;
+      s.parent.scale.set(2, 3, 1);
+      s.camera.zoom = 2;
+      s.camera.updateProjectionMatrix();
+      s.syncMatrices();
+      const before = s.mesh.getWorldPosition(new Vector3());
+      const projectedBefore = before.clone().project(s.camera);
+      s.native.axis = "XYZ";
+      s.step({ axes: [0.5, 0] });
+      const after = s.mesh.getWorldPosition(new Vector3());
+      expect(after.clone().project(s.camera).x - projectedBefore.x).toBeCloseTo(
+        0.02,
+      );
+      // Axis changes start a new segment; subsequent parent/zoom changes do not.
+      const segmentOrigin = s.native.worldPositionStart.clone();
+      expect(segmentOrigin.distanceTo(before)).toBeLessThan(1e-8);
+      s.native.translationSnap = 0.1;
+      s.native.minX = s.mesh.position.x;
+      s.native.maxX = s.mesh.position.x;
+      const boundedX = s.mesh.position.x;
+      s.step({ axes: [0.5, 0] });
+      expect(s.mesh.position.x).toBe(boundedX);
+      s.step({ axes: [0.5, 0], buttons: createGamepadButtons([9, true]) }, 0);
+      expect(
+        s.mesh.getWorldPosition(new Vector3()).distanceTo(before),
+      ).toBeLessThan(1e-8);
+      expect(s.native.worldPositionStart).toEqual(segmentOrigin);
+      expect(s.mesh.position).not.toEqual(start);
+      expect(segmentOrigin).not.toEqual(origin);
+    },
+  );
+
+  integrationTest(
+    "publishes reset geometry before rotation callbacks and captures a fresh segment",
+    ({ cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      const start = s.mesh.position.clone();
+      const origin = s.mesh.getWorldPosition(new Vector3());
+      s.native.mode = "rotate";
+      s.native.axis = "XYZE";
+      s.step({ axes: [0.5, -0.25] });
+      s.parent.position.x += 2;
+      s.parent.rotation.z += 0.7;
+      let resets = 0;
+      const onAngle = () => {
+        if (s.native.rotationAngle !== 0) {
+          return;
+        }
+        resets++;
+        expect(s.mesh.position).toEqual(start);
+        expect(s.mesh.quaternion.angleTo(new Quaternion())).toBeLessThan(1e-7);
+        expect(
+          s.native.worldPosition.distanceTo(
+            s.mesh.getWorldPosition(new Vector3()),
+          ),
+        ).toBeLessThan(1e-8);
+        expect(s.native.worldPositionStart).toEqual(origin);
+      };
+      s.native.addEventListener("rotationAngle-changed", onAngle);
+      cleanup.add("listener", () =>
+        s.native.removeEventListener("rotationAngle-changed", onAngle),
+      );
+      s.step(
+        { axes: [0.5, -0.25], buttons: createGamepadButtons([9, true]) },
+        0,
+      );
+      expect(resets).toBe(1);
+      s.native.removeEventListener("rotationAngle-changed", onAngle);
+      s.step();
+      const nextOrigin = s.mesh.getWorldPosition(new Vector3());
+      s.step({ axes: [0.5, -0.25] });
+      expect(s.native.worldPositionStart.distanceTo(nextOrigin)).toBeLessThan(
+        1e-8,
+      );
+      expect(s.native.worldPositionStart).not.toEqual(origin);
+    },
+  );
+
+  integrationTest(
+    "refreshes parent changes made by mouseDown before translating",
+    ({ cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      const before = new Vector3();
+      const onStart = () => {
+        s.parent.rotation.z = Math.PI / 2;
+        s.parent.scale.set(2, 3, 4);
+        s.mesh.getWorldPosition(before);
+      };
+      s.native.addEventListener("mouseDown", onStart);
+      cleanup.add("listener", () =>
+        s.native.removeEventListener("mouseDown", onStart),
+      );
+      s.step({ axes: [0.5, 0] });
+      expect(
+        s.mesh
+          .getWorldPosition(new Vector3())
+          .sub(before)
+          .distanceTo(new Vector3(0.14, 0, 0)),
+      ).toBeLessThan(1e-8);
+    },
+  );
+
+  integrationTest.for(["E", "XYZE"] as const)(
+    "preserves %s snapped increments with nonuniform and singular parents",
+    (axis, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.mode = "rotate";
+      s.native.axis = axis;
+      s.native.rotationSnap = 0.1;
+      const input = { axes: [0.5, -0.25] };
+      s.step(input);
+      const initial = s.mesh.quaternion.clone();
+      expect(initial.angleTo(new Quaternion())).toBeLessThan(1e-7);
+      s.parent.rotation.set(0.4, 0.2, -0.6);
+      s.parent.scale.set(2, 3, 4);
+      s.syncMatrices();
+      const parentQuaternion = s.parent.getWorldQuaternion(new Quaternion());
+      s.step(input);
+      const axisWorld =
+        axis === "E" ? new Vector3(0, 0, -1) : new Vector3(0, 1, 0);
+      const expected = new Quaternion().setFromAxisAngle(
+        axisWorld.applyQuaternion(parentQuaternion.invert()),
+        0.1,
+      );
+      expect(s.mesh.quaternion.angleTo(expected)).toBeLessThan(1e-7);
+      s.parent.scale.set(0, 3, 4);
+      s.step(input);
+      expect(s.mesh.quaternion.toArray().every(Number.isFinite)).toBe(true);
+      s.parent.scale.set(2, 3, 4);
+      s.step(input);
+      expect(s.mesh.quaternion.toArray().every(Number.isFinite)).toBe(true);
+    },
+  );
+
+  integrationTest.for([false, true])(
+    "isolates animated geometry and lifecycle in slots 0/3 (reversed: %s)",
+    (reversed, { cleanup, gamepadPolling }) => {
+      const a = createTransformGeometryScenario(
+        cleanup,
+        gamepadPolling,
+        "orthographic",
+        0,
+      );
+      const b = createTransformGeometryScenario(
+        cleanup,
+        gamepadPolling,
+        "perspective",
+        3,
+      );
+      b.parent.position.x += 5;
+      const scenarios = reversed ? [b, a] : [a, b];
+      const step = (connected = true) => {
+        if (connected) {
+          gamepadPolling.publishFrame(
+            [0, { axes: [0.5, 0] }],
+            [3, { axes: [0.5, 0] }],
+          );
+        } else {
+          gamepadPolling.publishFrame([3, { axes: [0.5, 0] }]);
+        }
+        for (const s of scenarios) {
+          s.syncMatrices();
+          s.wrapper.update(0.02);
+          s.syncMatrices();
+        }
+      };
+      step();
+      const originA = a.native.worldPositionStart.clone();
+      const originB = b.native.worldPositionStart.clone();
+      expect(originA).not.toEqual(originB);
+      a.wrapper.enabled = false;
+      const paused = a.mesh.position.clone();
+      a.parent.rotation.z += 0.5;
+      b.parent.scale.set(2, 3, 4);
+      step();
+      expect(a.mesh.position).toEqual(paused);
+      a.wrapper.enabled = true;
+      step();
+      expect(a.mesh.position).not.toEqual(paused);
+      expect(a.native.worldPositionStart).toEqual(originA);
+      expect(b.native.worldPositionStart).toEqual(originB);
+      step(false);
+      expect(a.native.dragging).toBe(false);
+      const before = b.mesh.position.clone();
+      a.wrapper.dispose();
+      step(false);
+      expect(b.mesh.position).not.toEqual(before);
+      expect(b.native.dragging).toBe(true);
+      expect(b.native.worldPositionStart).toEqual(originB);
+    },
+  );
+
+  integrationTest.for([
+    "pause",
+    "dispose",
+    "detach",
+    "axis",
+    "pointer",
+  ] as const)(
+    "revalidates ownership after rotationAngle requests %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.mode = "rotate";
+      s.native.axis = "XYZE";
+      s.step({ axes: [0.5, -0.25] });
+      let moved = 0;
+      const onMove = () => moved++;
+      const pointerOrigin = new Vector3();
+      const interrupt = () => {
+        s.native.removeEventListener("rotationAngle-changed", interrupt);
+        if (action === "pause") {
+          s.wrapper.enabled = false;
+        } else if (action === "dispose") {
+          s.wrapper.dispose();
+        } else if (action === "detach") {
+          s.native.detach();
+        } else if (action === "axis") {
+          s.native.axis = "Z";
+        } else {
+          s.native.dragging = false;
+          s.native.mode = "translate";
+          s.native.axis = "Y";
+          s.syncMatrices();
+          s.native.pointerDown(transformPointer(0, 0));
+          pointerOrigin.copy(s.native.worldPositionStart);
+        }
+      };
+      s.native.addEventListener("objectChange", onMove);
+      s.native.addEventListener("rotationAngle-changed", interrupt);
+      cleanup.add("listener", () => {
+        s.native.removeEventListener("objectChange", onMove);
+        s.native.removeEventListener("rotationAngle-changed", interrupt);
+      });
+      s.step({ axes: [0.5, -0.25] });
+      expect(moved).toBe(0);
+      expect(s.native.dragging).toBe(
+        action === "pause" || action === "pointer",
+      );
+      if (action === "pointer") {
+        const before = s.mesh.position.clone();
+        s.step({ axes: [0.5, -0.25] });
+        expect(s.mesh.position).toEqual(before);
+        expect(s.native.worldPositionStart).toEqual(pointerOrigin);
+        s.native.pointerMove(transformPointer(0.2, -1));
+        expect(s.mesh.position).not.toEqual(before);
+      }
+    },
+  );
+
+  integrationTest.for(["pause", "detach"] as const)(
+    "cancels an unpublished start when clearing rotation progress requests %s",
+    (action, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.rotationAngle = 1;
+      let starts = 0;
+      const onStart = () => starts++;
+      const interrupt = () => {
+        s.native.removeEventListener("rotationAngle-changed", interrupt);
+        if (action === "pause") {
+          s.wrapper.enabled = false;
+        } else {
+          s.native.detach();
+        }
+      };
+      s.native.addEventListener("mouseDown", onStart);
+      s.native.addEventListener("rotationAngle-changed", interrupt);
+      cleanup.add("listener", () => {
+        s.native.removeEventListener("mouseDown", onStart);
+        s.native.removeEventListener("rotationAngle-changed", interrupt);
+      });
+      const before = s.mesh.position.clone();
+      s.step({ axes: [0.5, 0] });
+      expect(starts).toBe(0);
+      expect(s.native.dragging).toBe(false);
+      expect(s.mesh.position).toEqual(before);
+      s.wrapper.enabled = true;
+      s.native.attach(s.mesh);
+      s.step();
+      s.step({ axes: [0.5, 0] });
+      expect(starts).toBe(1);
+      expect(s.native.dragging).toBe(true);
+    },
+  );
+
+  integrationTest(
+    "does not continue a reset after a rotation progress callback takes ownership",
+    ({ cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.native.mode = "rotate";
+      s.native.axis = "E";
+      s.step({ axes: [0.5, 0] });
+      const interrupt = () => {
+        s.native.removeEventListener("rotationAngle-changed", interrupt);
+        s.native.detach();
+        s.mesh.position.set(7, 8, 9);
+      };
+      s.native.addEventListener("rotationAngle-changed", interrupt);
+      cleanup.add("listener", () =>
+        s.native.removeEventListener("rotationAngle-changed", interrupt),
+      );
+      s.step({ axes: [0.5, 0], buttons: createGamepadButtons([9, true]) });
+      expect(s.mesh.position).toEqual(new Vector3(7, 8, 9));
+      expect(s.native.dragging).toBe(false);
+    },
+  );
+
+  integrationTest.for([null, 1])(
+    "preserves exponential negative scales and native snapping with scaleSnap %s",
+    (snap, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.mesh.scale.set(-2, 3, -0.1);
+      s.native.mode = "scale";
+      s.native.axis = "XYZ";
+      s.native.scaleSnap = snap;
+      for (let frame = 1; frame <= 3; frame++) {
+        s.parent.rotation.z += 0.3;
+        s.parent.scale.set(2, 3, 4);
+        s.step({ axes: [-0.5, 0] });
+        const factor = Math.exp(-0.01 * frame);
+        if (snap === null) {
+          expect(
+            s.mesh.scale.distanceTo(
+              new Vector3(-2, 3, -0.1).multiplyScalar(factor),
+            ),
+          ).toBeLessThan(1e-8);
+        } else {
+          // Native snapping intentionally replaces a rounded zero with +snap.
+          expect(s.mesh.scale).toEqual(new Vector3(-2, 3, 1));
+        }
+      }
+      s.step({ axes: [-0.5, 0], buttons: createGamepadButtons([9, true]) }, 0);
+      expect(s.mesh.scale).toEqual(new Vector3(-2, 3, -0.1));
+    },
+  );
+
+  integrationTest.for(["delta", "snap"] as const)(
+    "rejects non-finite %s candidates without poisoning later translation",
+    (failure, { cleanup, gamepadPolling }) => {
+      const s = createTransformGeometryScenario(cleanup, gamepadPolling);
+      s.step({ axes: [0.5, 0] });
+      const before = s.mesh.position.clone();
+      if (failure === "delta") {
+        s.parent.scale.set(1e-160, 1e80, 1e80);
+      }
+      if (failure === "snap") {
+        s.native.translationSnap = Number.MIN_VALUE;
+      }
+      s.step({ axes: [0.5, 0] });
+      expect(s.mesh.position).toEqual(before);
+      s.parent.scale.setScalar(1);
+      s.native.translationSnap = null;
+      s.step({ axes: [0.5, 0] });
+      expect(s.mesh.position.distanceTo(before)).toBeCloseTo(0.14);
+    },
+  );
+});
+
 describe("Transform explicit visibility", () => {
   const renderedHandles = (native: TransformControls): readonly Object3D[] => {
     // The helper also contains pickers and interaction guides, which have

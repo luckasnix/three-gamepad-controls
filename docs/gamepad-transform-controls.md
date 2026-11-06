@@ -107,6 +107,20 @@ camera.zoom = 2;
 camera.updateProjectionMatrix();
 ```
 
+### Geometry, spaces, and the native helper
+
+Add `transformControls.getHelper()` to the scene as in the usage example. Each owned segment captures its local reset pose and its world-space start position/orientation once. The native `START` guide stays at that world origin, `END` follows the current object, and `DELTA` connects them. Rotation indicators receive the axis and angle of the applied rotation: local constrained rotation retains the native unit-axis convention; world and free rotation use the equivalent composed rotation in parent space relative to the segment's initial local orientation. These fields are synchronized before the wrapper's movement notifications; normal scene matrix updates position the rendered guides. Applications do not need to repair native internal fields.
+
+Camera, object, and parent world matrices are refreshed before each contribution, including after acquisition callbacks. World axes remain scene-aligned; local axes use the object's current world orientation. Moving, rotating, or scaling the parent does not start another segment or recapture the reset pose. Translation converts each new world delta using the current parent rotation and scale. World and free rotation apply only the new snapped increment through the current parent, so changing the parent does not reinterpret rotations already applied. With a fixed context, free rotation retains its accumulated horizontal/vertical composition. Zoom changes continue to use the current projection in the same segment.
+
+Snapping keeps its unsnapped accumulators; translation bounds apply to the resulting local position. Reset restores the initial **local** position, quaternion, and scale, and clears accumulated gamepad progress. It does not undo animation or other changes to the parent. Consequently, after a parent change, the reset object's world position can differ from the fixed `START` guide. A new segment captures a new world origin.
+
+Parent conversions follow the paired native control's quaternion/scale decomposition, including its finite fallback for singular matrices. A parent with zero scale cannot provide an invertible world-to-local mapping: contributions requiring that inverse (world translation snapping) are skipped without changing the pose or accumulating deferred input. Non-finite translation candidates are also discarded. The segment and reset origin remain intact, and valid contributions resume when conversion becomes possible. Other operations retain the native decomposition fallback; this does not make a collapsed axis geometrically invertible. Rotations under nonuniform scale follow native decomposition conventions and do not promise an exact world-space rigid rotation when the hierarchy introduces shear.
+
+### Negative scale
+
+Scaling multiplies the unsnapped local scale by a positive exponential factor. An initially negative component therefore keeps its sign, and the stick does not add a mirror operation. Native scale snapping is preserved: if a component rounds to zero, the native rule substitutes the positive snap interval, which can change the sign of a small negative component. Reset still restores the exact initial scale, including its signs.
+
 ### Interaction lifecycle
 
 Native disable blocks mode, space, axis, reset, and transformation commands before they are applied. Polling continues, so a button held through the blocked period requires a new press to execute its command. An owned gamepad interaction ends once when native disable is observed. See [Native input permissions](./gamepad-controls.md#native-input-permissions) for pause and observation timing.

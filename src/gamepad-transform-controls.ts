@@ -38,7 +38,8 @@ export type GamepadTransformControlsOptions = GamepadControlsOptions & {
   rotateSpeed: number;
 
   /**
-   * Scale speed multiplier.
+   * Scale speed multiplier. Positive exponential factors preserve each
+   * unsnapped component's sign; native snapping may replace zero with +snap.
    * @default 1.0
    */
   scaleSpeed: number;
@@ -174,6 +175,13 @@ type TransformSegment = TransformContext & {
 };
 
 type RuntimeTransformControls = TransformControls & {
+  // Shared native gizmo/plane state, omitted from the upstream declarations.
+  worldPosition: Vector3;
+  worldQuaternion: Quaternion;
+  worldPositionStart: Vector3;
+  worldQuaternionStart: Quaternion;
+  rotationAxis: Vector3;
+  rotationAngle: number;
   // Object currently attached to TransformControls.
   object: Object3D | undefined;
 
@@ -234,6 +242,8 @@ const PROJECTED_AXIS_EPSILON = 0.001;
  * the interaction while keeping the active axis highlighted.
  * Selection follows the native helper's explicit visibility flags, including
  * combined axes and planes, independently of camera-alignment hiding.
+ * Segment origins remain fixed while conversions use current parent geometry.
+ * Reset restores the initial local pose without undoing parent changes.
  */
 export class GamepadTransformControls extends GamepadControls {
   readonly #controls: RuntimeTransformControls;
@@ -266,12 +276,14 @@ export class GamepadTransformControls extends GamepadControls {
   readonly #accumulatedScale: Vector3;
   readonly #snappedScale: Vector3;
   readonly #worldQuaternionStart: Quaternion;
+  readonly #worldQuaternion: Quaternion;
   readonly #quaternionStart: Quaternion;
   readonly #parentQuaternion: Quaternion;
   readonly #parentQuaternionInv: Quaternion;
   readonly #rotationQuaternion: Quaternion;
   readonly #rotationQuaternion2: Quaternion;
   readonly #tempQuaternion: Quaternion;
+  readonly #previousRotation: Quaternion;
   #segment: TransformSegment | null = null;
   #updating = false;
   #ending = false;
@@ -290,6 +302,9 @@ export class GamepadTransformControls extends GamepadControls {
   #rotationAmount = 0;
   #freeRotationX = 0;
   #freeRotationY = 0;
+  #appliedAngle = 0;
+  #appliedFreeX = 0;
+  #appliedFreeY = 0;
 
   /**
    * @param controls - A Three.js `TransformControls` instance.
@@ -339,12 +354,14 @@ export class GamepadTransformControls extends GamepadControls {
     this.#accumulatedScale = new Vector3();
     this.#snappedScale = new Vector3();
     this.#worldQuaternionStart = new Quaternion();
+    this.#worldQuaternion = new Quaternion();
     this.#quaternionStart = new Quaternion();
     this.#parentQuaternion = new Quaternion();
     this.#parentQuaternionInv = new Quaternion();
     this.#rotationQuaternion = new Quaternion();
     this.#rotationQuaternion2 = new Quaternion();
     this.#tempQuaternion = new Quaternion();
+    this.#previousRotation = new Quaternion();
     this.#onNativeMouseDown = (event) => {
       if (event !== this.#mouseDownEvent) {
         this.#pointerRevision += 1;
@@ -458,6 +475,9 @@ export class GamepadTransformControls extends GamepadControls {
         transform.y,
       )
     ) {
+      if (!this.#syncNativeTransform(object)) {
+        return;
+      }
       const context = this.#readContext();
       controls.dispatchEvent({ type: "change" });
       if (!this.#afterCallback(context)) {
@@ -905,9 +925,14 @@ export class GamepadTransformControls extends GamepadControls {
       ...this.#readContext(),
       object,
       axis,
-      dragging: true,
+      dragging: this.#controls.dragging,
       started: false,
     };
+    if (!this.#syncNativeTransform(object)) {
+      this.#endTransform(false);
+      return;
+    }
+    this.#segment.dragging = true;
     this.#writeProperty("dragging", true);
   }
 
@@ -971,17 +996,24 @@ export class GamepadTransformControls extends GamepadControls {
     if (segment === null) {
       return;
     }
-    const context = this.#readContext();
-    this.#controls.reset();
-    this.#afterCallback(context);
-    if (this.#segment !== segment) {
-      return;
-    }
+    // Prepare both the pose and helper before native reset's synchronous events.
+    segment.object.position.copy(this.#positionStart);
+    segment.object.quaternion.copy(this.#quaternionStart);
+    segment.object.scale.copy(this.#scaleStart);
     this.#accumulatedPosition.copy(segment.object.position);
     this.#accumulatedScale.copy(segment.object.scale);
     this.#rotationAmount = 0;
     this.#freeRotationX = 0;
     this.#freeRotationY = 0;
+    this.#appliedAngle = 0;
+    this.#appliedFreeX = 0;
+    this.#appliedFreeY = 0;
+    if (!this.#syncNativeTransform(segment.object)) {
+      return;
+    }
+    const context = this.#readContext();
+    this.#controls.reset();
+    this.#afterCallback(context);
   }
 
   /**
@@ -1002,23 +1034,83 @@ export class GamepadTransformControls extends GamepadControls {
       this.#worldQuaternionStart,
       this.#snappedScale,
     );
-    this.#captureParentTransform(object);
+    this.#updateParentTransform(object);
     this.#controls._positionStart.copy(this.#positionStart);
     this.#controls._quaternionStart.copy(this.#quaternionStart);
     this.#controls._scaleStart.copy(this.#scaleStart);
+    this.#controls.worldPositionStart.copy(this.#worldPositionStart);
+    this.#controls.worldQuaternionStart.copy(this.#worldQuaternionStart);
     this.#controls.pointStart.set(0, 0, 0);
     this.#controls.pointEnd.set(0, 0, 0);
     this.#rotationAmount = 0;
     this.#freeRotationX = 0;
     this.#freeRotationY = 0;
+    this.#appliedAngle = 0;
+    this.#appliedFreeX = 0;
+    this.#appliedFreeY = 0;
   }
 
   /**
-   * Captures the attached object's parent world transform for local conversions.
+   * Publishes the actual pose and rotation in the native axis convention.
+   * Local constrained rotation uses its unit axis; other rotations use the
+   * composed parent-space rotation relative to the segment's initial pose.
+   * Origin fields remain immutable until the next segment. Native rotationAngle
+   * setters notify listeners, so all geometry is prepared before that write.
+   *
+   * @param object - Object owned by the current segment.
+   * @returns Whether callbacks left this interaction enabled and owned.
+   */
+  #syncNativeTransform(object: Object3D): boolean {
+    const controls = this.#controls;
+    object.updateWorldMatrix(true, false);
+    object.matrixWorld.decompose(
+      controls.worldPosition,
+      controls.worldQuaternion,
+      this.#snappedScale,
+    );
+    let angle = 0;
+    controls.rotationAxis.set(0, 0, 0);
+    if (
+      controls.mode === "rotate" &&
+      controls.space === "local" &&
+      controls.axis !== "E" &&
+      controls.axis !== "XYZE"
+    ) {
+      this.#setUnitAxis(controls.axis as AxisLetter, controls.rotationAxis);
+      angle = this.#snapRotation(this.#rotationAmount);
+    } else if (controls.mode === "rotate") {
+      this.#tempQuaternion.copy(this.#quaternionStart).invert();
+      this.#rotationQuaternion
+        .copy(object.quaternion)
+        .multiply(this.#tempQuaternion)
+        .normalize();
+      const length = Math.hypot(
+        this.#rotationQuaternion.x,
+        this.#rotationQuaternion.y,
+        this.#rotationQuaternion.z,
+      );
+      if (length > 0) {
+        controls.rotationAxis
+          .set(
+            this.#rotationQuaternion.x,
+            this.#rotationQuaternion.y,
+            this.#rotationQuaternion.z,
+          )
+          .divideScalar(length);
+        angle = 2 * Math.atan2(length, this.#rotationQuaternion.w);
+      }
+    }
+    const context = this.#readContext();
+    controls.rotationAngle = angle;
+    return this.#afterCallback(context);
+  }
+
+  /**
+   * Refreshes the attached object's current parent transform for local conversions.
    *
    * @param object - Object attached to TransformControls.
    */
-  #captureParentTransform(object: Object3D): void {
+  #updateParentTransform(object: Object3D): void {
     if (object.parent === null) {
       this.#parentPosition.set(0, 0, 0);
       this.#parentQuaternion.identity();
@@ -1123,9 +1215,18 @@ export class GamepadTransformControls extends GamepadControls {
       return false;
     }
     this.#worldDeltaToLocalDelta(this.#worldDelta, this.#localDelta);
-    this.#accumulatedPosition.add(this.#localDelta);
-    this.#applyAccumulatedPosition(object, axis, scale);
-    return true;
+    // Native decomposition remains usable for singular parents, but a world
+    // snap needs an actual inverse. Do not commit an unconvertible contribution.
+    if (
+      scale === "world" &&
+      controls.translationSnap !== null &&
+      controls.translationSnap > 0 &&
+      object.parent !== null &&
+      object.parent.matrixWorld.determinant() === 0
+    ) {
+      return false;
+    }
+    return this.#applyAccumulatedPosition(object, axis, scale);
   }
 
   /**
@@ -1167,15 +1268,22 @@ export class GamepadTransformControls extends GamepadControls {
    * @param object - Object attached to TransformControls.
    * @param axis - Transform axis or plane currently selected.
    * @param space - Transform space used for snapping.
+   * @returns Whether a finite candidate was committed.
    */
   #applyAccumulatedPosition(
     object: Object3D,
     axis: TransformAxis,
     space: TransformSpace,
-  ): void {
-    this.#snappedPosition.copy(this.#accumulatedPosition);
+  ): boolean {
+    this.#snappedPosition.copy(this.#accumulatedPosition).add(this.#localDelta);
+    if (!Number.isFinite(this.#snappedPosition.lengthSq())) {
+      return false;
+    }
     if (this.#controls.translationSnap !== null) {
       this.#snapPosition(object, axis, space, this.#controls.translationSnap);
+    }
+    if (!Number.isFinite(this.#snappedPosition.lengthSq())) {
+      return false;
     }
     this.#snappedPosition.x = Math.max(
       this.#controls.minX,
@@ -1190,7 +1298,9 @@ export class GamepadTransformControls extends GamepadControls {
       Math.min(this.#controls.maxZ, this.#snappedPosition.z),
     );
     object.position.copy(this.#snappedPosition);
+    this.#accumulatedPosition.add(this.#localDelta);
     object.updateMatrixWorld();
+    return true;
   }
 
   /**
@@ -1293,8 +1403,13 @@ export class GamepadTransformControls extends GamepadControls {
         .multiply(this.#rotationQuaternion)
         .normalize();
     } else {
-      this.#applyWorldRotation(object, this.#axisWorld, angle);
+      this.#applyWorldRotation(
+        object,
+        this.#axisWorld,
+        angle - this.#appliedAngle,
+      );
     }
+    this.#appliedAngle = angle;
     object.updateMatrixWorld();
     return true;
   }
@@ -1304,7 +1419,7 @@ export class GamepadTransformControls extends GamepadControls {
    *
    * @param object - Object attached to TransformControls.
    * @param worldAxis - World-space axis to rotate around.
-   * @param angle - Rotation amount in radians from the drag start.
+   * @param angle - New rotation increment in radians.
    */
   #applyWorldRotation(
     object: Object3D,
@@ -1316,10 +1431,7 @@ export class GamepadTransformControls extends GamepadControls {
       .applyQuaternion(this.#parentQuaternionInv)
       .normalize();
     this.#rotationQuaternion.setFromAxisAngle(this.#axisLocal, angle);
-    object.quaternion
-      .copy(this.#rotationQuaternion)
-      .multiply(this.#quaternionStart)
-      .normalize();
+    object.quaternion.premultiply(this.#rotationQuaternion).normalize();
   }
 
   /**
@@ -1330,6 +1442,25 @@ export class GamepadTransformControls extends GamepadControls {
   #applyFreeRotation(object: Object3D): void {
     const angleX = this.#snapRotation(this.#freeRotationX);
     const angleY = this.#snapRotation(this.#freeRotationY);
+    // Evaluate both accumulated operators in today's frame. Their quotient
+    // preserves the static-camera trajectory without replaying previous input
+    // when the parent or camera changes.
+    this.#composeFreeRotation(this.#appliedFreeX, this.#appliedFreeY);
+    this.#previousRotation.copy(this.#rotationQuaternion2).invert();
+    this.#composeFreeRotation(angleX, angleY);
+    this.#rotationQuaternion2.multiply(this.#previousRotation);
+    object.quaternion.premultiply(this.#rotationQuaternion2).normalize();
+    this.#appliedFreeX = angleX;
+    this.#appliedFreeY = angleY;
+    object.updateMatrixWorld();
+  }
+
+  /**
+   * Composes the two screen-axis rotations in the current parent frame.
+   * @param angleX - Accumulated horizontal angle.
+   * @param angleY - Accumulated vertical angle.
+   */
+  #composeFreeRotation(angleX: number, angleY: number): void {
     this.#axisWorld.copy(this.#cameraUp).normalize();
     this.#axisWorld2.copy(this.#cameraRight).normalize();
     this.#axisLocal
@@ -1342,12 +1473,7 @@ export class GamepadTransformControls extends GamepadControls {
       .applyQuaternion(this.#parentQuaternionInv)
       .normalize();
     this.#rotationQuaternion2.setFromAxisAngle(this.#axisLocal, angleY);
-    object.quaternion
-      .copy(this.#rotationQuaternion2)
-      .multiply(this.#rotationQuaternion)
-      .multiply(this.#quaternionStart)
-      .normalize();
-    object.updateMatrixWorld();
+    this.#rotationQuaternion2.multiply(this.#rotationQuaternion);
   }
 
   /**
@@ -1435,7 +1561,8 @@ export class GamepadTransformControls extends GamepadControls {
   }
 
   /**
-   * Refreshes camera vectors, object world position, and viewport scale.
+   * Refreshes camera vectors, object orientation, current parent conversions,
+   * and viewport scale without recapturing the segment's origin.
    *
    * @param object - Object attached to TransformControls.
    */
@@ -1443,6 +1570,12 @@ export class GamepadTransformControls extends GamepadControls {
     const camera = this.#controls.camera;
     camera.updateWorldMatrix(true, false);
     object.updateWorldMatrix(true, false);
+    this.#updateParentTransform(object);
+    object.matrixWorld.decompose(
+      this.#worldPosition,
+      this.#worldQuaternion,
+      this.#snappedScale,
+    );
     this.#cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
     this.#cameraUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
     camera.getWorldDirection(this.#cameraForward).normalize();
@@ -1475,7 +1608,7 @@ export class GamepadTransformControls extends GamepadControls {
   ): Vector3 {
     this.#setUnitAxis(axis, target);
     if (space === "local") {
-      target.applyQuaternion(this.#worldQuaternionStart);
+      target.applyQuaternion(this.#worldQuaternion);
     }
     return target.normalize();
   }
@@ -1576,7 +1709,7 @@ export class GamepadTransformControls extends GamepadControls {
   }
 
   /**
-   * Removes captured parent scale from a local-space delta.
+   * Removes current parent scale from a local-space delta.
    *
    * @param target - Vector to adjust in place.
    */
