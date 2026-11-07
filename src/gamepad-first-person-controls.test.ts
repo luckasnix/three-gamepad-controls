@@ -31,6 +31,7 @@ const createFirstPersonControls = (): FirstPersonControlsWithOrientation => {
     new PerspectiveCamera(),
   ) as FirstPersonControlsWithOrientation;
   controls.movementSpeed = 4;
+  controls.dampingFactor = 1;
   controls.lookSpeed = 0.005;
   return controls;
 };
@@ -357,6 +358,77 @@ describe("GamepadFirstPersonControls movement", () => {
 });
 
 describe("GamepadFirstPersonControls frame ownership", () => {
+  gamepadTest.each([
+    "wrapper pause",
+    "native disable",
+    "disconnect event",
+    "polling loss",
+    "replace object",
+    "dispose",
+  ] as const)(
+    "retains or clears translation and look momentum on %s",
+    (action) => {
+      const native = createFirstPersonControls();
+      native.dampingFactor = 0.5;
+      const wrapper = createControls(native);
+      polling.publishFrame([0, { axes: [0, 1, 0.5, 0] }]);
+      wrapper.update(0.25);
+      native.update(0.25);
+      const retained =
+        action === "wrapper pause" || action === "native disable";
+      if (action === "replace object") {
+        native.object = native.object.clone();
+      } else if (action === "dispose") {
+        wrapper.dispose();
+      } else if (action === "polling loss") {
+        polling.publishFrame();
+        wrapper.update(0.25);
+      } else if (action === "disconnect event") {
+        wrapper.enabled = false;
+        dispatchGamepadEvent("gamepaddisconnected", wrapper.gamepad as Gamepad);
+      } else {
+        wrapper.enabled = action !== "wrapper pause";
+        native.enabled = action !== "native disable";
+      }
+      const before = native.object.position.clone();
+      const yaw = native._lon;
+      polling.publishFrame([0]);
+      if (retained) {
+        wrapper.update(1);
+        native.update(1);
+        expect(native.object.position.distanceTo(before)).toBe(0);
+        expect(native._lon).toBe(yaw);
+      }
+      wrapper.enabled = true;
+      native.enabled = true;
+      wrapper.update(0.25);
+      native.update(0.25);
+      expect(native.object.position.z - before.z).toBeCloseTo(
+        retained ? 0.25 : 0,
+        12,
+      );
+      expect(native._lon - yaw).toBeCloseTo(retained ? -5.625 : 0, 12);
+    },
+  );
+
+  gamepadTest(
+    "preserves a small active retreat below the preceding tail cutoff",
+    () => {
+      const native = createFirstPersonControls();
+      native.autoForward = true;
+      const wrapper = createControls(native, {
+        moveStick: { pipeline: gamepadStickPipeline() },
+      });
+      for (const axis of [1, 0.00001]) {
+        polling.publishFrame([0, { axes: [0, axis, 0, 0] }]);
+        const before = native.object.position.z;
+        wrapper.update(0.25);
+        native.update(0.25);
+        expect(native.object.position.z - before).toBeCloseTo(axis, 12);
+      }
+    },
+  );
+
   for (const binding of ["moveStick", "lookStick"] as const) {
     gamepadTest.each([
       "pause",

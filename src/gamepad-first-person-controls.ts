@@ -93,6 +93,8 @@ const DEFAULT_FIRST_PERSON_OPTIONS: ResolvedGamepadFirstPersonControlsOptions =
 // Converts normalized stick input to degree deltas while preserving the
 // pixel-based scale used by FirstPersonControls.lookSpeed.
 const LOOK_SPEED_SCALE = 36000;
+// Fraction of the longitudinal speed at release at which retreat ends.
+const RETREAT_END_RATIO = 0.001;
 
 type FirstPersonControlsWithOrientation = FirstPersonControls & {
   // Internal latitude angle maintained by FirstPersonControls.
@@ -119,8 +121,12 @@ type FirstPersonOrientation = {
  * and climbing along Y, independent of camera pitch and roll.
  * Combined gamepad movement is limited to unit magnitude before speed and
  * forward height gains, preserving smaller analog intentions unchanged.
- * Applied backward movement suppresses only the automatic target for the next
- * native update; native inertia and manual input remain intact.
+ * The native `dampingFactor` filters translation (scene units/second) and
+ * look (degrees/second) once per update. Pausing the wrapper or disabling the
+ * native control freezes both. Observed gamepad loss, a new destination, or
+ * disposal clears the velocities. Applied retreat suppresses the automatic
+ * forward target for the next native update. On release, residual retreat
+ * ends at 0.1% of the longitudinal speed at release.
  * Bindings and speeds are configurable via {@link GamepadFirstPersonControlsOptions}.
  */
 export class GamepadFirstPersonControls extends GamepadControls {
@@ -131,6 +137,14 @@ export class GamepadFirstPersonControls extends GamepadControls {
   readonly #nativeUpdate: FirstPersonControls["update"];
   #backwardObject: Object3D | null = null;
   #backwardGamepad: Gamepad | null = null;
+  #velocityObject: Object3D | null = null;
+  // Keep longitudinal motion separate so ending retreat preserves strafe/climb.
+  readonly #driveVelocity = new Vector3();
+  readonly #strafeClimbVelocity = new Vector3();
+  readonly #velocityTarget = new Vector3();
+  #retreatEndSpeedSq = 0;
+  #latVelocity = 0;
+  #lonVelocity = 0;
   #updating = false;
   #nativeUpdating = false;
   #disposed = false;
@@ -139,6 +153,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
   readonly #lookDirection: Vector3;
   readonly #spherical: Spherical;
   readonly #targetPosition: Vector3;
+  readonly #orientation: FirstPersonOrientation = { lat: 0, lon: 0 };
 
   /**
    * @param controls - A Three.js `FirstPersonControls` instance.
@@ -207,6 +222,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
     }
     this.#disposed = true;
     this.#clearBackwardInput();
+    this.#resetVelocities(null);
     super.dispose();
     if (this.#controls.update === this.#nativeUpdate) {
       if (this.#originalUpdateDescriptor === undefined) {
@@ -221,10 +237,20 @@ export class GamepadFirstPersonControls extends GamepadControls {
     }
   }
 
-  /** Releases pending suppression before notifying disconnection listeners. */
+  /** Releases gamepad motion before notifying disconnection listeners. */
   protected override onGamepadDisconnected(gamepad: Gamepad): void {
     this.#clearBackwardInput();
+    this.#resetVelocities(null);
     super.onGamepadDisconnected(gamepad);
+  }
+
+  #resetVelocities(object: Object3D | null): void {
+    this.#velocityObject = object;
+    this.#driveVelocity.set(0, 0, 0);
+    this.#strafeClimbVelocity.set(0, 0, 0);
+    this.#retreatEndSpeedSq = 0;
+    this.#latVelocity = 0;
+    this.#lonVelocity = 0;
   }
 
   /** Clears the destination and snapshot that received backward movement. */
@@ -361,15 +387,20 @@ export class GamepadFirstPersonControls extends GamepadControls {
     if (!this.#canApplyInput(gamepad, object)) {
       return;
     }
+    if (this.#velocityObject !== object) {
+      this.#resetVelocities(object);
+    }
+    const orientation = this.#getOrientation();
     this.#applyMovement(
       deltaTime,
+      orientation.lon,
       moveSpeed,
       move,
       buttonDeadzone,
       buttonMoveUp,
       buttonMoveDown,
     );
-    this.#applyLook(deltaTime, lookSpeed, look);
+    this.#applyLook(deltaTime, orientation, lookSpeed, look);
   }
 
   /**
@@ -379,6 +410,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
    * normalization; height gain uses the initial Y position before climbing.
    *
    * @param deltaTime - Seconds since the last frame.
+   * @param longitude - Heading at the start of the frame, in degrees.
    * @param moveSpeed - User-configured movement speed multiplier.
    * @param move - Processed movement stick input.
    * @param buttonDeadzone - Analog button dead zone threshold.
@@ -387,6 +419,7 @@ export class GamepadFirstPersonControls extends GamepadControls {
    */
   #applyMovement(
     deltaTime: number,
+    longitude: number,
     moveSpeed: number,
     move: Readonly<GamepadStick>,
     buttonDeadzone: number,
@@ -407,36 +440,45 @@ export class GamepadFirstPersonControls extends GamepadControls {
       forward /= magnitude;
       climb /= magnitude;
     }
-    const moveMult = deltaTime * controls.movementSpeed * moveSpeed;
-    if (strafe !== 0 || forward !== 0) {
-      const yaw = MathUtils.degToRad(this.#getOrientation().lon);
-      const sinYaw = Math.sin(yaw);
-      const cosYaw = Math.cos(yaw);
-      let forwardDistance = forward * moveMult;
-      if (forward > 0 && controls.heightSpeed) {
-        const y = MathUtils.clamp(
-          controls.object.position.y,
-          controls.heightMin,
-          controls.heightMax,
-        );
-        const heightDelta = y - controls.heightMin;
-        forwardDistance +=
-          forward * deltaTime * heightDelta * controls.heightCoef * moveSpeed;
-      }
-      const strafeDistance = strafe * moveMult;
-      // Use the native yaw basis, rather than the camera's pitched/rolled axes.
-      controls.object.position.x +=
-        sinYaw * forwardDistance - cosYaw * strafeDistance;
-      controls.object.position.z +=
-        cosYaw * forwardDistance + sinYaw * strafeDistance;
-      if (forwardDistance < 0) {
-        this.#backwardObject = controls.object;
-        this.#backwardGamepad = input.gamepad;
-      }
+    const { dampingFactor, movementSpeed } = controls;
+    let forwardSpeed = movementSpeed;
+    if (forward > 0 && controls.heightSpeed) {
+      const y = MathUtils.clamp(
+        controls.object.position.y,
+        controls.heightMin,
+        controls.heightMax,
+      );
+      forwardSpeed += (y - controls.heightMin) * controls.heightCoef;
     }
-
-    if (climb !== 0) {
-      controls.object.position.y += climb * moveMult;
+    // Build targets in the native translation frame, in units per second.
+    // A turn changes the new target while existing momentum keeps its direction.
+    const yaw = MathUtils.degToRad(longitude);
+    const sinYaw = Math.sin(yaw);
+    const cosYaw = Math.cos(yaw);
+    const drive = forward * forwardSpeed * moveSpeed;
+    const target = this.#velocityTarget.set(sinYaw * drive, 0, cosYaw * drive);
+    this.#driveVelocity.lerp(target, dampingFactor);
+    target
+      .set(-cosYaw * strafe, climb, sinYaw * strafe)
+      .multiplyScalar(movementSpeed * moveSpeed);
+    this.#strafeClimbVelocity.lerp(target, dampingFactor);
+    let longitudinalSpeed =
+      this.#driveVelocity.x * sinYaw + this.#driveVelocity.z * cosYaw;
+    if (drive !== 0) {
+      this.#retreatEndSpeedSq =
+        this.#driveVelocity.lengthSq() * RETREAT_END_RATIO ** 2;
+    } else if (
+      longitudinalSpeed < 0 &&
+      this.#driveVelocity.lengthSq() <= this.#retreatEndSpeedSq
+    ) {
+      this.#driveVelocity.set(0, 0, 0);
+      longitudinalSpeed = 0;
+    }
+    target.addVectors(this.#driveVelocity, this.#strafeClimbVelocity);
+    controls.object.position.addScaledVector(target, deltaTime);
+    if (longitudinalSpeed * deltaTime < 0) {
+      this.#backwardObject = controls.object;
+      this.#backwardGamepad = input.gamepad;
     }
   }
 
@@ -444,34 +486,42 @@ export class GamepadFirstPersonControls extends GamepadControls {
    * Applies camera look input while keeping FirstPersonControls state in sync.
    *
    * @param deltaTime - Seconds since the last frame.
+   * @param orientation - Native look angles at the start of the frame.
    * @param lookSpeed - User-configured look speed multiplier.
    * @param look - Processed camera-look stick input.
    */
   #applyLook(
     deltaTime: number,
+    orientation: FirstPersonOrientation,
     lookSpeed: number,
     look: Readonly<GamepadStick>,
   ): void {
     const { x: lookX, y: lookY } = look;
-
-    if (lookX === 0 && lookY === 0) {
-      return;
-    }
-
     const controls = this.#controls;
-    const actualLookSpeed =
-      controls.lookSpeed * lookSpeed * deltaTime * LOOK_SPEED_SCALE;
-    const orientation = this.#getOrientation();
-    let { lat, lon } = orientation;
+    const actualLookSpeed = controls.lookSpeed * lookSpeed * LOOK_SPEED_SCALE;
     let verticalLookRatio = 1;
     const verticalRange = controls.verticalMax - controls.verticalMin;
     if (controls.constrainVertical && verticalRange !== 0) {
       verticalLookRatio = Math.PI / verticalRange;
     }
-    lon -= lookX * actualLookSpeed;
-    if (controls.lookVertical) {
-      lat -= lookY * actualLookSpeed * verticalLookRatio;
+    // Angular velocities are degrees per second. As with native pointer
+    // input, disabling vertical look brings its target velocity to zero.
+    this.#lonVelocity = MathUtils.lerp(
+      this.#lonVelocity,
+      -lookX * actualLookSpeed,
+      controls.dampingFactor,
+    );
+    this.#latVelocity = MathUtils.lerp(
+      this.#latVelocity,
+      controls.lookVertical ? -lookY * actualLookSpeed * verticalLookRatio : 0,
+      controls.dampingFactor,
+    );
+    if (this.#latVelocity === 0 && this.#lonVelocity === 0) {
+      return;
     }
+    let { lat, lon } = orientation;
+    lon += this.#lonVelocity * deltaTime;
+    lat += this.#latVelocity * deltaTime;
     lat = Math.max(-85, Math.min(85, lat));
     let phi = MathUtils.degToRad(90 - lat);
     const theta = MathUtils.degToRad(lon);
@@ -503,18 +553,16 @@ export class GamepadFirstPersonControls extends GamepadControls {
   #getOrientation(): FirstPersonOrientation {
     const { _lat, _lon } = this.#controls;
     if (Number.isFinite(_lat) && Number.isFinite(_lon)) {
-      return {
-        lat: _lat,
-        lon: _lon,
-      };
+      this.#orientation.lat = _lat;
+      this.#orientation.lon = _lon;
+    } else {
+      this.#lookDirection
+        .set(0, 0, -1)
+        .applyQuaternion(this.#controls.object.quaternion);
+      this.#spherical.setFromVector3(this.#lookDirection);
+      this.#orientation.lat = 90 - MathUtils.radToDeg(this.#spherical.phi);
+      this.#orientation.lon = MathUtils.radToDeg(this.#spherical.theta);
     }
-    this.#lookDirection
-      .set(0, 0, -1)
-      .applyQuaternion(this.#controls.object.quaternion);
-    this.#spherical.setFromVector3(this.#lookDirection);
-    return {
-      lat: 90 - MathUtils.radToDeg(this.#spherical.phi),
-      lon: MathUtils.radToDeg(this.#spherical.theta),
-    };
+    return this.#orientation;
   }
 }
