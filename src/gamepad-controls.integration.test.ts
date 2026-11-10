@@ -36,15 +36,15 @@ import {
 import {
   dispatchGamepadEvent,
   type GamepadPollingFixture,
-  gamepadTest,
 } from "../test/fixtures/gamepad-browser.ts";
 import {
   type Cleanup,
   collectEvents,
-  createCleanup,
   createFrameDriver,
+  createPairedFrame,
   createThreeEnvironment,
   disposeObjectResources,
+  integrationTest,
 } from "../test/fixtures/three-controls.ts";
 import { GamepadArcballControls } from "./gamepad-arcball-controls.ts";
 import type {
@@ -66,15 +66,6 @@ import { GamepadPointerLockControls } from "./gamepad-pointer-lock-controls.ts";
 import { gamepadStickPipeline } from "./gamepad-stick-processing.ts";
 import { GamepadTrackballControls } from "./gamepad-trackball-controls.ts";
 import { GamepadTransformControls } from "./gamepad-transform-controls.ts";
-
-const integrationTest = gamepadTest.extend(
-  "cleanup",
-  ({ gamepadPolling: _polling }, { onCleanup }) => {
-    const cleanup = createCleanup();
-    onCleanup(() => cleanup.dispose());
-    return cleanup;
-  },
-);
 
 const kinds = [
   "orbit",
@@ -795,6 +786,95 @@ const createFirstPersonAutoForwardScenario = (
   cleanup.add("wrapper", () => wrapper.dispose());
   return { ...scenario, wrapper };
 };
+
+for (const kind of ["Fly", "FirstPerson"] as const) {
+  integrationTest.for([false, true])(
+    `${kind} resumes local auto-forward on loss while B climbs (reversed: %s)`,
+    (reversed, { cleanup, gamepadPolling }) => {
+      const player = (index: number) => {
+        const scenario =
+          kind === "Fly"
+            ? createFlyAutoForwardScenario(cleanup, index)
+            : createFirstPersonAutoForwardScenario(cleanup, {
+                gamepadIndex: index,
+              });
+        const { camera, wrapper } = scenario;
+        const native =
+          "native" in scenario ? scenario.native : scenario.controls;
+        const events = collectEvents<
+          GamepadControlsEventMap,
+          "connected" | "disconnected",
+          number
+        >(
+          cleanup,
+          wrapper,
+          ["connected", "disconnected"],
+          kind,
+          (event) => event.gamepad.index,
+        );
+        return {
+          camera,
+          wrapper,
+          native,
+          events,
+          update: () => {
+            wrapper.update(0.25);
+            native.update(0.25);
+          },
+        };
+      };
+      const a = player(0);
+      const b = player(3);
+      const frame = createPairedFrame(
+        gamepadPolling,
+        a.update,
+        b.update,
+        reversed,
+      );
+      const retreat = { axes: [0, 0.5, 0, 0] };
+      const climb = { buttons: createGamepadButtons([6, true, 0.5]) };
+      const advance = (
+        inputA: GamepadFixtureOptions | undefined,
+        expectedZ: number,
+      ) => {
+        const beforeA = a.camera.position.clone();
+        const beforeB = b.camera.position.clone();
+        frame(inputA, climb);
+        expect(a.camera.position.z - beforeA.z).toBeCloseTo(expectedZ, 10);
+        const stepB = b.camera.position.clone().sub(beforeB);
+        expect(stepB.distanceTo(new Vector3(0, 0.5, -1))).toBeLessThan(1e-8);
+      };
+
+      advance(undefined, -1);
+      advance(retreat, 0.5);
+      advance({ id: "new snapshot", axes: [0, 0.25] }, 0.25);
+      a.wrapper.enabled = false;
+      advance(retreat, -1);
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        createGamepad(0, { connected: false }),
+      );
+      expect(a.wrapper.gamepad).toBeNull();
+      advance(undefined, -1);
+      a.wrapper.enabled = true;
+      advance(retreat, 0.5);
+      a.native.enabled = false;
+      advance(retreat, 0);
+      a.native.enabled = true;
+      advance(retreat, 0.5);
+      advance(undefined, -1);
+      expect(a.events.map(({ type, data }) => [type, data])).toEqual([
+        ["connected", 0],
+        ["disconnected", 0],
+        ["connected", 0],
+        ["disconnected", 0],
+      ]);
+      expect(b.events.map(({ type, data }) => [type, data])).toEqual([
+        ["connected", 3],
+      ]);
+    },
+  );
+}
 
 describe("FirstPerson damping", () => {
   integrationTest.for([0, 0.1, 1])(
@@ -3078,6 +3158,94 @@ const createProjectionScenario = (
     syncMatrices,
   };
 };
+
+integrationTest.for([false, true])(
+  "Drag and Transform ignore held commands on readoption while the other edit continues (reversed: %s)",
+  (reversed, { cleanup, gamepadPolling }) => {
+    const drag = createProjectionScenario("drag", cleanup, gamepadPolling, {
+      index: 0,
+    });
+    const edit = createProjectionScenario(
+      "transform",
+      cleanup,
+      gamepadPolling,
+      { index: 3 },
+    );
+    const native = edit.native as TransformControls;
+    const update = (s: typeof drag) => {
+      s.syncMatrices();
+      s.wrapper.update(0.02);
+      s.syncMatrices();
+    };
+    const frame = createPairedFrame(
+      gamepadPolling,
+      () => update(drag),
+      () => update(edit),
+      reversed,
+    );
+    const grab = { buttons: createGamepadButtons([0, true]) };
+    const rotateObject = { axes: [0, 0, 0.5, 0] };
+    const moveObject = { axes: [0, -0.5] };
+    const projected = edit.projectedPosition();
+    const expectedEvents = ["start"];
+    const advance = (inputA?: GamepadFixtureOptions) => {
+      projected.y += 0.02;
+      expectedEvents.push("move");
+      frame(inputA, moveObject);
+      expect(edit.projectedPosition().distanceTo(projected)).toBeLessThan(1e-8);
+      expect(native.dragging).toBe(true);
+      expect(edit.events).toEqual(expectedEvents);
+    };
+    advance();
+    advance({});
+    advance(grab);
+    advance(rotateObject);
+    const rotated = pose(drag.mesh);
+    const rotationStep = rotated.quaternion.angleTo(new Quaternion());
+    expect(rotationStep).toBeGreaterThan(0.01);
+    drag.wrapper.enabled = false;
+    advance(rotateObject);
+    expectPose(drag.mesh, rotated);
+    expect(drag.events).toEqual(["start", "move"]);
+    dispatchGamepadEvent(
+      "gamepaddisconnected",
+      createGamepad(0, { connected: false }),
+    );
+    expect(drag.events).toEqual(["start", "move", "end"]);
+    advance();
+    drag.wrapper.enabled = true;
+    advance(grab);
+    advance(rotateObject);
+    expectPose(drag.mesh, rotated);
+    expect(drag.events).toEqual(["start", "move", "end"]);
+    advance(grab);
+    drag.native.enabled = false;
+    advance(rotateObject);
+    expectPose(drag.mesh, rotated);
+    expect(drag.events.slice(3)).toEqual(["start", "end"]);
+
+    // Now interrupt the editor while the newly acquired drag keeps rotating.
+    drag.native.enabled = true;
+    advance(grab);
+    const stopped = pose(edit.mesh);
+    const keepDragging = (inputB: GamepadFixtureOptions) => {
+      const before = drag.mesh.quaternion.clone();
+      frame(rotateObject, inputB);
+      expect(before.angleTo(drag.mesh.quaternion)).toBeCloseTo(rotationStep, 8);
+      expect(drag.events.at(-1)).toBe("move");
+      expectPose(edit.mesh, stopped);
+    };
+    keepDragging({ connected: false });
+    expect(edit.events.at(-1)).toBe("end");
+    expect(native.dragging).toBe(false);
+    const rotateMode = { buttons: createGamepadButtons([1, true]) };
+    keepDragging(rotateMode);
+    expect(native.mode).toBe("translate");
+    keepDragging({});
+    keepDragging(rotateMode);
+    expect(native.mode).toBe("rotate");
+  },
+);
 
 type TransformGeometryControls = TransformControls & {
   minX: number;

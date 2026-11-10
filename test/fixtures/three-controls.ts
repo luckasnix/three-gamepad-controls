@@ -14,9 +14,11 @@ import {
   Scene,
 } from "three";
 
-import type {
-  GamepadFrameEntry,
-  GamepadPollingFixture,
+import type { GamepadFixtureOptions } from "./gamepad.ts";
+import {
+  type GamepadFrameEntry,
+  type GamepadPollingFixture,
+  gamepadTest,
 } from "./gamepad-browser.ts";
 
 type CleanupPhase = "wrapper" | "listener" | "native" | "resource" | "dom";
@@ -33,13 +35,13 @@ const cleanupOrder: CleanupPhase[] = [
 export const createCleanup = () => {
   const callbacks = new Map<CleanupPhase, (() => void)[]>();
   return {
-    add(phase: CleanupPhase, callback: () => void): void {
+    add: (phase: CleanupPhase, callback: () => void): void => {
       const group = callbacks.get(phase) ?? [];
       group.push(callback);
       callbacks.set(phase, group);
     },
     /** Drains once, and releases remaining resources even if a disposer throws. */
-    dispose(): void {
+    dispose: (): void => {
       const errors: unknown[] = [];
       for (const phase of cleanupOrder) {
         const group = callbacks.get(phase) ?? [];
@@ -60,6 +62,15 @@ export const createCleanup = () => {
 };
 
 export type Cleanup = ReturnType<typeof createCleanup>;
+
+export const integrationTest = gamepadTest.extend(
+  "cleanup",
+  ({ gamepadPolling: _polling }, { onCleanup }) => {
+    const cleanup = createCleanup();
+    onCleanup(() => cleanup.dispose());
+    return cleanup;
+  },
+);
 
 /** Only use for resources owned by the test and not disposed by native controls. */
 export const disposeObjectResources = (root: Object3D): void => {
@@ -171,3 +182,27 @@ export const createFrameDriver =
     updateNative?.(delta);
     syncMatrices();
   };
+
+/** Publish slots 0 and 3 once, optionally omitting A while B keeps playing. */
+export const createPairedFrame = (
+  polling: GamepadPollingFixture,
+  updateA: () => void,
+  updateB: () => void,
+  reversed: boolean,
+) => {
+  const order = reversed ? [updateB, updateA] : [updateA, updateB];
+  return (
+    slotA: GamepadFixtureOptions | undefined,
+    slotB: GamepadFixtureOptions,
+  ): void => {
+    const b: GamepadFrameEntry = [3, slotB];
+    if (slotA === undefined) {
+      polling.publishFrame(b);
+    } else {
+      polling.publishFrame([0, slotA], b);
+    }
+    for (const update of order) {
+      update();
+    }
+  };
+};

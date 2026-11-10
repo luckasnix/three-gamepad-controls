@@ -4,7 +4,7 @@ import {
   type Matrix4,
   type Object3D,
   Quaternion,
-  type Vector3,
+  Vector3,
 } from "three";
 import { ArcballControls } from "three/addons/controls/ArcballControls.js";
 import { MapControls } from "three/addons/controls/MapControls.js";
@@ -22,17 +22,16 @@ import { expect, vi } from "vitest";
 import {
   createGamepad,
   createGamepadButtons,
+  type GamepadFixtureOptions,
 } from "../test/fixtures/gamepad.ts";
-import {
-  dispatchGamepadEvent,
-  gamepadTest,
-} from "../test/fixtures/gamepad-browser.ts";
+import { dispatchGamepadEvent } from "../test/fixtures/gamepad-browser.ts";
 import {
   type Cleanup,
   collectEvents,
-  createCleanup,
+  createPairedFrame,
   createThreeEnvironment,
   disposeObjectResources,
+  integrationTest as interactionTest,
 } from "../test/fixtures/three-controls.ts";
 import { GamepadArcballControls } from "./gamepad-arcball-controls.ts";
 import { GamepadMapControls } from "./gamepad-map-controls.ts";
@@ -47,14 +46,6 @@ import {
 import { gamepadStickPipeline } from "./gamepad-stick-processing.ts";
 import { GamepadTrackballControls } from "./gamepad-trackball-controls.ts";
 
-const interactionTest = gamepadTest.extend(
-  "cleanup",
-  ({ gamepadPolling: _polling }, { onCleanup }) => {
-    const cleanup = createCleanup();
-    onCleanup(() => cleanup.dispose());
-    return cleanup;
-  },
-);
 const sessionKinds = ["orbit", "map", "trackball", "arcball"] as const;
 type Kind = (typeof sessionKinds)[number] | "pointerLock";
 type InteractionEvents = OrbitControlsEventMap & PointerLockControlsEventMap;
@@ -129,7 +120,10 @@ const createScenario = (
     dispatcher,
     ["start", "change", "end", "lock", "unlock"],
     camera.uuid,
-    () => ({ quaternion: camera.quaternion.toArray() }),
+    (event) => ({
+      quaternion: camera.quaternion.toArray(),
+      targetMatches: event.target === dispatcher,
+    }),
   );
   const update = (delta = 0.1) => {
     syncMatrices();
@@ -1632,9 +1626,9 @@ interactionTest.for(sessionKinds)(
       "end",
     ]);
     expect(before.angleTo(scenario.camera.quaternion)).toBeGreaterThan(0.01);
-    expect(
-      scenario.events.every((event) => event.source === scenario.camera.uuid),
-    ).toBe(true);
+    expect(scenario.events.every((event) => event.data.targetMatches)).toBe(
+      true,
+    );
   },
 );
 
@@ -1877,34 +1871,138 @@ for (const kind of sessionKinds) {
     },
   );
 
-  interactionTest(
-    `${kind} isolates sessions for sparse slots in both update orders`,
-    ({ cleanup, gamepadPolling }) => {
+  interactionTest.for([false, true])(
+    `${kind} isolates rotation, pan and session loss in slots 0/3 (reversed: %s)`,
+    (reversed, { cleanup, gamepadPolling }) => {
       const a = createScenario(kind, cleanup, 0);
       const b = createScenario(kind, cleanup, 3);
-      gamepadPolling.publishFrame([0], [3]);
-      b.update();
-      a.update();
-      gamepadPolling.publishFrame([0, a.active], [3, b.active]);
-      a.update();
-      b.update();
-      expect(a.types()).toEqual(["start", "change"]);
+      const frame = createPairedFrame(
+        gamepadPolling,
+        a.update,
+        b.update,
+        reversed,
+      );
+      const pan = { axes: kind === "map" ? [0.4, 0, 0, 0] : [0, 0, 0.4, 0] };
+      const target =
+        b.native instanceof ArcballControls
+          ? (b.native as ArcballGeometry)._gizmos.position
+          : (b.native as OrbitControls | TrackballControls).target;
+      const initialA = a.camera.quaternion.clone();
+      const initialB = b.camera.quaternion.clone();
+      const beforeB = b.camera.position.clone();
+      const beforeTarget = target.clone();
+      frame(undefined, pan);
+      expect(a.wrapper.gamepad).toBeNull();
+      expect(a.types()).toEqual([]);
+      expect(a.camera.quaternion.angleTo(initialA)).toBeLessThan(1e-7);
+      const panStep = b.camera.position.clone().sub(beforeB);
+      expect(panStep.length()).toBeGreaterThan(1e-5);
+      expect(target.clone().sub(beforeTarget).distanceTo(panStep)).toBeLessThan(
+        1e-8,
+      );
       expect(b.types()).toEqual(["start", "change"]);
+
+      // Compare every subsequent B frame to its first pan with slot 0 absent.
+      const position = b.camera.position.clone();
+      const nextTarget = target.clone();
+      const expectedEvents = ["start", "change"];
+      const advance = (inputA?: GamepadFixtureOptions) => {
+        position.add(panStep);
+        nextTarget.add(panStep);
+        expectedEvents.push("change");
+        frame(inputA, pan);
+        expect(b.camera.position.distanceTo(position)).toBeLessThan(1e-8);
+        expect(target.distanceTo(nextTarget)).toBeLessThan(1e-8);
+        expect(b.camera.quaternion.angleTo(initialB)).toBeLessThan(1e-7);
+        expect(b.types()).toEqual(expectedEvents);
+      };
+      advance(a.active);
+      const firstRotation = a.camera.quaternion.clone();
+      expect(firstRotation.angleTo(initialA)).toBeGreaterThan(0.01);
+      advance({ id: "refreshed", axes: a.active.axes.map((value) => -value) });
+      expect(a.wrapper.gamepad?.id).toBe("refreshed");
+      expect(a.camera.quaternion.angleTo(initialA)).toBeLessThan(1e-7);
+      a.wrapper.enabled = false;
+      advance(a.active);
+      expect(a.types()).toEqual(["start", "change", "change"]);
+      expect(a.camera.quaternion.angleTo(initialA)).toBeLessThan(1e-7);
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        createGamepad(0, { connected: false }),
+      );
+      expect(a.types()).toEqual(["start", "change", "change", "end"]);
+      advance();
+
+      a.wrapper.enabled = true;
+      advance({ buttons: createGamepadButtons([0, true]) });
+      expect(a.types().slice(3)).toEqual(["end"]);
+      advance(a.active);
+      a.native.enabled = false;
+      advance(a.active);
+      expect(a.camera.quaternion.angleTo(firstRotation)).toBeLessThan(1e-7);
+      a.native.enabled = true;
+      advance(a.active);
+      advance(); // Polling loses A during the new rotation session.
+      expect(a.types().slice(4)).toEqual([
+        "start",
+        "change",
+        "end",
+        "start",
+        "change",
+        "end",
+      ]);
+      advance(a.active);
       a.wrapper.dispose();
-      gamepadPolling.publishFrame([3, b.active]);
-      b.update();
-      a.update();
-      expect(a.types()).toEqual(["start", "change", "end"]);
-      expect(b.types()).toEqual(["start", "change", "change"]);
-      expect(a.events.every((event) => event.source === a.camera.uuid)).toBe(
-        true,
-      );
-      expect(b.events.every((event) => event.source === b.camera.uuid)).toBe(
-        true,
-      );
+      advance();
+      expect(a.types().slice(-3)).toEqual(["start", "change", "end"]);
+      expect(a.events.every((event) => event.data.targetMatches)).toBe(true);
+      expect(b.events.every((event) => event.data.targetMatches)).toBe(true);
     },
   );
 }
+
+interactionTest.for([false, true])(
+  "Trackball keeps B's rotation damping after A stops (reversed: %s)",
+  (reversed, { cleanup, gamepadPolling }) => {
+    const a = createScenario("trackball", cleanup, 0);
+    const b = createScenario("trackball", cleanup, 3);
+    const nativeB = b.native as TrackballControls;
+    nativeB.staticMoving = false;
+    nativeB.dynamicDampingFactor = 0.75;
+    const frame = createPairedFrame(
+      gamepadPolling,
+      a.update,
+      b.update,
+      reversed,
+    );
+    const initial = b.camera.position.clone().sub(nativeB.target);
+    frame({ axes: [-0.8, 0] }, b.active);
+    const offset = b.camera.position.clone().sub(nativeB.target);
+    const axis = initial.clone().cross(offset).normalize();
+    let angle = initial.angleTo(offset);
+    expect(angle).toBeGreaterThan(0.01);
+    const stopped = a.camera.position.clone();
+    a.wrapper.dispose();
+    for (let i = 0; i < 3; i++) {
+      frame(undefined, {});
+      angle *= Math.sqrt(1 - nativeB.dynamicDampingFactor);
+      offset.applyAxisAngle(axis, angle);
+      expect(
+        b.camera.position.clone().sub(nativeB.target).distanceTo(offset),
+      ).toBeLessThan(1e-8);
+      expect(a.camera.position.distanceTo(stopped)).toBeLessThan(1e-8);
+    }
+    expect(a.types()).toEqual(["start", "change", "end"]);
+    expect(b.types()).toEqual([
+      "start",
+      "change",
+      "end",
+      "change",
+      "change",
+      "change",
+    ]);
+  },
+);
 
 interactionTest.for(["orbit", "map", "trackball"] as const)(
   "%s separates damping changes from the end of input",
@@ -2280,29 +2378,64 @@ interactionTest(
   },
 );
 
-interactionTest(
-  "PointerLock isolates change notifications for opposite inputs and sparse slots",
-  ({ cleanup, gamepadPolling }) => {
+interactionTest.for([false, true])(
+  "PointerLock isolates translation and opposite look during slot loss (reversed: %s)",
+  (reversed, { cleanup, gamepadPolling }) => {
     const a = createScenario("pointerLock", cleanup, 0);
     const b = createScenario("pointerLock", cleanup, 3);
-    gamepadPolling.publishFrame(
-      [0, { axes: [0, 0, 0.5, 0] }],
-      [3, { axes: [0, 0, -0.5, 0] }],
+    const frame = createPairedFrame(
+      gamepadPolling,
+      a.update,
+      b.update,
+      reversed,
     );
-    b.update();
-    a.update();
+    const turn = { axes: [0, 0, 0.5, 0] };
+    const moveAndTurn = { axes: [0.5, 0, -0.5, 0] };
+    const position = b.camera.position.clone();
+    const orientation = b.camera.quaternion.clone();
+    const yaw = new Quaternion().setFromAxisAngle(
+      new Vector3(0, 1, 0),
+      0.05 * Math.PI,
+    );
+    const expectedEvents: string[] = [];
+    const advance = (inputA?: GamepadFixtureOptions) => {
+      position.addScaledVector(
+        new Vector3(1, 0, 0).applyQuaternion(orientation),
+        0.25,
+      );
+      orientation.multiply(yaw);
+      expectedEvents.push("change");
+      frame(inputA, moveAndTurn);
+      expect(b.camera.position.distanceTo(position)).toBeLessThan(1e-8);
+      expect(b.camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+      expect(b.types()).toEqual(expectedEvents);
+    };
+    advance(turn);
     expect(a.types()).toEqual(["change"]);
     expect(b.types()).toEqual(["change"]);
     expect(a.camera.quaternion.y).toBeLessThan(0);
     expect(b.camera.quaternion.y).toBeGreaterThan(0);
-    a.wrapper.dispose();
-    gamepadPolling.publishFrame([3, b.active]);
-    a.update();
-    b.update();
+    const stopped = a.camera.quaternion.clone();
+    a.wrapper.enabled = false;
+    advance();
+    expect(a.wrapper.gamepad?.index).toBe(0);
+    a.wrapper.enabled = true;
+    advance();
+    expect(a.wrapper.gamepad).toBeNull();
+    a.native.enabled = false;
+    advance(turn);
+    expect(a.camera.quaternion.angleTo(stopped)).toBeLessThan(1e-7);
     expect(a.types()).toEqual(["change"]);
-    expect(b.types()).toEqual(["change", "change"]);
-    expect(b.events.every((event) => event.source === b.camera.uuid)).toBe(
-      true,
+    a.native.enabled = true;
+    advance(turn);
+    expect(a.camera.quaternion.angleTo(stopped)).toBeCloseTo(
+      0.05 * Math.PI,
+      10,
     );
+    a.wrapper.dispose();
+    advance(turn);
+    expect(a.types()).toEqual(["change", "change"]);
+    expect(a.events.every((event) => event.data.targetMatches)).toBe(true);
+    expect(b.events.every((event) => event.data.targetMatches)).toBe(true);
   },
 );
