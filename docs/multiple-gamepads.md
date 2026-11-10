@@ -32,7 +32,7 @@ The wrapper's pause flag is independent of the native Three.js control's `enable
 
 ### Different gamepads for Three.js controls
 
-This example assigns slot `0` to camera navigation and slot `1` to object transforms:
+This example assigns slot `0` to camera navigation and slot `3` to editing a cube. Both controls use the same camera. In the `XYZ` translation plane, pushing right moves the cube toward the right of the current view. Turning the camera changes which direction that is in the scene.
 
 ```ts
 import { Timer } from "three";
@@ -44,9 +44,11 @@ import {
 } from "three-gamepad-controls";
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
+orbitControls.enableDamping = true;
 
 const transformControls = new TransformControls(camera, renderer.domElement);
 transformControls.attach(cube);
+transformControls.axis = "XYZ";
 // TransformControls renders its gizmo through this separate helper object.
 const transformControlsHelper = transformControls.getHelper();
 scene.add(transformControlsHelper);
@@ -57,7 +59,7 @@ const cameraGamepad = new GamepadOrbitControls(orbitControls, {
 });
 
 const objectGamepad = new GamepadTransformControls(transformControls, {
-  gamepadIndex: 1,
+  gamepadIndex: 3,
 });
 
 const timer = new Timer();
@@ -66,54 +68,76 @@ renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
 
-  // Poll slot 0 before applying camera motion.
+  // Finish camera input and native damping before using this frame's view.
   cameraGamepad.update(delta);
-  // Poll slot 1 independently.
-  objectGamepad.update(delta);
-  // Flush OrbitControls' queued input and damping.
   orbitControls.update(delta);
-
+  objectGamepad.update(delta);
   renderer.render(scene, camera);
 });
 
-// Clean up when the controls are no longer needed.
-renderer.setAnimationLoop(null);
-cameraGamepad.dispose();
-objectGamepad.dispose();
-orbitControls.dispose();
-transformControls.detach();
-scene.remove(transformControlsHelper);
-transformControls.dispose();
-timer.dispose();
+// Call when leaving the scene.
+const stopEditing = () => {
+  renderer.setAnimationLoop(null);
+  cameraGamepad.dispose();
+  objectGamepad.dispose();
+  orbitControls.dispose();
+  transformControls.detach();
+  scene.remove(transformControlsHelper);
+  transformControls.dispose();
+  timer.dispose();
+};
 ```
 
 The gamepad wrappers and the wrapped Three.js controls have independent lifecycles, so dispose both when they are no longer needed. Three.js controls, including `OrbitControls` and `TransformControls`, provide `dispose()` to remove event listeners and release internal resources. See the Three.js [`Controls.dispose()`](https://threejs.org/docs/pages/Controls.html#Methods) documentation.
 
 ### Different gamepads for players
 
-Use one [`GamepadInput`](./gamepad-input.md) per player when gamepad input drives gameplay rather than a Three.js controls wrapper. `GamepadInput` owns its internal gamepad manager, so application code does not create or coordinate a `GamepadManager` directly.
+Use one [`GamepadInput`](./gamepad-input.md) per player. Here `player1` and `player2` are objects in the scene. Each player moves with the left stick and feels a short pulse when they press the south button.
 
 ```ts
-import { GamepadInput } from "three-gamepad-controls";
+import { Timer } from "three";
+import { GAMEPAD_AXIS, GAMEPAD_BUTTON, GamepadInput } from "three-gamepad-controls";
 
-const player1Input = new GamepadInput({ gamepadIndex: 0 });
-const player2Input = new GamepadInput({ gamepadIndex: 1 });
+const players = [
+  { name: "Player 1", object: player1, input: new GamepadInput({ gamepadIndex: 0 }) },
+  { name: "Player 2", object: player2, input: new GamepadInput({ gamepadIndex: 3 }) },
+];
+const timer = new Timer();
+const subscriptions = new AbortController();
+for (const { name, input } of players) {
+  for (const type of ["connected", "disconnected"] as const) {
+    input.addEventListener(type, ({ detail }) => {
+      console.log(name, type, detail.gamepad.index);
+    }, { signal: subscriptions.signal });
+  }
+}
 
-renderer.setAnimationLoop(() => {
-  // Poll every input before consuming its current state or transitions.
-  player1Input.update();
-  player2Input.update();
-
-  updatePlayer1(player1Input);
-  updatePlayer2(player2Input);
-
+renderer.setAnimationLoop((timestamp) => {
+  timer.update(timestamp);
+  const delta = timer.getDelta();
+  for (const { input } of players) {
+    input.update();
+  }
+  for (const { object, input } of players) {
+    object.position.x += input.axis(GAMEPAD_AXIS.LeftX) * 4 * delta;
+    if (input.wasPressed(GAMEPAD_BUTTON.South)) {
+      input.playVibrationEffect("dual-rumble", {
+        duration: 80, weakMagnitude: 0.4,
+      }).catch(console.error);
+    }
+  }
   renderer.render(scene, camera);
 });
 
-// Clean up when the inputs are no longer needed.
-renderer.setAnimationLoop(null);
-player1Input.dispose();
-player2Input.dispose();
+// Call when leaving the game.
+const stopPlayers = () => {
+  renderer.setAnimationLoop(null);
+  subscriptions.abort();
+  for (const { input } of players) {
+    input.dispose();
+  }
+  timer.dispose();
+};
 ```
 
-Each input keeps independent button-transition state, connection events, and slot selection. See [`GamepadInput`](./gamepad-input.md) for a complete character movement example.
+A player who reconnects holding the south button gets the next pulse after releasing and pressing it again. Movement works on controllers without vibration. See [haptic feedback](./haptic-feedback.md) for effect results and how to stop a pulse.
