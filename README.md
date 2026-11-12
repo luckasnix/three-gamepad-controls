@@ -58,34 +58,6 @@ bun add three three-gamepad-controls
 bun add -d @types/three # optional: for TypeScript projects
 ```
 
-## 🧪 Testing
-
-Tests use Vitest with Browser Mode and Playwright for browser-dependent behavior in Chromium. Browser-independent tests run directly in Node.js.
-
-After installing the project dependencies, install Chromium once:
-
-```bash
-pn exec playwright install chromium
-```
-
-Run the test suite once:
-
-```bash
-pn test
-```
-
-Start Vitest in watch mode while developing:
-
-```bash
-pn test:watch
-```
-
-Generate the coverage report:
-
-```bash
-pn test:coverage
-```
-
 ## 🔗 Compatibility
 
 | Three.js | Three.js Gamepad Controls |
