@@ -43,7 +43,7 @@ Center focus uses the wrapped `ArcballControls.scene` raycaster path. It only ru
 | `zRotateSpeed` | `number` | `1.0` | Multiplier on z-rotation speed. |
 | `rotateStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for rotation. |
 | `panStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for panning. |
-| `buttonDeadzone` | `number` | `0.1` | Dead zone threshold for analog zoom and Z-rotation values. |
+| `buttonDeadzone` | `number` | `0.1` | Each zoom or Z-rotation button contributes its full value only when its pressure exceeds this threshold. |
 | `buttonZoomIn` | `number` | `7` | Button index for zoom in - analog trigger value (right trigger). |
 | `buttonZoomOut` | `number` | `6` | Button index for zoom out - analog trigger value (left trigger). |
 | `buttonZRotateLeft` | `number` | `4` | Button index for counterclockwise z-rotation (left shoulder). |
@@ -52,7 +52,9 @@ Center focus uses the wrapped `ArcballControls.scene` raycaster path. It only ru
 
 Gamepad input respects `enabled`, `enableRotate`, `enablePan`, `enableZoom`, `enableFocus`, camera distance limits, and orthographic zoom limits because the wrapper applies Arcball's own runtime transformations.
 
-Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Pipelines do not process zoom, Z rotation, or focus buttons; `buttonDeadzone` controls the scalar analog threshold. See [Stick Processing](./gamepad-stick-processing.md).
+Arcball subtracts the filtered pressures for each pair (zoom in minus zoom out, left rotation minus right rotation). With the default threshold, pressures of `0.16` and `0.08` give the same movement as `0.16` alone. Two active buttons at `0.32` and `0.30` produce a fine movement proportional to their difference of `0.02` and can keep the interaction active. Equal pressures cancel and end the interaction if no other action is active.
+
+Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields and merges them independently with the action default. Pipelines apply only to stick input. See [Stick Processing](./gamepad-stick-processing.md).
 
 ## Clipping and projection
 

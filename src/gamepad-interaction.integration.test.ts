@@ -2342,6 +2342,68 @@ interactionTest.for([
   },
 );
 
+for (const { action, positive, negative, permission } of [
+  { action: "zoom", positive: 7, negative: 6, permission: "enableZoom" },
+  {
+    action: "Z rotation",
+    positive: 4,
+    negative: 5,
+    permission: "enableRotate",
+  },
+] as const) {
+  interactionTest(
+    `Arcball keeps fine ${action} input active until opposing pressures cancel`,
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("arcball", cleanup);
+      const advance = (positiveValue: number, negativeValue: number) => {
+        const buttons = createGamepadButtons(
+          [positive, false, positiveValue],
+          [negative, false, negativeValue],
+        );
+        gamepadPolling.publishFrame([scenario.index, { buttons }]);
+        scenario.update();
+      };
+      const { matrix } = scenario.camera;
+      const initial = matrix.clone();
+      advance(0.16, 0.08);
+      expect(matrix.equals(initial)).toBe(false);
+      expect(scenario.types()).toEqual(["start", "change"]);
+
+      const first = matrix.clone();
+      advance(0.32, 0.3);
+      expect(matrix.equals(first)).toBe(false);
+      expect(scenario.types()).toEqual(["start", "change", "change"]);
+
+      const last = matrix.clone();
+      for (let frame = 0; frame < 2; frame++) {
+        advance(0.5, 0.5);
+        expect(matrix).toEqual(last);
+        expect(scenario.types()).toEqual(["start", "change", "change", "end"]);
+      }
+    },
+  );
+
+  interactionTest(
+    `Arcball cancels ${action} when a start listener revokes ${permission}`,
+    ({ cleanup, gamepadPolling }) => {
+      const scenario = createScenario("arcball", cleanup);
+      const native = scenario.native as ArcballControls;
+      native.addEventListener("start", () => {
+        native[permission] = false;
+      });
+      const initial = scenario.camera.matrix.clone();
+      const buttons = createGamepadButtons(
+        [positive, false, 0.16],
+        [negative, false, 0.08],
+      );
+      gamepadPolling.publishFrame([scenario.index, { buttons }]);
+      scenario.update();
+      expect(scenario.camera.matrix).toEqual(initial);
+      expect(scenario.types()).toEqual(["start", "end"]);
+    },
+  );
+}
+
 interactionTest.for(["zero", "one", "infinite", "negative"] as const)(
   "Arcball invalid or neutral zoom factor %s does not acquire interaction",
   (factor, { cleanup, gamepadPolling }) => {

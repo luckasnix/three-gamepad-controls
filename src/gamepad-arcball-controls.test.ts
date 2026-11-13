@@ -332,6 +332,45 @@ describe("GamepadArcballControls pan and interaction events", () => {
   });
 });
 
+describe("GamepadArcballControls opposing buttons", () => {
+  gamepadTest.for([
+    { positive: 0.16, negative: 0.08, balance: 0.16 },
+    { positive: 0.08, negative: 0.16, balance: -0.16 },
+    { positive: 0.1, negative: 0.04, balance: 0 },
+    { positive: 0.32, negative: 0.3, balance: 0.02 },
+    { positive: 0.5, negative: 0.5, balance: 0 },
+  ])(
+    "combines $positive and $negative into $balance for zoom and Z rotation",
+    ({ positive, negative, balance }) => {
+      const { controls: arcball } = createArcballControls();
+      const controls = createControls(arcball);
+      const buttons = createGamepadButtons(
+        [7, false, positive],
+        [6, false, negative],
+        [4, false, positive],
+        [5, false, negative],
+      );
+      polling.publishFrame([0, { buttons }]);
+      const delta = 1 / 8;
+      controls.update(delta);
+      if (balance === 0) {
+        expect(arcball.scale).not.toHaveBeenCalled();
+        expect(arcball.zRotate).not.toHaveBeenCalled();
+        expect(eventTypes(arcball)).toEqual([]);
+      } else {
+        expect(arcball.scale).toHaveBeenCalledExactlyOnceWith(
+          expect.closeTo(arcball.scaleFactor ** balance, 10),
+          arcball._gizmos.position,
+        );
+        expect(arcball.zRotate).toHaveBeenCalledExactlyOnceWith(
+          arcball._gizmos.position,
+          expect.closeTo(balance * delta * Math.PI, 10),
+        );
+      }
+    },
+  );
+});
+
 describe("GamepadArcballControls zoom", () => {
   gamepadTest.for(["camera", "gizmos"] as const)(
     "preserves the absent %s component of a native scale transform",
@@ -451,6 +490,18 @@ describe("GamepadArcballControls zoom", () => {
 });
 
 describe("GamepadArcballControls z-rotation", () => {
+  gamepadTest("applies full pressure for a pressed digital shoulder", () => {
+    const { controls: arcball } = createArcballControls();
+    const controls = createControls(arcball);
+    const buttons = createGamepadButtons([4, true, 0], [5, false, 0.08]);
+    polling.publishFrame([0, { buttons }]);
+    controls.update(0.25);
+    expect(arcball.zRotate).toHaveBeenCalledExactlyOnceWith(
+      arcball._gizmos.position,
+      expect.closeTo(0.25 * Math.PI, 10),
+    );
+  });
+
   gamepadTest("rotates around the camera view axis", () => {
     const { controls: arcball } = createArcballControls();
     const controls = createControls(arcball, { zRotateSpeed: 2 });

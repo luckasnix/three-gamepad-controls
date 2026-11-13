@@ -66,7 +66,9 @@ export type GamepadArcballControlsOptions = GamepadControlsOptions & {
   panStick: GamepadStickBindingOptions;
 
   /**
-   * Dead zone threshold for analog button and trigger values.
+   * Each zoom or Z-rotation button contributes its full value only above this threshold.
+   * Small differences between active buttons allow fine motion and can sustain an interaction.
+   * Equal pressures cancel and end the interaction if no other action is active.
    * @default 0.1
    */
   buttonDeadzone: number;
@@ -240,8 +242,8 @@ type ArcballControlsWithRuntimeHelpers = ArcballControls & {
 };
 
 /**
- * Cached processed sticks, signed button differences, and an optional world-space
- * focus point for one frame. Continuous button values are filtered during acceptance.
+ * Cached processed sticks, signed differences between filtered button pressures,
+ * and an optional world-space focus point for one frame.
  */
 type ArcballInput = {
   rotateX: number;
@@ -375,10 +377,8 @@ export class GamepadArcballControls extends GamepadControls {
       rotateY: rotate.y,
       panX: pan.x,
       panY: pan.y,
-      zoom: input.buttonValue(buttonZoomIn) - input.buttonValue(buttonZoomOut),
-      zRotation:
-        input.buttonValue(buttonZRotateLeft) -
-        input.buttonValue(buttonZRotateRight),
+      zoom: this.#readButtonPair(buttonZoomIn, buttonZoomOut),
+      zRotation: this.#readButtonPair(buttonZRotateLeft, buttonZRotateRight),
       focus: this.#consumeFocusPoint(buttonFocus),
     };
     let actions = this.#acceptActions(frame, deltaTime);
@@ -412,6 +412,17 @@ export class GamepadArcballControls extends GamepadControls {
     }
   }
 
+  /** Filters each pressure before combining the two directions of an action. */
+  #readButtonPair(positiveButton: number, negativeButton: number): number {
+    const { buttonDeadzone } = this.#options;
+    const positive = this.gamepadInput.buttonValue(positiveButton);
+    const negative = this.gamepadInput.buttonValue(negativeButton);
+    return (
+      (positive > buttonDeadzone ? positive : 0) -
+      (negative > buttonDeadzone ? negative : 0)
+    );
+  }
+
   /**
    * Resolves a cached frame against current permissions, gains, and zoom validity.
    * Zero deltas and invalid or neutral zoom factors do not sustain an interaction.
@@ -434,16 +445,11 @@ export class GamepadArcballControls extends GamepadControls {
       ? controls._tbRadius * options.panSpeed * delta
       : 0;
     const zRotation =
-      controls.enableRotate &&
-      Math.abs(frame.zRotation) > options.buttonDeadzone
+      controls.enableRotate && frame.zRotation !== 0
         ? frame.zRotation * options.zRotateSpeed * delta * Math.PI
         : 0;
     let zoomSize = 1;
-    if (
-      controls.enableZoom &&
-      Math.abs(frame.zoom) > options.buttonDeadzone &&
-      controls.scaleFactor > 0
-    ) {
+    if (controls.enableZoom && frame.zoom !== 0 && controls.scaleFactor > 0) {
       const size =
         controls.scaleFactor **
         (frame.zoom * options.zoomSpeed * delta * ZOOM_NOTCHES_PER_SECOND);
