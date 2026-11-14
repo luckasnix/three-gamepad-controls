@@ -209,6 +209,13 @@ const createGamepadStickResult = (
   };
 };
 
+/** Scales both components together and canonicalizes zero in the result. */
+const scaleGamepadStick = (
+  value: Readonly<GamepadStick>,
+  scale: number,
+): GamepadStick =>
+  createGamepadStickResult(value, value.x * scale, value.y * scale);
+
 /**
  * Transforms the magnitude of a signed scalar while preserving its sign.
  *
@@ -248,8 +255,49 @@ const mapGamepadStickMagnitude = (
   if (mappedMagnitude === 0) {
     return createGamepadStickResult(value, 0, 0);
   }
-  const scale = mappedMagnitude / magnitude;
-  return createGamepadStickResult(value, value.x * scale, value.y * scale);
+  return scaleGamepadStick(value, mappedMagnitude / magnitude);
+};
+
+/**
+ * Limits stick length while preserving direction and partial deflection.
+ *
+ * @param value - Stick with finite components.
+ * @param max - Maximum length, a finite non-negative number. Defaults to one.
+ * @returns The limited stick with canonical zero components.
+ * @throws RangeError if a component or the maximum is invalid.
+ */
+export const limitGamepadStickMagnitude = (
+  value: Readonly<GamepadStick>,
+  max = 1,
+): GamepadStick => {
+  if (!Number.isFinite(max) || max < 0) {
+    throw new RangeError("max must be a finite non-negative number");
+  }
+  if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) {
+    throw new RangeError("stick components must be finite numbers");
+  }
+  const largest = Math.max(Math.abs(value.x), Math.abs(value.y));
+  if (largest === 0 || max === 0) {
+    return createGamepadStickResult(value, 0, 0);
+  }
+  // Measure in units of the largest component so even extreme diagonals fit.
+  const x = value.x / largest;
+  const y = value.y / largest;
+  const length = Math.hypot(x, y);
+  const relativeMax = max / largest;
+  if (relativeMax >= length) {
+    return createGamepadStickResult(value, value.x, value.y);
+  }
+  const scale = relativeMax / length;
+  // A subnormal scale can round to zero before it reaches the components.
+  if (scale < 2 ** -1022) {
+    return createGamepadStickResult(
+      value,
+      (x / length) * max,
+      (y / length) * max,
+    );
+  }
+  return scaleGamepadStick(value, scale);
 };
 
 /**

@@ -14,6 +14,7 @@ import {
 import {
   type GamepadStick,
   gamepadStickPipeline,
+  limitGamepadStickMagnitude,
 } from "./gamepad-stick-processing.ts";
 
 const createPointerLockControls = (): PointerLockControls =>
@@ -145,6 +146,31 @@ describe("GamepadPointerLockControls movement", () => {
     controls.update(0.25);
     expect(pointerLockControls.object.position.z).toBeCloseTo(-0.25);
   });
+
+  gamepadTest.each([
+    { axes: [1, -1, 0, 0], distance: 1, x: Math.SQRT1_2, z: -Math.SQRT1_2 },
+    { axes: [0, -0.5, 0, 0], distance: 0.5, x: 0, z: -0.5 },
+  ])(
+    "moves $distance units with a magnitude-limited movement binding",
+    ({ axes, distance, x, z }) => {
+      const pointerLockControls = createPointerLockControls();
+      const controls = createControls(pointerLockControls, {
+        moveSpeed: 1,
+        moveStick: {
+          pipeline: gamepadStickPipeline()
+            .deadzone(0.15)
+            .transform(limitGamepadStickMagnitude),
+        },
+      });
+      polling.gamepads[0] = createGamepad(0, { axes });
+      controls.update(1);
+      const position = pointerLockControls.object.position;
+      expect(position.length()).toBeCloseTo(distance);
+      expect(position.x).toBeCloseTo(x);
+      expect(position.y).toBe(0);
+      expect(position.z).toBeCloseTo(z);
+    },
+  );
 });
 
 describe("GamepadPointerLockControls look", () => {

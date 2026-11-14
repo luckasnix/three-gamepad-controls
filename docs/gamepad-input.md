@@ -170,9 +170,12 @@ import {
   GAMEPAD_BUTTON,
   gamepadStickPipeline,
   GamepadInput,
+  limitGamepadStickMagnitude,
 } from "three-gamepad-controls";
 
-const movementPipeline = gamepadStickPipeline().deadzone(0.15);
+const movementPipeline = gamepadStickPipeline()
+  .deadzone(0.15)
+  .transform(limitGamepadStickMagnitude);
 const gamepadInput = new GamepadInput({
   stickPipeline: movementPipeline,
 });
@@ -190,11 +193,6 @@ renderer.setAnimationLoop((timestamp) => {
 
   // Stick up is negative Y, which maps naturally to forward (-Z).
   movement.set(stick.x, 0, stick.y);
-
-  // Prevent diagonal movement from being faster.
-  if (movement.lengthSq() > 1) {
-    movement.normalize();
-  }
 
   const speed = gamepadInput.isPressed(GAMEPAD_BUTTON.RightShoulder) ? 8 : 4;
 
@@ -214,3 +212,5 @@ timer.dispose();
 ```
 
 Call `update()` once per frame before reading input. Use `stick()` for continuous movement, `isPressed()` for held actions such as sprinting, and `wasPressed()` for one-shot transitions such as starting a jump. Vertical movement, collision handling, and jump physics remain application responsibilities; `startJump()` represents that integration point.
+
+The movement pipeline caps diagonal speed and preserves partial deflection. For first-person movement with climb and descent, the First Person wrapper limits the combined 3D vector after adding vertical input from the triggers. See [First Person movement](./gamepad-first-person-controls.md#movement-and-native-input).

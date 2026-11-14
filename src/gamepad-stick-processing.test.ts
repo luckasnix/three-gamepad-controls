@@ -5,6 +5,7 @@ import {
   type GamepadStick,
   type GamepadStickProcessor,
   gamepadStickPipeline,
+  limitGamepadStickMagnitude,
   resolveGamepadStickBinding,
 } from "./gamepad-stick-processing.ts";
 
@@ -49,6 +50,106 @@ describe("gamepadStickPipeline", () => {
       .pipe(followingProcessor);
     expect(() => pipeline.process({ x: 0, y: 0 })).toThrow(error);
     expect(followingProcessor.process).not.toHaveBeenCalled();
+  });
+});
+
+describe("limitGamepadStickMagnitude", () => {
+  test("preserves partial deflection and scales to a smaller maximum", () => {
+    const input = Object.freeze({ x: 0.3, y: -0.4 });
+    expect(limitGamepadStickMagnitude(input)).toEqual(input);
+    expect(limitGamepadStickMagnitude(input, 0.5)).toEqual(input);
+    const limited = limitGamepadStickMagnitude(input, 0.25);
+    expect(limited.x).toBeCloseTo(0.15, 14);
+    expect(limited.y).toBeCloseTo(-0.2, 14);
+  });
+
+  test.each([1, Number.MAX_VALUE])(
+    "limits a diagonal with components of size %s",
+    (size) => {
+      const limited = limitGamepadStickMagnitude({ x: size, y: -size });
+      expect(limited.x).toBeCloseTo(Math.SQRT1_2, 14);
+      expect(limited.y).toBeCloseTo(-Math.SQRT1_2, 14);
+    },
+  );
+
+  test("accepts limits above one", () => {
+    expect(limitGamepadStickMagnitude({ x: -3, y: 0 }, 2)).toEqual({
+      x: -2,
+      y: 0,
+    });
+  });
+
+  test("keeps a tiny limit representable when the scale factor underflows", () => {
+    expect(
+      limitGamepadStickMagnitude(
+        { x: -Number.MAX_VALUE, y: 0 },
+        Number.MIN_VALUE,
+      ),
+    ).toEqual({
+      x: -Number.MIN_VALUE,
+      y: 0,
+    });
+  });
+
+  test("preserves direction for subnormal input lengths", () => {
+    const unit = Number.MIN_VALUE;
+    const limited = limitGamepadStickMagnitude(
+      { x: 3 * unit, y: -3 * unit },
+      2 * unit,
+    );
+    expect(limited).toEqual({ x: unit, y: -unit });
+  });
+
+  test("returns positive zeros for neutral input, signed zeros and a zero maximum", () => {
+    expect(limitGamepadStickMagnitude(Object.freeze({ x: -0, y: -0 }))).toEqual(
+      { x: 0, y: 0 },
+    );
+    expect(limitGamepadStickMagnitude({ x: -0, y: 0.5 })).toEqual({
+      x: 0,
+      y: 0.5,
+    });
+    expect(limitGamepadStickMagnitude({ x: -1, y: 1 }, 0)).toEqual({
+      x: 0,
+      y: 0,
+    });
+  });
+
+  test.each([-1, NaN, Infinity, -Infinity])(
+    "rejects an invalid maximum of %s",
+    (max) => {
+      expect(() => limitGamepadStickMagnitude({ x: 0, y: 0 }, max)).toThrow(
+        RangeError,
+      );
+    },
+  );
+
+  test.each([NaN, Infinity, -Infinity])(
+    "rejects a non-finite component of %s even with a zero maximum",
+    (component) => {
+      expect(() =>
+        limitGamepadStickMagnitude({ x: component, y: 0 }, 0),
+      ).toThrow(RangeError);
+      expect(() =>
+        limitGamepadStickMagnitude({ x: 0, y: component }, 0),
+      ).toThrow(RangeError);
+    },
+  );
+
+  test("limits the magnitude at the configured position in the pipeline", () => {
+    const base = gamepadStickPipeline().deadzone(0.15);
+    const double = ({ x, y }: Readonly<GamepadStick>) => ({
+      x: x * 2,
+      y: y * 2,
+    });
+    const input = { x: 0.75, y: 0 };
+    const doubleThenLimit = base
+      .transform(double)
+      .transform(limitGamepadStickMagnitude);
+    const limitThenDouble = base
+      .transform(limitGamepadStickMagnitude)
+      .transform(double);
+    expect(doubleThenLimit.process(input)).toEqual({ x: 1, y: 0 });
+    expect(limitThenDouble.process(input)).toEqual({ x: 1.5, y: 0 });
   });
 });
 

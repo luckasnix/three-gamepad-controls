@@ -155,6 +155,31 @@ type GamepadStickProcessor = {
 
 Implementations must be pure and stateless: do not mutate `value`, retain frame-to-frame state, or return partial results.
 
+## Limiting movement magnitude
+
+`limitGamepadStickMagnitude(value, max = 1)` caps the length of a 2D vector while preserving its direction. Values at or below the limit retain their analog intensity. With the default limit, a full diagonal has length `1` and a half-deflected cardinal direction has length `0.5`.
+
+```ts
+import {
+  GamepadPointerLockControls,
+  gamepadStickPipeline,
+  limitGamepadStickMagnitude,
+} from "three-gamepad-controls";
+
+const limited = limitGamepadStickMagnitude({ x: 0.3, y: -0.4 }, 0.25);
+// limited is approximately { x: 0.15, y: -0.20 }.
+
+const movement = gamepadStickPipeline()
+  .deadzone(0.15)
+  .transform(limitGamepadStickMagnitude);
+
+const controls = new GamepadPointerLockControls(pointerLockControls, {
+  moveStick: { pipeline: movement },
+});
+```
+
+The function accepts a readonly stick and a finite maximum greater than or equal to zero. A zero maximum returns `{ x: 0, y: 0 }`. A negative or non-finite maximum, or a non-finite component, throws `RangeError`. Place the limiter after any gain that should count toward the cap.
+
 ## Using a pipeline with GamepadInput
 
 Set an instance default with `stickPipeline`:
