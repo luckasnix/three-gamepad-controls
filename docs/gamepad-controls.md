@@ -76,6 +76,8 @@ On resume, buttons compare against the last observed state. A newly held press c
 
 #### Native input permissions
 
+For an example of switching between gamepad, keyboard/mouse, and combined input, see [Choosing inputs with OrbitControls](./input-modes.md#switching-inputs-with-orbitcontrols).
+
 All built-in wrappers require the native control's `enabled` to accept new gamepad actions. Orbit/Map also respect `enableRotate`, `enablePan`, and `enableZoom` independently; Trackball respects `noRotate`, `noPan`, and `noZoom`. Arcball retains its action and focus permissions. PointerLock gamepad input does not require `isLocked`.
 
 | Wrapper `enabled` | Native `enabled` | Result of a wrapper update |

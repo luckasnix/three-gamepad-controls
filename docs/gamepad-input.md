@@ -2,6 +2,8 @@
 
 Gamepad input state reader for gameplay, menus, and custom interactions.
 
+To let players choose which device drives gameplay, see [Choosing between keyboard/mouse and gamepad](./input-modes.md#gameplay-with-gamepadinput).
+
 `GamepadInput` uses the same [Web Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) lifecycle as the [Three.js](https://threejs.org) control wrappers, but it does not wrap a Three.js control. Use it when you want direct button, axis, or stick state in your own application code.
 
 `GamepadInput` owns its internal gamepad manager. Applications create and update only `GamepadInput`; `GamepadManager` is not part of the public API.
