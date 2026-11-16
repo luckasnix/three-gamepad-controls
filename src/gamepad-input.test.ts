@@ -274,12 +274,17 @@ describe("GamepadInput native event contract", () => {
           buttons: [createGamepadButton(true)],
         });
         const observed: CustomEvent<{ gamepad: Gamepad }>[] = [];
-        input.addEventListener("connected", function (event) {
+        type ConnectedListener = Exclude<
+          Parameters<typeof input.addEventListener<"connected">>[1],
+          EventListenerObject | null
+        >;
+        expectTypeOf<
+          ThisParameterType<ConnectedListener>
+        >().toEqualTypeOf<GamepadInput>();
+        const onConnected = vi.fn<ConnectedListener>((event) => {
           expectTypeOf(event).toEqualTypeOf<
             GamepadInputEventMap["connected"]
           >();
-          expectTypeOf(this).toEqualTypeOf<GamepadInput>();
-          expect(this).toBe(input);
           expect(event).toBeInstanceOf(CustomEvent);
           expect(event.target).toBe(input);
           expect(event.currentTarget).toBe(input);
@@ -291,6 +296,7 @@ describe("GamepadInput native event contract", () => {
           expect(input.wasPressed(0)).toBe(false);
           observed.push(event);
         });
+        input.addEventListener("connected", onConnected);
         input.addEventListener("disconnected", (event) => {
           expectTypeOf(event).toEqualTypeOf<
             GamepadInputEventMap["disconnected"]
@@ -312,6 +318,7 @@ describe("GamepadInput native event contract", () => {
           dispatchGamepadEvent("gamepadconnected", gamepad);
         }
         expect(observed.map((event) => event.type)).toEqual(["connected"]);
+        expect(onConnected.mock.contexts[0]).toBe(input);
         polling.gamepads[0] = null;
         if (source === "polling") {
           input.update();
@@ -366,10 +373,9 @@ describe("GamepadInput native event contract", () => {
       const input = createInput();
       const snapshots: Gamepad[] = [];
       const listener = {
-        handleEvent(event: GamepadInputEventMap["connected"]) {
-          expect(this).toBe(listener);
+        handleEvent: vi.fn((event: GamepadInputEventMap["connected"]) => {
           snapshots.push(event.detail.gamepad);
-        },
+        }),
       };
       const removed = vi.fn();
       input.addEventListener("connected", listener);
@@ -379,6 +385,7 @@ describe("GamepadInput native event contract", () => {
       polling.publishFrame([0]);
       input.update();
       expect(snapshots).toEqual([input.gamepad]);
+      expect(listener.handleEvent.mock.contexts[0]).toBe(listener);
       input.removeEventListener("connected", listener);
       polling.publishFrame();
       input.update();
@@ -576,6 +583,18 @@ describe("GamepadInput value reads", () => {
       });
     },
   );
+
+  gamepadTest("reads raw and calibrated travel from the same frame", () => {
+    const raw = gamepadStickPipeline({ mode: "radial" });
+    const calibrated = raw.deadzone(0.1, { rescale: true, maxInput: 0.9 });
+    const input = createInput({ stickPipeline: raw });
+    polling.publishFrame([0, { axes: [0.9, 0] }]);
+    input.update();
+    expect(input.stick(0, 1)).toEqual({ x: 0.9, y: 0 });
+    expect(input.stick(0, 1, calibrated)).toEqual({ x: 1, y: 0 });
+    expect(input.stick(0, 1)).toEqual({ x: 0.9, y: 0 });
+    expect(polling.getGamepads).toHaveBeenCalledOnce();
+  });
 });
 
 describe("GamepadInput haptics", () => {

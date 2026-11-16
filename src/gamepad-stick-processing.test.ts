@@ -185,6 +185,108 @@ describe("GamepadStickPipeline.deadzone", () => {
     expect(pipeline.process({ x: 1.4, y: -2 })).toEqual({ x: 1, y: -1 });
   });
 
+  test.each([
+    [0, 0],
+    [0.1, 0],
+    [0.5, 0.5],
+    [0.9, 1],
+    [1, 1],
+    [1.2, 1],
+  ])("maps input %s to calibrated magnitude %s", (magnitude, expected) => {
+    const calibrated = gamepadStickPipeline().deadzone(0.1, {
+      rescale: true,
+      maxInput: 0.9,
+    });
+    const result = calibrated.process({ x: magnitude, y: -magnitude });
+    expect(result.x).toBeCloseTo(expected, 14);
+    expect(result.y).toBeCloseTo(-expected, 14);
+  });
+
+  test("calibrates radial length before applying the response curve", () => {
+    const calibrated = gamepadStickPipeline({ mode: "radial" }).deadzone(0.1, {
+      rescale: true,
+      maxInput: 0.9,
+    });
+    const diagonal = calibrated.process({ x: 0.54, y: -0.72 });
+    expect(diagonal.x).toBeCloseTo(0.6, 14);
+    expect(diagonal.y).toBeCloseTo(-0.8, 14);
+    const look = calibrated.responseCurve("quadratic");
+    expect(look.process({ x: 0.5, y: 0 }).x).toBeCloseTo(0.25, 14);
+  });
+
+  test("honors the calibrated stage's axial override and canonicalizes zero", () => {
+    const calibrated = gamepadStickPipeline({ mode: "radial" }).deadzone(0.1, {
+      mode: "axial",
+      rescale: true,
+      maxInput: 0.9,
+    });
+    expect(calibrated.process({ x: 0.9, y: -0.9 })).toEqual({ x: 1, y: -1 });
+    expect(calibrated.process({ x: -0.1, y: -0 })).toEqual({ x: 0, y: 0 });
+  });
+
+  test("preserves radial direction across the finite calibration range", () => {
+    const radial = gamepadStickPipeline({ mode: "radial" });
+    const tiny = Number.MIN_VALUE;
+    const full = radial.deadzone(0, { rescale: true, maxInput: tiny });
+    expect(full.process({ x: tiny, y: -0 })).toEqual({ x: 1, y: 0 });
+    const diagonal = full.process({
+      x: Number.MAX_VALUE,
+      y: -Number.MAX_VALUE,
+    });
+    expect(diagonal.x).toBeCloseTo(Math.SQRT1_2, 14);
+    expect(diagonal.y).toBeCloseTo(-Math.SQRT1_2, 14);
+
+    const partial = radial.deadzone(tiny, {
+      rescale: true,
+      maxInput: 9 * tiny,
+    });
+    const midpoint = partial.process({ x: 3 * tiny, y: -4 * tiny });
+    expect(midpoint.x).toBeCloseTo(0.3, 14);
+    expect(midpoint.y).toBeCloseTo(-0.4, 14);
+  });
+
+  test.each([
+    [0.1, 0.1],
+    [0.9, 0.1],
+    [-0.1, 0.9],
+    [0.1, 1.1],
+    [NaN, 0.9],
+    [-Infinity, 0.9],
+    [0.1, NaN],
+    [0.1, Infinity],
+  ])(
+    "rejects calibration bounds %s and %s at configuration",
+    (threshold, maxInput) => {
+      expect(() =>
+        gamepadStickPipeline().deadzone(threshold, { rescale: true, maxInput }),
+      ).toThrow(RangeError);
+    },
+  );
+
+  test("requires rescaling when maxInput is supplied", () => {
+    const pipeline = gamepadStickPipeline();
+    expect(() => pipeline.deadzone(0.1, { maxInput: 0.9 })).toThrow(RangeError);
+    expect(() =>
+      pipeline.deadzone(0.1, { rescale: false, maxInput: 0.9 }),
+    ).toThrow(RangeError);
+  });
+
+  test("treats an undefined maxInput like an omitted upper bound", () => {
+    const pipeline = gamepadStickPipeline();
+    const input = { x: 0.1, y: 1.2 };
+    for (const [threshold, rescale] of [
+      [0.1, false],
+      [0.1, true],
+      [1, true],
+    ] as const) {
+      expect(
+        pipeline
+          .deadzone(threshold, { rescale, maxInput: undefined })
+          .process(input),
+      ).toEqual(pipeline.deadzone(threshold, { rescale }).process(input));
+    }
+  });
+
   test("removes radial values below the configured magnitude", () => {
     const input = Object.freeze({ x: 0.3, y: 0.4 });
     const pipeline = gamepadStickPipeline({ mode: "radial" }).deadzone(0.6);

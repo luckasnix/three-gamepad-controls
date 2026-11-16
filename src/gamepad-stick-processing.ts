@@ -79,6 +79,13 @@ export type GamepadDeadzoneOptions = {
    * @default false
    */
   rescale?: boolean;
+
+  /**
+   * Input magnitude that reaches full output. An explicit value requires
+   * `rescale: true` and finite bounds with `0 <= threshold < maxInput <= 1`.
+   * @default 1
+   */
+  maxInput?: number;
 };
 
 /**
@@ -104,6 +111,7 @@ export type GamepadStickPipeline = GamepadStickProcessor & {
    * @param threshold - Dead zone threshold.
    * @param options - Optional dead zone configuration.
    * @returns New pipeline containing the dead zone.
+   * @throws RangeError if the supplied calibration is invalid.
    */
   deadzone(
     threshold?: number,
@@ -238,24 +246,35 @@ const mapGamepadSignedMagnitude = (
  *
  * @param value - Stick value to transform.
  * @param mapMagnitude - Magnitude transformation.
+ * @param inputUnit - Optional calibration unit in which full travel is at most one.
  * @returns Stick with transformed magnitude.
  */
 const mapGamepadStickMagnitude = (
   value: Readonly<GamepadStick>,
   mapMagnitude: (magnitude: number) => number,
+  inputUnit?: number,
 ): GamepadStick => {
-  const magnitude = Math.hypot(value.x, value.y);
+  // Beyond the calibrated range only direction matters. Keep both components
+  // representable even when a custom stage supplies an extreme diagonal.
+  const unit =
+    inputUnit === undefined
+      ? 1
+      : Math.max(inputUnit, Math.abs(value.x), Math.abs(value.y));
+  const x = value.x / unit;
+  const y = value.y / unit;
+  const magnitude = Math.hypot(x, y);
   if (magnitude === 0) {
     return createGamepadStickResult(value, 0, 0);
   }
   const mappedMagnitude = mapMagnitude(magnitude);
   if (mappedMagnitude === magnitude) {
-    return createGamepadStickResult(value, value.x, value.y);
+    return createGamepadStickResult(value, x, y);
   }
   if (mappedMagnitude === 0) {
     return createGamepadStickResult(value, 0, 0);
   }
-  return scaleGamepadStick(value, mappedMagnitude / magnitude);
+  const scale = mappedMagnitude / magnitude;
+  return createGamepadStickResult(value, x * scale, y * scale);
 };
 
 /**
@@ -305,16 +324,18 @@ export const limitGamepadStickMagnitude = (
  *
  * @param magnitude - Non-negative input magnitude.
  * @param threshold - Dead zone size.
+ * @param maxInput - Input magnitude at full output.
  * @returns Rescaled magnitude, or `0` when inside a fully closed dead zone.
  */
 const rescaleGamepadDeadzoneMagnitude = (
   magnitude: number,
   threshold: number,
+  maxInput: number,
 ): number => {
-  if (magnitude <= threshold || threshold >= 1) {
+  if (magnitude <= threshold || threshold >= maxInput) {
     return 0;
   }
-  return Math.min((magnitude - threshold) / (1 - threshold), 1);
+  return Math.min((magnitude - threshold) / (maxInput - threshold), 1);
 };
 
 /**
@@ -350,23 +371,47 @@ const applyGamepadResponseCurve = (
  * @param threshold - Dead zone threshold.
  * @param mode - Whether to process components or vector magnitude.
  * @param rescale - Whether to remap values outside the dead zone.
+ * @param maxInput - Optional calibration for the upper end of the input range.
  * @returns Frozen dead zone processor.
  */
 const createDeadzoneProcessor = (
   threshold: number,
   mode: GamepadStickProcessingMode,
   rescale: boolean,
+  maxInput?: number,
 ): GamepadStickProcessor => {
+  if (
+    maxInput !== undefined &&
+    (rescale !== true ||
+      !Number.isFinite(threshold) ||
+      !Number.isFinite(maxInput) ||
+      threshold < 0 ||
+      threshold >= maxInput ||
+      maxInput > 1)
+  ) {
+    throw new RangeError(
+      "maxInput requires rescale: true and finite bounds with 0 <= threshold < maxInput <= 1",
+    );
+  }
+  // A power-of-two unit near the calibrated maximum keeps subnormal travel
+  // measurable and preserves the precision of the interval between the bounds.
+  const radialUnit =
+    mode === "radial" && maxInput !== undefined
+      ? Math.min(1, 2 ** (Math.floor(Math.log2(maxInput)) + 1))
+      : undefined;
+  const unit = radialUnit ?? 1;
+  const lowerBound = threshold / unit;
+  const upperBound = (maxInput ?? 1) / unit;
   const mapMagnitude = (magnitude: number): number => {
-    if (magnitude < threshold) {
+    if (magnitude < lowerBound) {
       return 0;
     }
     return rescale
-      ? rescaleGamepadDeadzoneMagnitude(magnitude, threshold)
+      ? rescaleGamepadDeadzoneMagnitude(magnitude, lowerBound, upperBound)
       : magnitude;
   };
   return Object.freeze({
-    process(value: Readonly<GamepadStick>): GamepadStick {
+    process: (value: Readonly<GamepadStick>): GamepadStick => {
       if (mode === "axial") {
         return createGamepadStickResult(
           value,
@@ -374,7 +419,7 @@ const createDeadzoneProcessor = (
           mapGamepadSignedMagnitude(value.y, mapMagnitude),
         );
       }
-      return mapGamepadStickMagnitude(value, mapMagnitude);
+      return mapGamepadStickMagnitude(value, mapMagnitude, radialUnit);
     },
   });
 };
@@ -393,7 +438,7 @@ const createResponseCurveProcessor = (
   const mapMagnitude = (magnitude: number): number =>
     applyGamepadResponseCurve(magnitude, curve);
   return Object.freeze({
-    process(value: Readonly<GamepadStick>): GamepadStick {
+    process: (value: Readonly<GamepadStick>): GamepadStick => {
       if (mode === "axial") {
         return createGamepadStickResult(
           value,
@@ -418,7 +463,7 @@ const createInversionProcessor = (
   const invertX = axis === "x" || axis === "both";
   const invertY = axis === "y" || axis === "both";
   return Object.freeze({
-    process(value: Readonly<GamepadStick>): GamepadStick {
+    process: (value: Readonly<GamepadStick>): GamepadStick => {
       const x = value.x === 0 ? 0 : invertX ? -value.x : value.x;
       const y = value.y === 0 ? 0 : invertY ? -value.y : value.y;
 
@@ -454,40 +499,35 @@ const createPipeline = (
   const append = (processor: GamepadStickProcessor): GamepadStickPipeline =>
     createPipeline(mode, [...pipelineProcessors, processor]);
   return Object.freeze({
-    process(value: Readonly<GamepadStick>): GamepadStick {
+    process: (value: Readonly<GamepadStick>): GamepadStick => {
       let processed: Readonly<GamepadStick> = value;
       for (const processor of pipelineProcessors) {
         processed = processor.process(processed);
       }
       return processed as GamepadStick;
     },
-    deadzone(
+    deadzone: (
       threshold = DEFAULT_GAMEPAD_DEADZONE_THRESHOLD,
       options?: GamepadDeadzoneOptions,
-    ): GamepadStickPipeline {
-      return append(
+    ): GamepadStickPipeline =>
+      append(
         createDeadzoneProcessor(
           threshold,
           options?.mode ?? mode,
           options?.rescale ?? false,
+          options?.maxInput,
         ),
-      );
-    },
-    responseCurve(
+      ),
+    responseCurve: (
       curve: GamepadResponseCurve,
       options?: GamepadResponseCurveOptions,
-    ): GamepadStickPipeline {
-      return append(createResponseCurveProcessor(curve, options?.mode ?? mode));
-    },
-    invert(axis: GamepadStickInversionAxis): GamepadStickPipeline {
-      return append(createInversionProcessor(axis));
-    },
-    transform(operation: GamepadStickTransform): GamepadStickPipeline {
-      return append(createTransformProcessor(operation));
-    },
-    pipe(processor: GamepadStickProcessor): GamepadStickPipeline {
-      return append(processor);
-    },
+    ): GamepadStickPipeline =>
+      append(createResponseCurveProcessor(curve, options?.mode ?? mode)),
+    invert: (axis: GamepadStickInversionAxis): GamepadStickPipeline =>
+      append(createInversionProcessor(axis)),
+    transform: (operation: GamepadStickTransform): GamepadStickPipeline =>
+      append(createTransformProcessor(operation)),
+    pipe: append,
   });
 };
 

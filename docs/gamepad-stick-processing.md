@@ -81,12 +81,42 @@ The mode only determines how a compatible stage interprets the stick value. It d
 | `threshold` | `number` | `0.1` | Neutral-region threshold. |
 | `options.mode` | `"axial" \| "radial"` | Pipeline mode | Processes components independently or processes vector magnitude. |
 | `options.rescale` | `boolean` | `false` | Remaps the remaining component range or magnitude to start at zero. |
+| `options.maxInput` | `number` | `1` when rescaling | Input magnitude that produces full output. Supplying a value requires `rescale: true`. |
 
 Axial mode applies the threshold independently to X and Y. Radial mode compares `Math.hypot(x, y)` with the threshold and, when rescaling, preserves direction while remapping magnitude.
+
+With rescaling enabled, magnitudes up to and including `threshold` produce zero. Between `threshold` and `maxInput`, the output magnitude is `(m - threshold) / (maxInput - threshold)`. At or above `maxInput`, the output magnitude is one. Supplying `maxInput` requires finite bounds satisfying `0 ≤ threshold < maxInput ≤ 1`. Invalid calibration throws a `RangeError` when calling `deadzone()`.
+
+Omitting `maxInput` or passing `undefined` uses the original behavior. A rescaled threshold of `1` closes the entire range. With rescaling disabled, a magnitude exactly at the threshold passes through.
 
 The diagram uses non-negative magnitude, so the same response applies to an axial component or to radial vector magnitude, depending on the configured mode.
 
 ![Deadzone response graphs comparing unchanged and rescaled output outside the threshold.](../assets/stick-deadzone.webp "Gamepad stick deadzone response with and without rescaling")
+
+#### Calibrating a look stick in the browser
+
+Read the connected stick through an empty pipeline. First release it and observe its radial magnitude at rest to choose a threshold above the drift. Then move it to the physical stop several times in each of the four cardinal directions and along each diagonal. Record the magnitudes separately. A single radial `maxInput` works best when the measured travel is similar in every direction. If the readings differ, a lower maximum makes the longer directions reach full output earlier.
+
+```ts
+import { GAMEPAD_AXIS, GamepadInput, gamepadStickPipeline } from "three-gamepad-controls";
+
+const input = new GamepadInput();
+const raw = gamepadStickPipeline({ mode: "radial" });
+const calibrated = raw.deadzone(0.1, { rescale: true, maxInput: 0.9 });
+const { RightX, RightY } = GAMEPAD_AXIS;
+
+// Call once per frame while measuring the look stick.
+const sampleLookStick = () => {
+  input.update();
+  if (input.connected) {
+    const measured = input.stick(RightX, RightY, raw);
+    const look = input.stick(RightX, RightY, calibrated);
+    console.log(Math.hypot(measured.x, measured.y), Math.hypot(look.x, look.y));
+  }
+};
+```
+
+With these bounds, a raw magnitude of `0.50` produces `0.50`, and a physical stop at `0.90` produces `1`. To give the look action finer control near the center, use `calibrated.responseCurve("quadratic")` for its pipeline. The same midpoint then produces `0.25`.
 
 ### `responseCurve(curve, options?)`
 
