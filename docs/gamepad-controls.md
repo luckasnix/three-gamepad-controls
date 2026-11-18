@@ -172,9 +172,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
-  gamepadStickPipeline,
   GamepadControls,
   type GamepadControlsOptions,
+  gamepadStickPipeline,
 } from "three-gamepad-controls";
 
 const rotatePipeline = gamepadStickPipeline({ mode: "radial" }).deadzone();

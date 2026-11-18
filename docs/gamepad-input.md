@@ -23,7 +23,7 @@ The input module uses native `EventTarget` and has no Three.js dependency. The p
 Configure stick processing defaults once when creating the input:
 
 ```ts
-import { gamepadStickPipeline, GamepadInput } from "three-gamepad-controls";
+import { GamepadInput, gamepadStickPipeline } from "three-gamepad-controls";
 
 const lookPipeline = gamepadStickPipeline({ mode: "radial" })
   .deadzone(0.15, { rescale: true })
@@ -170,8 +170,8 @@ import { Timer, Vector3 } from "three";
 import {
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
-  gamepadStickPipeline,
   GamepadInput,
+  gamepadStickPipeline,
   limitGamepadStickMagnitude,
 } from "three-gamepad-controls";
 

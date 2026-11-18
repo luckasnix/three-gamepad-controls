@@ -57,7 +57,9 @@ const gamepadOrbit = new GamepadOrbitControls(orbit);
 let orbitMode: InputMode = "both"; // InputMode is defined above.
 
 const setOrbitMode = (mode: InputMode) => {
-  if (mode === orbitMode) return;
+  if (mode === orbitMode) {
+    return;
+  }
 
   gamepadOrbit.enabled = mode !== "keyboard-mouse";
   if (mode === "gamepad") {
