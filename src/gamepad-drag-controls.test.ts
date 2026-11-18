@@ -73,7 +73,7 @@ const createDragControls = (camera: Camera = createPerspectiveCamera()) => {
     },
     intersectObjects,
     setFromCamera,
-    setHits(...nextHits: Object3D[]): void {
+    setHits: (...nextHits: Object3D[]): void => {
       hits.splice(0, hits.length, ...nextHits.map(createIntersection));
     },
     targetLengths,

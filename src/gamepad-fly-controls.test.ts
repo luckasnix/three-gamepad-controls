@@ -361,11 +361,7 @@ describe("GamepadFlyControls native update ownership", () => {
     "delegates with native this and restores an own descriptor",
     () => {
       const fly = createFlyControls();
-      const originalUpdate = fly.update;
-      const update = vi.fn(function (this: FlyControls, deltaTime: number) {
-        expect(this).toBe(fly);
-        originalUpdate.call(this, deltaTime);
-      });
+      const update = vi.fn(fly.update);
       Object.defineProperty(fly, "update", {
         value: update,
         configurable: true,
@@ -376,6 +372,7 @@ describe("GamepadFlyControls native update ownership", () => {
       const wrapper = createControls(fly);
       fly.update(0.25);
       expect(update).toHaveBeenCalledExactlyOnceWith(0.25);
+      expect(update.mock.contexts[0]).toBe(fly);
       wrapper.dispose();
       expect(Object.getOwnPropertyDescriptor(fly, "update")).toEqual(
         descriptor,

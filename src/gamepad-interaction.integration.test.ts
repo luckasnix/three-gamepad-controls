@@ -1211,14 +1211,11 @@ interactionTest.for([false, true])(
       (native) => {
         native.autoRotate = true;
         if (own) {
-          const originalUpdate = native.update;
           Object.defineProperty(native, "update", {
             configurable: true,
             enumerable: false,
             writable: true,
-            value: function (this: OrbitControls, delta?: number | null) {
-              return originalUpdate.call(this, delta);
-            },
+            value: vi.fn(native.update),
           });
           Object.defineProperty(native, "_getAutoRotationAngle", {
             configurable: true,

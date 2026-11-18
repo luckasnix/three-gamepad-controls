@@ -61,7 +61,7 @@ gamepadInput.addEventListener("connected", () => {
   setHapticsAvailable(gamepadInput.vibrationSupported);
 });
 
-async function playCollisionFeedback() {
+const playCollisionFeedback = async () => {
   const result = await gamepadInput.playVibrationEffect("dual-rumble", {
     startDelay: 0,
     duration: 200,
@@ -72,11 +72,11 @@ async function playCollisionFeedback() {
   if (result === null) {
     // Continue normally without haptic feedback.
   }
-}
+};
 
-async function stopCollisionFeedback() {
+const stopCollisionFeedback = async () => {
   await gamepadInput.resetVibration();
-}
+};
 ```
 
 ### `GamepadControls`

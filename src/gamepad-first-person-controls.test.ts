@@ -550,11 +550,7 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
     "delegates with native this and restores the original own descriptor",
     () => {
       const native = createFirstPersonControls();
-      const original = native.update;
-      const update = vi.fn(function (this: FirstPersonControls, dt: number) {
-        expect(this).toBe(native);
-        original.call(this, dt);
-      });
+      const update = vi.fn(native.update);
       Object.defineProperty(native, "update", {
         value: update,
         configurable: true,
@@ -566,6 +562,7 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
       native.update(0.25);
       wrapper.dispose();
       expect(update).toHaveBeenCalledExactlyOnceWith(0.25);
+      expect(update.mock.contexts[0]).toBe(native);
       expect(Object.getOwnPropertyDescriptor(native, "update")).toEqual(
         descriptor,
       );
@@ -596,39 +593,39 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
       const descriptor = Object.getOwnPropertyDescriptor(native, "autoForward");
       let wrapper: GamepadFirstPersonControls;
       let first = true;
-      native.update = function (dt) {
-        original.call(this, dt);
+      native.update = (dt) => {
+        original.call(native, dt);
         if (!first) {
           return;
         }
         first = false;
         if (action === "false" || action === "true") {
-          this.autoForward = action === "true";
-          expect(this.autoForward).toBe(false);
+          native.autoForward = action === "true";
+          expect(native.autoForward).toBe(false);
         } else if (action === "redefine") {
-          Object.defineProperty(this, "autoForward", {
+          Object.defineProperty(native, "autoForward", {
             value: false,
             configurable: true,
             writable: false,
             enumerable: false,
           });
         } else if (action === "delete") {
-          Reflect.deleteProperty(this, "autoForward");
+          Reflect.deleteProperty(native, "autoForward");
         } else if (action === "replace setter") {
-          Object.defineProperty(this, "autoForward", { set: undefined });
+          Object.defineProperty(native, "autoForward", { set: undefined });
         } else if (action === "lock descriptor") {
-          Object.defineProperty(this, "autoForward", { configurable: false });
+          Object.defineProperty(native, "autoForward", { configurable: false });
         } else if (action === "change enumerability") {
-          Object.defineProperty(this, "autoForward", { enumerable: false });
+          Object.defineProperty(native, "autoForward", { enumerable: false });
         } else if (action === "replace update") {
-          this.update = replacement;
+          native.update = replacement;
         } else if (action === "dispose") {
           wrapper.dispose();
         } else if (action === "throw") {
           throw failure;
         } else {
           wrapper.update(dt);
-          this.update(dt);
+          native.update(dt);
         }
       };
       const ownUpdate = native.update;
@@ -688,9 +685,9 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
       native.dampingFactor = 1;
       const original = native.update;
       let wrapper: GamepadFirstPersonControls;
-      native.update = function (dt) {
+      native.update = (dt) => {
         wrapper.enabled = false;
-        original.call(this, dt);
+        original.call(native, dt);
       };
       wrapper = createControls(native);
       polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
@@ -708,11 +705,11 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
       native.dampingFactor = 1;
       Reflect.deleteProperty(native, "autoForward");
       const original = native.update;
-      native.update = function (dt) {
+      native.update = (dt) => {
         if (assign) {
-          this.autoForward = true;
+          native.autoForward = true;
         }
-        original.call(this, dt);
+        original.call(native, dt);
       };
       const wrapper = createControls(native);
       polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
@@ -731,8 +728,7 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
       native.dampingFactor = 1;
       let value = true;
       const get = () => value;
-      const set = vi.fn(function (this: FirstPersonControls, next: boolean) {
-        expect(this).toBe(native);
+      const set = vi.fn((next: boolean) => {
         value = next;
       });
       Object.defineProperty(native, "autoForward", {
@@ -743,9 +739,9 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
       });
       const descriptor = Object.getOwnPropertyDescriptor(native, "autoForward");
       const original = native.update;
-      native.update = function (dt) {
-        original.call(this, dt);
-        this.autoForward = false;
+      native.update = (dt) => {
+        original.call(native, dt);
+        native.autoForward = false;
       };
       const wrapper = createControls(native);
       polling.publishFrame([0, { axes: [0, 0.5, 0, 0] }]);
@@ -753,6 +749,7 @@ describe("GamepadFirstPersonControls native adapter ownership", () => {
       native.update(0.25);
       expect(native.object.position.z).toBeCloseTo(0.5);
       expect(set).toHaveBeenCalledExactlyOnceWith(false);
+      expect(set.mock.contexts[0]).toBe(native);
       expect(native.autoForward).toBe(false);
       expect(Object.getOwnPropertyDescriptor(native, "autoForward")).toEqual(
         descriptor,
