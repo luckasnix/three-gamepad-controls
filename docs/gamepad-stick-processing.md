@@ -98,7 +98,11 @@ The diagram uses non-negative magnitude, so the same response applies to an axia
 Read the connected stick through an empty pipeline. First release it and observe its radial magnitude at rest to choose a threshold above the drift. Then move it to the physical stop several times in each of the four cardinal directions and along each diagonal. Record the magnitudes separately. A single radial `maxInput` works best when the measured travel is similar in every direction. If the readings differ, a lower maximum makes the longer directions reach full output earlier.
 
 ```ts
-import { GAMEPAD_AXIS, GamepadInput, gamepadStickPipeline } from "three-gamepad-controls";
+import {
+  GAMEPAD_AXIS,
+  GamepadInput,
+  gamepadStickPipeline,
+} from "three-gamepad-controls";
 
 const input = new GamepadInput();
 const raw = gamepadStickPipeline({ mode: "radial" });

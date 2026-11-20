@@ -96,19 +96,35 @@ Use one [`GamepadInput`](./gamepad-input.md) per player. Here `player1` and `pla
 
 ```ts
 import { Timer } from "three";
-import { GAMEPAD_AXIS, GAMEPAD_BUTTON, GamepadInput } from "three-gamepad-controls";
+import {
+  GAMEPAD_AXIS,
+  GAMEPAD_BUTTON,
+  GamepadInput,
+} from "three-gamepad-controls";
 
 const players = [
-  { name: "Player 1", object: player1, input: new GamepadInput({ gamepadIndex: 0 }) },
-  { name: "Player 2", object: player2, input: new GamepadInput({ gamepadIndex: 3 }) },
+  {
+    name: "Player 1",
+    object: player1,
+    input: new GamepadInput({ gamepadIndex: 0 }),
+  },
+  {
+    name: "Player 2",
+    object: player2,
+    input: new GamepadInput({ gamepadIndex: 3 }),
+  },
 ];
 const timer = new Timer();
 const subscriptions = new AbortController();
 for (const { name, input } of players) {
   for (const type of ["connected", "disconnected"] as const) {
-    input.addEventListener(type, ({ detail }) => {
-      console.log(name, type, detail.gamepad.index);
-    }, { signal: subscriptions.signal });
+    input.addEventListener(
+      type,
+      ({ detail }) => {
+        console.log(name, type, detail.gamepad.index);
+      },
+      { signal: subscriptions.signal },
+    );
   }
 }
 
@@ -121,9 +137,12 @@ renderer.setAnimationLoop((timestamp) => {
   for (const { object, input } of players) {
     object.position.x += input.axis(GAMEPAD_AXIS.LeftX) * 4 * delta;
     if (input.wasPressed(GAMEPAD_BUTTON.South)) {
-      input.playVibrationEffect("dual-rumble", {
-        duration: 80, weakMagnitude: 0.4,
-      }).catch(console.error);
+      input
+        .playVibrationEffect("dual-rumble", {
+          duration: 80,
+          weakMagnitude: 0.4,
+        })
+        .catch(console.error);
     }
   }
   renderer.render(scene, camera);

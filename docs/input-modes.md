@@ -9,7 +9,11 @@ The application decides which inputs drive an action. For a character or menu, y
 Use a mode from your game's settings to decide which actions to apply each frame. In this example, `updateKeyboardMouse(delta)` is the game's existing keyboard/mouse movement and jump handler. The gamepad drives the same character through `movePlayer(x, z, delta)` and `startJump()`.
 
 ```ts
-import { GAMEPAD_AXIS, GAMEPAD_BUTTON, GamepadInput } from "three-gamepad-controls";
+import {
+  GAMEPAD_AXIS,
+  GAMEPAD_BUTTON,
+  GamepadInput,
+} from "three-gamepad-controls";
 
 type InputMode = "keyboard-mouse" | "gamepad" | "both";
 
