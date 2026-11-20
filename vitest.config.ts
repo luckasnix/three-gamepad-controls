@@ -1,6 +1,12 @@
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
+const nodeTests = [
+  "src/gamepad-button-hysteresis.test.ts",
+  "src/gamepad-haptics.test.ts",
+  "src/gamepad-stick-processing.test.ts",
+];
+
 const vitestConfig = defineConfig({
   test: {
     passWithNoTests: true,
@@ -25,7 +31,7 @@ const vitestConfig = defineConfig({
         extends: true,
         test: {
           name: "node",
-          include: ["src/{gamepad-haptics,gamepad-stick-processing}.test.ts"],
+          include: nodeTests,
         },
       },
       {
@@ -33,7 +39,7 @@ const vitestConfig = defineConfig({
         test: {
           name: "chromium",
           include: ["src/**/*.test.ts"],
-          exclude: ["src/{gamepad-haptics,gamepad-stick-processing}.test.ts"],
+          exclude: nodeTests,
           browser: {
             enabled: true,
             headless: true,

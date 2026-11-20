@@ -4,9 +4,11 @@ import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { expect, vi } from "vitest";
 
 import {
+  createGamepad,
   createGamepadButtons,
   createGamepadHapticActuator,
 } from "../test/fixtures/gamepad.ts";
+import { dispatchGamepadEvent } from "../test/fixtures/gamepad-browser.ts";
 import {
   createThreeEnvironment,
   integrationTest,
@@ -14,6 +16,7 @@ import {
 import {
   GAMEPAD_AXIS,
   GAMEPAD_BUTTON,
+  GamepadButtonHysteresis,
   GamepadInput,
   GamepadOrbitControls,
   GamepadTransformControls,
@@ -68,6 +71,91 @@ integrationTest.for(["GamepadInput", "GamepadControls"] as const)(
       expected.push(`reset ${index}`);
       expect(calls).toEqual(expected);
     }
+  },
+);
+
+integrationTest.for(["polling", "browser event during pause"] as const)(
+  "custom trigger action starts a new session after loss observed by %s",
+  (loss, { cleanup, gamepadPolling }) => {
+    const index = 3;
+    const trigger = GAMEPAD_BUTTON.LeftTrigger;
+    const input = new GamepadInput({ gamepadIndex: index });
+    const aim = new GamepadButtonHysteresis({
+      pressPoint: 0.6,
+      releasePoint: 0.4,
+    });
+    const resetAim = () => aim.reset();
+    input.addEventListener("disconnected", resetAim);
+    cleanup.add("wrapper", () => {
+      input.removeEventListener("disconnected", resetAim);
+      aim.reset();
+      input.dispose();
+    });
+
+    const publishPressure = (value: number, pressed = false, id?: string) => {
+      gamepadPolling.publishFrame([
+        index,
+        { id, buttons: createGamepadButtons([trigger, pressed, value]) },
+      ]);
+    };
+    const update = () => {
+      input.update();
+      if (input.enabled && input.connected) {
+        aim.update(input.buttonValue(trigger));
+      }
+    };
+
+    publishPressure(0);
+    update();
+    publishPressure(0.7);
+    update();
+    expect(aim.wasPressed).toBe(true);
+    expect(input.isPressed(trigger)).toBe(false);
+    expect(input.buttonValue(trigger)).toBe(0.7);
+
+    input.enabled = false;
+    publishPressure(0.3);
+    update();
+    expect(aim.isPressed).toBe(true);
+    expect(aim.wasPressed).toBe(true);
+    input.enabled = true;
+    publishPressure(0.55);
+    update();
+    expect(aim.isPressed).toBe(true);
+    expect(aim.wasPressed).toBe(false);
+
+    gamepadPolling.publishFrame();
+    if (loss === "browser event during pause") {
+      input.enabled = false;
+      dispatchGamepadEvent(
+        "gamepaddisconnected",
+        createGamepad(index, { connected: false }),
+      );
+    }
+    update();
+    expect(input.connected).toBe(false);
+    expect(aim).toMatchObject({
+      isPressed: false,
+      wasPressed: false,
+      wasReleased: false,
+    });
+
+    publishPressure(0.8, true, "replacement");
+    input.enabled = true;
+    update();
+    expect(input.gamepad?.id).toBe("replacement");
+    expect(aim).toMatchObject({
+      isPressed: true,
+      wasPressed: false,
+      wasReleased: false,
+    });
+
+    publishPressure(0.4, false, "replacement");
+    update();
+    expect(aim.wasReleased).toBe(true);
+    publishPressure(0.6, false, "replacement");
+    update();
+    expect(aim.wasPressed).toBe(true);
   },
 );
 

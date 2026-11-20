@@ -83,6 +83,8 @@ Paused updates retain the last result until the next observation or cleanup.
 
 Returns the current analog value for a button. Digital pressed buttons fall back to `1`, and unavailable buttons return `0`.
 
+For actions that need configurable press and release thresholds, see [Trigger actions with hysteresis](#trigger-actions-with-hysteresis).
+
 ### `axis(axis, options?)`
 
 Returns an axis value after scalar dead zone processing. Pass `options.deadzone` to replace `axisDeadzone` for one read. Stick pipelines never affect `axis()`.
@@ -241,3 +243,54 @@ Both sources cap diagonal magnitude at one while preserving partial intensity. D
 Use `stick()` or `buttonValue()` for continuous movement, `isPressed()` for held actions such as sprinting, and `wasPressed()` for one-shot transitions such as starting a jump or moving one menu item per D-pad press. Vertical movement, collision handling, and jump physics remain application responsibilities; `startJump()` represents that integration point.
 
 For first-person movement with climb and descent, the First Person wrapper limits the combined 3D vector after adding vertical input from the triggers. See [First Person movement](./gamepad-first-person-controls.md#movement-and-native-input).
+
+### Trigger actions with hysteresis
+
+`GamepadButtonHysteresis` turns the pressure from `buttonValue()` into an action with its own press and release points. Both points are absolute pressures and must be finite numbers satisfying `0 <= releasePoint < pressPoint <= 1`. With a press point of `0.6` and release point of `0.4`, an action activates at 60% pressure or higher and releases at 40% or lower. Between the two points, it keeps its previous state. `GamepadInput.isPressed()` continues to follow the browser's digital button state.
+
+Create one detector per action and player. This example uses the standard left trigger on the player's assigned gamepad slot.
+
+```ts
+import {
+  GAMEPAD_BUTTON,
+  GamepadButtonHysteresis,
+  GamepadInput,
+} from "three-gamepad-controls";
+
+const input = new GamepadInput({ gamepadIndex: 0 });
+const aim = new GamepadButtonHysteresis({
+  pressPoint: 0.6,
+  releasePoint: 0.4,
+});
+
+const resetAim = () => {
+  aim.reset();
+  setAiming(false);
+};
+input.addEventListener("disconnected", resetAim);
+
+// Call from the application's frame loop.
+const updateAim = () => {
+  input.update();
+  if (!input.enabled || !input.connected) {
+    return;
+  }
+
+  aim.update(input.buttonValue(GAMEPAD_BUTTON.LeftTrigger));
+  setAiming(aim.isPressed);
+  if (aim.wasPressed) {
+    playAimFeedback();
+  }
+};
+
+// Stop calling updateAim and run this when the input owner shuts down.
+const disposeAimInput = () => {
+  input.removeEventListener("disconnected", resetAim);
+  input.dispose();
+  resetAim();
+};
+```
+
+`setAiming()` and `playAimFeedback()` are application callbacks for the held state and the press transition. The detector also exposes `wasReleased` for the release transition. Reading any of the three properties leaves them available to other consumers of that frame. Each valid `update(value)` records a new observation and replaces the previous transition, even when the value repeats. Invalid configuration or pressure outside `[0, 1]`, including non-finite values, throws `RangeError` before changing the detector state.
+
+The first sample sets the held state without a press or release transition. Skipping updates while paused preserves the latest observation. `reset()` clears all three properties and restores first-sample behavior. Resetting on an observed disconnection lets a held trigger initialize silently on a replacement gamepad, even if it reuses the same slot. See [Observed connection lifecycle](./multiple-gamepads.md#observed-connection-lifecycle).

@@ -1,5 +1,6 @@
 export * from "./core.ts";
 export * from "./gamepad-arcball-controls.ts";
+export * from "./gamepad-button-hysteresis.ts";
 export * from "./gamepad-controls.ts";
 export * from "./gamepad-drag-controls.ts";
 export * from "./gamepad-first-person-controls.ts";
