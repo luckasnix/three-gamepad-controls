@@ -163,7 +163,7 @@ Continuous snapshots in the same connected slot do not emit another `connected` 
 
 ### Character movement
 
-Use `GamepadInput` directly when input drives gameplay rather than a Three.js controls wrapper. The following example moves a character across the XZ plane, supports a held sprint button, and starts a jump on a button transition:
+Use `GamepadInput` directly when input drives gameplay rather than a Three.js controls wrapper. The following example lets the player choose between the left stick and the D-pad to move across the XZ plane, supports a held sprint button, and starts a jump on a button transition:
 
 ```ts
 import { Timer, Vector3 } from "three";
@@ -174,6 +174,15 @@ import {
   gamepadStickPipeline,
   limitGamepadStickMagnitude,
 } from "three-gamepad-controls";
+
+// Update this from the player's movement settings.
+let movementSource: "stick" | "dpad" = "stick";
+const dpadButtons = {
+  up: GAMEPAD_BUTTON.DPadUp,
+  down: GAMEPAD_BUTTON.DPadDown,
+  left: GAMEPAD_BUTTON.DPadLeft,
+  right: GAMEPAD_BUTTON.DPadRight,
+};
 
 const movementPipeline = gamepadStickPipeline()
   .deadzone(0.15)
@@ -191,10 +200,20 @@ renderer.setAnimationLoop((timestamp) => {
   // Poll before reading buttons or axes.
   gamepadInput.update();
 
-  const stick = gamepadInput.stick(GAMEPAD_AXIS.LeftX, GAMEPAD_AXIS.LeftY);
+  const direction =
+    movementSource === "stick"
+      ? gamepadInput.stick(GAMEPAD_AXIS.LeftX, GAMEPAD_AXIS.LeftY)
+      : limitGamepadStickMagnitude({
+          x:
+            gamepadInput.buttonValue(dpadButtons.right) -
+            gamepadInput.buttonValue(dpadButtons.left),
+          y:
+            gamepadInput.buttonValue(dpadButtons.down) -
+            gamepadInput.buttonValue(dpadButtons.up),
+        });
 
-  // Stick up is negative Y, which maps naturally to forward (-Z).
-  movement.set(stick.x, 0, stick.y);
+  // Up is negative Y for both sources and maps to forward (-Z).
+  movement.set(direction.x, 0, direction.y);
 
   const speed = gamepadInput.isPressed(GAMEPAD_BUTTON.RightShoulder) ? 8 : 4;
 
@@ -213,6 +232,12 @@ gamepadInput.dispose();
 timer.dispose();
 ```
 
-Call `update()` once per frame before reading input. Use `stick()` for continuous movement, `isPressed()` for held actions such as sprinting, and `wasPressed()` for one-shot transitions such as starting a jump. Vertical movement, collision handling, and jump physics remain application responsibilities; `startJump()` represents that integration point.
+Set `movementSource` to `"stick"` or `"dpad"` from the player's settings. Each frame polls once, reads only the selected movement source, and applies speed and elapsed seconds once through the shared displacement calculation. The stick keeps its movement pipeline; the D-pad composes button values directly, without applying the stick's dead zone.
 
-The movement pipeline caps diagonal speed and preserves partial deflection. For first-person movement with climb and descent, the First Person wrapper limits the combined 3D vector after adding vertical input from the triggers. See [First Person movement](./gamepad-first-person-controls.md#movement-and-native-input).
+The four `GAMEPAD_BUTTON.DPad*` indices follow the Web Gamepad API's `standard` mapping. For another button layout, replace the values in `dpadButtons` with that device's indices. `buttonValue()` preserves analog pressure and returns `1` for a digital pressed button whose value is zero. Missing buttons or a disconnected input return zero.
+
+Both sources cap diagonal magnitude at one while preserving partial intensity. D-pad up produces `(0, -1)`, up and right produce approximately `(0.7071, -0.7071)`, and a right-button pressure of `0.4` produces `(0.4, 0)`. Equal left and right pressures cancel; holding up at the same time still produces `(0, -1)`. Negative Y maps to forward movement along -Z.
+
+Use `stick()` or `buttonValue()` for continuous movement, `isPressed()` for held actions such as sprinting, and `wasPressed()` for one-shot transitions such as starting a jump or moving one menu item per D-pad press. Vertical movement, collision handling, and jump physics remain application responsibilities; `startJump()` represents that integration point.
+
+For first-person movement with climb and descent, the First Person wrapper limits the combined 3D vector after adding vertical input from the triggers. See [First Person movement](./gamepad-first-person-controls.md#movement-and-native-input).
