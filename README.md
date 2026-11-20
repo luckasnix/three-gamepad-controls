@@ -65,7 +65,7 @@ bun add -d @types/three # optional: for TypeScript projects
 | `0.184.x` | `<=0.22.x` |
 | `0.185.x` | `0.23.x` |
 | `0.186.x` | `0.24.x`, `0.25.x` |
-| `0.187.x` | `0.26.x` |
+| `0.187.x` | `0.26.x`, `0.27.x` |
 
 ## 📖 Documentation
 
