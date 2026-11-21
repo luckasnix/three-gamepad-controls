@@ -72,7 +72,7 @@ bun add -d @types/three # optional: for TypeScript projects
 - [Core](./docs/core.md) — The fundamental building blocks.
 - [GamepadInput](./docs/gamepad-input.md) - Low-level reader for gamepad buttons, axes, sticks, and transitions.
 - [Input Modes](./docs/input-modes.md) - Choose when keyboard/mouse and gamepad drive gameplay or Three.js controls.
-- [Gamepad Stick Processing](./docs/gamepad-stick-processing.md) - Stateless processors, pipelines, and action bindings.
+- [Gamepad Stick Processing](./docs/gamepad-stick-processing.md) - Stateless pipelines, action bindings, and per-action stick smoothing.
 - [Haptic Feedback](./docs/haptic-feedback.md) - Optional gamepad vibration effects with graceful degradation.
 - [Multiple Gamepads](./docs/multiple-gamepads.md) - Assign different gamepads to controls, players, and gameplay inputs.
 - [GamepadControls](./docs/gamepad-controls.md) — Abstract base class for custom gamepad controls.

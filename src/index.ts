@@ -10,5 +10,6 @@ export * from "./gamepad-map-controls.ts";
 export * from "./gamepad-orbit-controls.ts";
 export * from "./gamepad-pointer-lock-controls.ts";
 export * from "./gamepad-stick-processing.ts";
+export * from "./gamepad-stick-smoother.ts";
 export * from "./gamepad-trackball-controls.ts";
 export * from "./gamepad-transform-controls.ts";

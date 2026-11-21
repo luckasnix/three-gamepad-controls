@@ -5,6 +5,7 @@ const nodeTests = [
   "src/gamepad-button-hysteresis.test.ts",
   "src/gamepad-haptics.test.ts",
   "src/gamepad-stick-processing.test.ts",
+  "src/gamepad-stick-smoother.test.ts",
 ];
 
 const vitestConfig = defineConfig({

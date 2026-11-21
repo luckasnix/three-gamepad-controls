@@ -279,4 +279,54 @@ const look = input.stick(lookStick.xAxis, lookStick.yAxis, lookStick.pipeline);
 
 ## Stateful processing
 
-This pipeline intentionally excludes smoothing, hysteresis, rate limiting, acceleration, and any processor whose result depends on previous frames or elapsed time. Those effects require lifecycle, reset, and timing semantics that a reusable stateless pipeline cannot provide safely. They need a separate stateful abstraction rather than a processor that silently retains state.
+Keep effects that depend on previous frames, such as smoothing and acceleration, in the action that owns their timing and reset behavior. The same stateless stick pipeline can then serve multiple actions and players.
+
+### Smoothing a stick over time
+
+`GamepadStickSmoother` reduces fluctuations in a processed stick reading. Its required `halfLifeSeconds` option sets how long the output takes to cover half the remaining distance to a steady target. From rest, holding the stick fully right with a half-life of `0.05` produces X values of `0.5` after 50 ms and `0.75` after 100 ms. A longer half-life gives a slower response. The same elapsed time gives the same response at 30, 60, or 120 frames per second while the target is constant.
+
+Create one smoother per player and action. Advance it once per frame, after reading the stick and before applying look sensitivity.
+
+```ts
+import {
+  GAMEPAD_AXIS,
+  GamepadInput,
+  GamepadStickSmoother,
+  gamepadStickPipeline,
+} from "three-gamepad-controls";
+
+const lookPipeline = gamepadStickPipeline({ mode: "radial" }).deadzone(0.12);
+const input = new GamepadInput({ gamepadIndex: 0 });
+const look = new GamepadStickSmoother({ halfLifeSeconds: 0.05 });
+const resetLook = () => look.reset();
+input.addEventListener("disconnected", resetLook);
+
+const updateLook = (deltaSeconds: number, radiansPerSecond: number) => {
+  input.update();
+  if (!input.enabled || !input.connected) {
+    return;
+  }
+
+  const target = input.stick(
+    GAMEPAD_AXIS.RightX,
+    GAMEPAD_AXIS.RightY,
+    lookPipeline,
+  );
+  const direction = look.update(target, deltaSeconds);
+  const angle = radiansPerSecond * deltaSeconds;
+  rotateCamera(-direction.x * angle, -direction.y * angle);
+  drawStickIndicator(direction);
+};
+
+const disposeLook = () => {
+  input.removeEventListener("disconnected", resetLook);
+  input.dispose();
+  look.reset();
+};
+```
+
+`rotateCamera` and `drawStickIndicator` are application callbacks that consume the same frame's result. Each positive-time call to `update(target, deltaSeconds)` advances the filter. The returned `{ x, y }` is an independent snapshot that consumers can retain or modify.
+
+When the processed target is exactly zero on both axes, the next positive-time update returns `(0, 0)` immediately. If one axis stays active, both components continue to approach their targets. An update with zero elapsed time holds the current output, even at neutral. Stick components may take any finite value, including values outside `[-1, 1]` from a custom transform. An invalid half-life (non-finite or at most zero), a non-finite component, or a negative or non-finite interval throws `RangeError` before changing the filter's state.
+
+During a pause, skip filter updates and resume with the elapsed time of the current frame. Keep the disconnection listener active so a replacement gamepad starts from rest even when it reuses the same slot. When the player leaves, stop calling `updateLook`, call `disposeLook`, and release the player's references. [Observed connection lifecycle](./multiple-gamepads.md#observed-connection-lifecycle)
