@@ -31,10 +31,25 @@ Every binding is remappable via the `options` parameter.
 | `gamepadIndex` | `number` | `undefined` | Browser-assigned reusable slot ([`MIN_GAMEPAD_INDEX`](./core.md#min_gamepad_index) to [`MAX_GAMEPAD_INDEX`](./core.md#max_gamepad_index)). When omitted, adopts the lowest connected index and keeps that slot until its loss is observed, even if a lower index connects later; an explicit slot never falls back. Invalid values throw `RangeError`; a replacement may later reuse the same slot. |
 | `moveSpeed` | `number` | `5.0` | Camera movement speed in world units per second at full stick deflection. |
 | `lookSpeed` | `number` | `1.0` | Multiplier on look rotation speed (combined with `PointerLockControls.pointerSpeed`). |
+| `lookSmoothingHalfLife` | `number` | `undefined` (direct look) | Seconds for the gamepad turn rate to cover half the distance to a steady target. Must be finite and positive. |
 | `moveStick` | `GamepadStickBindingOptions` | Left stick + default pipeline | Axes and stateless pipeline for movement. |
 | `lookStick` | `GamepadStickBindingOptions` | Right stick + default pipeline | Axes and stateless pipeline for pitch and yaw. |
 
 Each stick binding accepts optional `xAxis`, `yAxis`, and `pipeline` fields. They merge independently with the action default, so a pipeline can be replaced without repeating the default axes. See [Stick Processing](./gamepad-stick-processing.md).
+
+### Smoothing gamepad look
+
+```ts
+const gamepadControls = new GamepadPointerLockControls(pointerLockControls, {
+  lookSmoothingHalfLife: 0.05,
+});
+```
+
+Starting from rest, hold the look stick fully right. With this 50 ms half-life, the camera reaches 50% of the requested turn rate after 50 ms and 75% after 100 ms. Returning the stick to neutral stops gamepad rotation on the first update with positive elapsed time. The filter runs after the look stick's pipeline and before look sensitivity. Movement and mouse look respond directly.
+
+Each wrapper keeps its own look history. Pausing the wrapper or disabling the native controls holds that history. On resume, pass the elapsed time for the current frame. An observed disconnection, including a browser event during a pause, clears the history. A replacement gamepad or a new camera assigned to `pointerLockControls.object` starts from rest.
+
+With smoothing enabled, `update(0)` holds the current turn rate. A negative or non-finite frame time or a non-finite processed look component throws `RangeError` before the camera moves. If a stick pipeline disables the controls, changes the camera, or ends the gamepad session during a read, the wrapper skips that frame.
 
 ## Properties
 

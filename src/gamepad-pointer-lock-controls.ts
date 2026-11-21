@@ -8,10 +8,12 @@ import {
 } from "./gamepad-controls.ts";
 import {
   DEFAULT_GAMEPAD_STICK_PIPELINE,
+  type GamepadStick,
   type GamepadStickBinding,
   type GamepadStickBindingOptions,
   resolveGamepadStickBinding,
 } from "./gamepad-stick-processing.ts";
+import { GamepadStickSmoother } from "./gamepad-stick-smoother.ts";
 
 /**
  * Configuration for {@link GamepadPointerLockControls}.
@@ -30,6 +32,9 @@ export type GamepadPointerLockControlsOptions = GamepadControlsOptions & {
    * @default 1.0
    */
   lookSpeed: number;
+
+  /** Seconds to cover half the remaining change in gamepad look speed. Omit for direct look. */
+  lookSmoothingHalfLife?: number;
 
   /**
    * Stick binding used for horizontal and forward movement.
@@ -69,6 +74,11 @@ const DEFAULT_POINTER_LOCK_OPTIONS: ResolvedGamepadPointerLockControlsOptions =
     },
   };
 
+const createSmoothedLook = (
+  camera: PointerLockControls["object"],
+  halfLifeSeconds: number,
+) => ({ camera, smoother: new GamepadStickSmoother({ halfLifeSeconds }) });
+
 /**
  * Adds gamepad support to Three.js `PointerLockControls`.
  *
@@ -81,6 +91,9 @@ const DEFAULT_POINTER_LOCK_OPTIONS: ResolvedGamepadPointerLockControlsOptions =
 export class GamepadPointerLockControls extends GamepadControls {
   readonly #controls: PointerLockControls;
   readonly #options: ResolvedGamepadPointerLockControlsOptions;
+  #smoothedLook: ReturnType<typeof createSmoothedLook> | undefined;
+  // An observed loss ends a session even when a listener immediately reuses the slot.
+  #inputSession = 0;
 
   // Pre-allocated Euler (YXZ order) to avoid per-frame GC pressure.
   readonly #euler: Euler;
@@ -93,13 +106,20 @@ export class GamepadPointerLockControls extends GamepadControls {
    * @param controls - A Three.js `PointerLockControls` instance.
    * @param options - Optional overrides for the default behavior.
    *                  Any property not provided falls back to its default value.
+   * @throws {RangeError} If a supplied look smoothing half-life is non-finite or non-positive.
    */
   constructor(
     controls: PointerLockControls,
     options?: Partial<GamepadPointerLockControlsOptions>,
   ) {
+    const halfLife = options?.lookSmoothingHalfLife;
+    const smoothedLook =
+      halfLife === undefined
+        ? undefined
+        : createSmoothedLook(controls.object, halfLife);
     super(options);
     this.#controls = controls;
+    this.#smoothedLook = smoothedLook;
     this.#options = {
       ...DEFAULT_POINTER_LOCK_OPTIONS,
       ...options,
@@ -115,11 +135,28 @@ export class GamepadPointerLockControls extends GamepadControls {
     this.#euler = new Euler(0, 0, 0, "YXZ");
   }
 
+  protected override onGamepadDisconnected(gamepad: Gamepad): void {
+    this.#clearLookSession();
+    super.onGamepadDisconnected(gamepad);
+  }
+
+  public override dispose(): void {
+    this.#clearLookSession();
+    super.dispose();
+  }
+
+  #clearLookSession(): void {
+    this.#smoothedLook = undefined;
+    this.#inputSession++;
+  }
+
   /**
    * Polls and applies movement and look, ignoring updates from synchronous listeners.
    * Gamepad input remains independent of the native pointer lock state.
    *
    * @param deltaTime - Seconds since the last frame.
+   * @throws {RangeError} With smoothing enabled, if the frame time is negative or
+   * non-finite, or the processed look stick has a non-finite component.
    */
   public override update(deltaTime: number): void {
     if (this.#updating) {
@@ -146,36 +183,65 @@ export class GamepadPointerLockControls extends GamepadControls {
     if (!this.#controls.enabled) {
       return;
     }
-    const { moveSpeed, lookSpeed, moveStick, lookStick } = this.#options;
-    const input = this.gamepadInput;
+    const { moveStick, lookStick, lookSmoothingHalfLife } = this.#options;
+    if (lookSmoothingHalfLife === undefined) {
+      this.#applyMovement(this.#readStick(moveStick), deltaTime);
+      this.#applyLook(this.#readStick(lookStick), deltaTime);
+      return;
+    }
 
-    // Movement (left stick by default).
-    // Negate the forward axis: stick-up = negative Y value = move forward.
-    const move = input.stick(
-      moveStick.xAxis,
-      moveStick.yAxis,
-      moveStick.pipeline,
+    const camera = this.#controls.object;
+    const session = this.#inputSession;
+    const move = this.#readStick(moveStick);
+    if (!this.#canApplyFrame(camera, session)) {
+      return;
+    }
+    const target = this.#readStick(lookStick);
+    if (!this.#canApplyFrame(camera, session)) {
+      return;
+    }
+
+    const smoothedLook =
+      this.#smoothedLook?.camera === camera
+        ? this.#smoothedLook
+        : createSmoothedLook(camera, lookSmoothingHalfLife);
+    const look = smoothedLook.smoother.update(target, deltaTime);
+    this.#smoothedLook = smoothedLook;
+    this.#applyMovement(move, deltaTime);
+    this.#applyLook(look, deltaTime);
+  }
+
+  #readStick({ xAxis, yAxis, pipeline }: GamepadStickBinding): GamepadStick {
+    return this.gamepadInput.stick(xAxis, yAxis, pipeline);
+  }
+
+  // Custom stick transforms can synchronously change the input session or its owner.
+  #canApplyFrame(
+    camera: PointerLockControls["object"],
+    session: number,
+  ): boolean {
+    return (
+      this.enabled &&
+      this.#controls.enabled &&
+      this.#controls.object === camera &&
+      this.#inputSession === session
     );
+  }
 
+  #applyMovement(move: GamepadStick, deltaTime: number): void {
+    const { moveSpeed } = this.#options;
+    // Stick-up is negative Y and moves the camera forward.
     if (move.y !== 0) {
       this.#controls.moveForward(-move.y * moveSpeed * deltaTime);
     }
     if (move.x !== 0) {
       this.#controls.moveRight(move.x * moveSpeed * deltaTime);
     }
+  }
 
-    // Look (right stick by default).
-    // PointerLockControls has no public rotate API, so we replicate its
-    // internal logic: extract the camera quaternion into a YXZ Euler, apply
-    // yaw (Y) and pitch (X) deltas, clamp pitch to polar angle constraints,
-    // then write the quaternion back. The #euler instance is reused to avoid
-    // allocations every frame.
-    const look = input.stick(
-      lookStick.xAxis,
-      lookStick.yAxis,
-      lookStick.pipeline,
-    );
-
+  #applyLook(look: GamepadStick, deltaTime: number): void {
+    const { lookSpeed } = this.#options;
+    // PointerLockControls has no public rotate API. Apply yaw and pitch in YXZ order.
     const scale = lookSpeed * this.#controls.pointerSpeed * deltaTime * Math.PI;
     if ((look.x !== 0 || look.y !== 0) && scale !== 0) {
       const camera = this.#controls.object;

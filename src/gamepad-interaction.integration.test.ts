@@ -18,6 +18,7 @@ import {
 } from "three/addons/controls/PointerLockControls.js";
 import { TrackballControls } from "three/addons/controls/TrackballControls.js";
 import { expect, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import {
   createGamepad,
@@ -1642,6 +1643,74 @@ interactionTest(
       scenario.camera.quaternion.toArray(),
     );
     expect((scenario.native as PointerLockControls).isLocked).toBe(false);
+  },
+);
+
+interactionTest(
+  "PointerLock adds smoothed gamepad look to locked mouse look and only publishes orientation changes",
+  async ({ cleanup, gamepadPolling }) => {
+    const scenario = createScenario("pointerLock", cleanup, 3, "perspective", {
+      lookSmoothingHalfLife: 0.05,
+    });
+    const native = scenario.native as PointerLockControls;
+    await userEvent.click(scenario.element);
+    await scenario.element.requestPointerLock();
+    cleanup.add("listener", () => document.exitPointerLock());
+    await vi.waitFor(() => expect(native.isLocked).toBe(true));
+    // Acquiring pointer lock can rotate the camera before the test's mouse event.
+    scenario.camera.quaternion.identity();
+    document.dispatchEvent(new MouseEvent("mousemove", { movementX: 10 }));
+    const mouseYaw = scenario.camera.rotation.y;
+    expect(mouseYaw).toBeLessThan(0);
+    scenario.events.length = 0;
+
+    native.minPolarAngle = native.maxPolarAngle = Math.PI / 2;
+    gamepadPolling.publishFrame([3, { axes: [1, 0, 0, 0] }]);
+    scenario.update(0.05);
+    expect(scenario.camera.position.x).toBeGreaterThan(0);
+    gamepadPolling.publishFrame([3, { axes: [0, 0, 0, 1] }]);
+    scenario.update(0.05);
+    expect(scenario.types()).toEqual([]);
+
+    native.addEventListener("change", () => scenario.wrapper.update(0.05));
+    gamepadPolling.getGamepads.mockClear();
+    gamepadPolling.publishFrame([3, { axes: [0, 0, 1, 0] }]);
+    scenario.update(0.05);
+    expect(scenario.camera.rotation.y).toBeCloseTo(
+      mouseYaw - 0.025 * Math.PI,
+      10,
+    );
+    expect(gamepadPolling.getGamepads).toHaveBeenCalledOnce();
+    expect(scenario.types()).toEqual(["change"]);
+    expect(scenario.events[0].data.quaternion).toEqual(
+      scenario.camera.quaternion.toArray(),
+    );
+  },
+);
+
+interactionTest(
+  "PointerLock players sharing a look pipeline keep independent turn rates",
+  ({ cleanup, gamepadPolling }) => {
+    const options = {
+      lookSmoothingHalfLife: 0.05,
+      lookStick: { pipeline: gamepadStickPipeline().invert("x") },
+    };
+    const a = createScenario("pointerLock", cleanup, 0, "perspective", options);
+    const b = createScenario("pointerLock", cleanup, 3, "perspective", options);
+    const halfStep = Math.PI * 0.025;
+    gamepadPolling.publishFrame(
+      [0, { axes: [0, 0, 1, 0] }],
+      [3, { axes: [0, 0, -1, 0] }],
+    );
+    a.update(0.05);
+    b.update(0.05);
+    expect(a.camera.rotation.y).toBeCloseTo(halfStep, 10);
+    expect(b.camera.rotation.y).toBeCloseTo(-halfStep, 10);
+    gamepadPolling.publishFrame([3, { axes: [0, 0, -1, 0] }]);
+    a.update(0.05);
+    b.update(0.05);
+    expect(a.camera.rotation.y).toBeCloseTo(halfStep, 10);
+    expect(b.camera.rotation.y).toBeCloseTo(-halfStep * 2.5, 10);
   },
 );
 
